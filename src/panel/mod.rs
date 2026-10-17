@@ -1159,9 +1159,18 @@ fn merge_keyboard(draft: &str, full: &str, key: &str) -> String {
     if key.is_empty() && full_n > 1 && draft.starts_with(full) && draft_n > full_n && draft_n - full_n <= 2 {
         return truncate_name(full);
     }
+    // Minimal mode replaces the buffer with the newest letter. A read of only the
+    // first letter is a truncated line, so it must not be appended again.
+    if key.is_empty() && full_n == 1 && !draft.is_empty() && !draft.starts_with(full) && !draft.ends_with(full) {
+        return truncate_name(&format!("{draft}{full}"));
+    }
     if !key.is_empty() {
-        if !full.is_empty() && full.starts_with(draft) && full.ends_with(key) && full_n >= draft_n {
-            return truncate_name(full);
+        if !full.is_empty() && full.starts_with(draft) && full_n >= draft_n {
+            let key_n = key.chars().count();
+            // Already in the line, or the 8-byte event field repeating the start of it.
+            if full.ends_with(key) || (key_n < full_n && full.starts_with(key)) {
+                return truncate_name(full);
+            }
         }
         if key.starts_with(draft) && key.chars().count() >= draft_n {
             return truncate_name(key);
@@ -1186,6 +1195,18 @@ pub fn self_test() -> Result<(), String> {
     }
     if merge_keyboard("Music", "", "\u{8}") != "Musi" {
         return Err("keyboard backspace".into());
+    }
+    if merge_keyboard("M", "Music", "") != "Music" {
+        return Err("keyboard line grows".into());
+    }
+    if merge_keyboard("A", "B", "") != "AB" {
+        return Err("keyboard newest letter".into());
+    }
+    if merge_keyboard("Music", "M", "") != "Music" {
+        return Err("keyboard truncated line".into());
+    }
+    if merge_keyboard("Music", "Music", "M") != "Music" {
+        return Err("keyboard event repeats the start".into());
     }
     let mut config = crate::config::Config::default();
     config.list = true;

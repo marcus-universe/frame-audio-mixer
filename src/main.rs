@@ -221,6 +221,7 @@ fn self_test() -> Result<(), String> {
     i18n::self_test()?;
     draw::self_test_paths()?;
     panel::self_test()?;
+    overlay::self_test()?;
     icons::self_test()?;
     meter::self_test()?;
     worker::self_test()?;

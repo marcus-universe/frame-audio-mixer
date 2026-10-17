@@ -48,6 +48,9 @@ pub const QUIT: u32 = 700;
 pub const KEYBOARD_CLOSED: u32 = 1200;
 pub const KEYBOARD_CHAR: u32 = 1201;
 pub const KEYBOARD_DONE: u32 = 1202;
+/// `KeyboardFlag_Minimal` (1) sends each key by itself and does not keep the line.
+/// The name field then stays on the first letter. No flag: the keyboard buffer grows.
+const KEYBOARD_FLAGS: u32 = 0;
 
 pub struct Session {
     _lib: libloading::Library,
@@ -285,8 +288,8 @@ impl Session {
                 out.push(Pointer { kind, x: 0.0, y: 0.0, button: 0, text: String::new() });
             } else if kind == KEYBOARD_CLOSED || kind == KEYBOARD_CHAR || kind == KEYBOARD_DONE {
                 // The dashboard keyboard reports through the system queue, not the overlay queue.
-                // cNewInput is the new key only, not the whole line.
-                let text = c_to_string(&buf[12..20]);
+                // cNewInput is the new key only, not the whole line. On Linux it may be wchar_t.
+                let text = decode_keyboard_bytes(&buf[12..20]);
                 out.push(Pointer { kind, x: 0.0, y: 0.0, button: 0, text });
             }
         }
@@ -298,13 +301,14 @@ impl Session {
             unsafe { vslot(self.overlay, SHOW_KEYBOARD) };
         let desc = CString::new(description).unwrap_or_else(|_| c_str("Name"));
         let have = CString::new(existing).unwrap_or_else(|_| c_str(""));
-        let rc = unsafe { show(self.overlay, self.handle, 0, 0, 1, desc.as_ptr(), 32, have.as_ptr(), 0) };
+        let rc = unsafe { show(self.overlay, self.handle, 0, 0, KEYBOARD_FLAGS, desc.as_ptr(), 32, have.as_ptr(), 0) };
         rc == 0
     }
 
     pub fn keyboard_text(&self) -> String {
         let get: unsafe extern "C" fn(*mut c_void, *mut u8, u32) -> u32 = unsafe { vslot(self.overlay, GET_KEYBOARD_TEXT) };
-        let mut buf = [0u8; 128];
+        // 32 letters as Linux wchar_t (UTF-32) plus a trailing NUL.
+        let mut buf = [0u8; 160];
         unsafe { get(self.overlay, buf.as_mut_ptr(), buf.len() as u32) };
         decode_keyboard_bytes(&buf)
     }
@@ -367,24 +371,88 @@ fn c_to_string(buf: &[u8]) -> String {
     String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
-/// `GetKeyboardText` is UTF-8. A buffer that is ASCII stored as UTF-16 LE would
-/// otherwise stop at the first character, because each letter is followed by a zero byte.
+/// `GetKeyboardText` is documented as UTF-8. On Linux the line is often `wchar_t`
+/// (UTF-32), so a C-string read stops at the zero after the first letter.
+/// Some builds use UTF-16 the same way.
 fn decode_keyboard_bytes(buf: &[u8]) -> String {
-    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    if end == 1 && buf.len() > 3 && buf[1] == 0 && buf[2] != 0 {
-        let mut units = Vec::new();
-        let mut i = 0;
-        while i + 1 < buf.len() {
-            let unit = u16::from_le_bytes([buf[i], buf[i + 1]]);
-            if unit == 0 {
-                break;
-            }
-            units.push(unit);
-            i += 2;
-        }
-        return String::from_utf16_lossy(&units);
+    if let Some(text) = decode_utf32(buf) {
+        return text;
     }
+    if let Some(text) = decode_utf16(buf) {
+        return text;
+    }
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
     String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+/// Two or more code units. One unit is indistinguishable from a UTF-8 letter plus NUL.
+fn decode_utf32(buf: &[u8]) -> Option<String> {
+    if buf.len() < 8 || buf[0] == 0 || buf[2] != 0 || buf[3] != 0 || buf[4] == 0 {
+        return None;
+    }
+    let mut text = String::new();
+    let mut i = 0;
+    while i + 4 <= buf.len() {
+        let raw = [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]];
+        let unit = u32::from_le_bytes(raw);
+        if unit == 0 {
+            break;
+        }
+        if raw[3] != 0 {
+            return None;
+        }
+        text.push(char::from_u32(unit)?);
+        i += 4;
+    }
+    if text.chars().count() < 2 {
+        return None;
+    }
+    Some(text)
+}
+
+fn decode_utf16(buf: &[u8]) -> Option<String> {
+    if buf.len() < 4 || buf[0] == 0 || buf[1] != 0 || buf[2] == 0 {
+        return None;
+    }
+    let mut units = Vec::new();
+    let mut i = 0;
+    while i + 1 < buf.len() {
+        let unit = u16::from_le_bytes([buf[i], buf[i + 1]]);
+        if unit == 0 {
+            break;
+        }
+        units.push(unit);
+        i += 2;
+    }
+    if units.len() < 2 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&units))
+}
+
+pub fn self_test() -> Result<(), String> {
+    let utf8 = b"Music\0";
+    if decode_keyboard_bytes(utf8) != "Music" {
+        return Err("keyboard utf-8".into());
+    }
+    let mut utf16 = [0u8; 16];
+    for (i, byte) in b"Music".iter().enumerate() {
+        utf16[i * 2] = *byte;
+    }
+    if decode_keyboard_bytes(&utf16) != "Music" {
+        return Err("keyboard utf-16".into());
+    }
+    let mut utf32 = [0u8; 32];
+    for (i, byte) in b"Music".iter().enumerate() {
+        utf32[i * 4] = *byte;
+    }
+    if decode_keyboard_bytes(&utf32) != "Music" {
+        return Err("keyboard utf-32".into());
+    }
+    if decode_keyboard_bytes(&[b'M', 0, 0, 0, 0, 0, 0, 0]) != "M" {
+        return Err("keyboard one utf-32 letter".into());
+    }
+    Ok(())
 }
 
 /// Confirms the overlay key still belongs to this process.
