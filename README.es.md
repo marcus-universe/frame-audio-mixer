@@ -56,7 +56,9 @@ Si usas los altavoces del Frame, activa la cancelación de eco en Frame Mic Tune
 
 ## Créditos
 
-El panel y el overlay de OpenVR están adaptados de [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) de sasaken1102r (MIT). La lista de apps es un port a Rust de frame-apps 0.3.1 del mismo proyecto, y el actualizador sigue su comportamiento. Consulta [`NOTICE`](NOTICE).
+Frame Audio Mixer se inspira en [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) de [sasaken1102r](https://github.com/sasaken1102r). Más apps de Steam Frame de sasaken@ están en [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
+
+El panel, el overlay de OpenVR y la lista de apps están adaptados de ese proyecto (MIT). Consulta [`NOTICE`](NOTICE).
 
 - [Iconos y sus licencias](docs/icons.es.md)
 

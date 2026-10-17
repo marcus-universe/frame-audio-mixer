@@ -56,7 +56,9 @@ Bei den Lautsprechern der Frame die Echounterdrückung in Frame Mic Tuner einsch
 
 ## Danksagung
 
-Das Panel und das OpenVR-Overlay sind aus [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) von sasaken1102r (MIT) übernommen und angepasst. Die App-Liste ist eine Rust-Portierung von frame-apps 0.3.1 aus demselben Projekt, und der Updater folgt dessen Verhalten. Siehe [`NOTICE`](NOTICE).
+Frame Audio Mixer ist inspiriert von [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) von [sasaken1102r](https://github.com/sasaken1102r). Weitere Steam-Frame-Apps von sasaken@ gibt es auf [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
+
+Das Panel, das OpenVR-Overlay und die App-Liste sind aus diesem Projekt (MIT) übernommen und angepasst. Siehe [`NOTICE`](NOTICE).
 
 - [Icons und ihre Lizenzen](docs/icons.de.md)
 

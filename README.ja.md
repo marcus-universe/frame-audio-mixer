@@ -56,7 +56,9 @@ Frame のスピーカーを使う場合は、Frame Mic Tuner でエコー除去�
 
 ## クレジット
 
-パネルと OpenVR オーバーレイは、sasaken1102r による [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner)（MIT）を元にしています。アプリ一覧は同じプロジェクトの frame-apps 0.3.1 を Rust に移植したもので、アップデータもその動きに合わせています。[`NOTICE`](NOTICE) を見てください。
+Frame Audio Mixer は、[sasaken1102r](https://github.com/sasaken1102r) の [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) に着想を得ています。ささけん＠の Steam Frame アプリは [frame.sasaken1102s.net](https://frame.sasaken1102s.net/) にまとまっています。
+
+パネル、OpenVR オーバーレイ、アプリ一覧は、そのプロジェクト（MIT）を元にしています。[`NOTICE`](NOTICE) を見てください。
 
 - [アイコンとそのライセンス](docs/icons.ja.md)
 

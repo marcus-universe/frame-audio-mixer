@@ -56,7 +56,9 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 
 ## 致谢
 
-面板和 OpenVR overlay 改编自 sasaken1102r 的 [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner)（MIT）。应用列表是同一项目中 frame-apps 0.3.1 的 Rust 移植，更新器也遵循它的行为。见 [`NOTICE`](NOTICE)。
+Frame Audio Mixer 的灵感来自 [sasaken1102r](https://github.com/sasaken1102r) 的 [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner)。更多ささけん＠的 Steam Frame 应用见 [frame.sasaken1102s.net](https://frame.sasaken1102s.net/)。
+
+面板、OpenVR overlay 和应用列表改编自该项目（MIT）。见 [`NOTICE`](NOTICE)。
 
 - [图标及其许可](docs/icons.sc.md)
 

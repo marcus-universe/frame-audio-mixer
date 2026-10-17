@@ -56,7 +56,9 @@ If you use the Frame's speakers, turn echo cancellation on in Frame Mic Tuner. O
 
 ## Credits
 
-The panel and the OpenVR overlay are adapted from [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) by sasaken1102r (MIT). The Apps list is a Rust port of frame-apps 0.3.1 from the same project, and the updater follows its behavior. See [`NOTICE`](NOTICE).
+Frame Audio Mixer is inspired by [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) by [sasaken1102r](https://github.com/sasaken1102r). More Steam Frame apps by sasaken@ are at [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
+
+The panel, the OpenVR overlay and the Apps list are adapted from that project (MIT). See [`NOTICE`](NOTICE).
 
 - [Icons and their licenses](docs/icons.md)
 

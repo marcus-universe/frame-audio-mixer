@@ -56,7 +56,9 @@ Si vous utilisez les haut-parleurs du Frame, activez l'annulation d'écho dans F
 
 ## Crédits
 
-Le panneau et l'overlay OpenVR sont adaptés de [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) par sasaken1102r (MIT). La liste des applis est un portage Rust de frame-apps 0.3.1 du même projet, et le programme de mise à jour reprend son comportement. Voir [`NOTICE`](NOTICE).
+Frame Audio Mixer s'inspire de [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) de [sasaken1102r](https://github.com/sasaken1102r). D'autres applis Steam Frame de sasaken@ sont sur [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
+
+Le panneau, l'overlay OpenVR et la liste des applis sont adaptés de ce projet (MIT). Voir [`NOTICE`](NOTICE).
 
 - [Icônes et leurs licences](docs/icons.fr.md)
 
