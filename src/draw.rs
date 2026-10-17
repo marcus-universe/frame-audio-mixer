@@ -2,10 +2,20 @@
 
 use cairo::{Context, FillRule, FontFace, Format, ImageSurface};
 use freetype::Library as FtLibrary;
+use std::cell::Cell;
 use std::f64::consts::PI;
 
 pub const WIDTH: i32 = 1200;
 pub const HEIGHT: i32 = 788;
+
+/// Dashboard pixels. Wide is 21:9, and 9:21 while the channel list is on.
+pub fn panel_pixels(wide: bool, list: bool) -> (i32, i32) {
+    if !wide {
+        return (WIDTH, HEIGHT);
+    }
+    let long = (HEIGHT as f64 * 21.0 / 9.0).round() as i32;
+    if list { (HEIGHT, long) } else { (long, HEIGHT) }
+}
 
 #[derive(Clone, Copy)]
 pub struct Rgb {
@@ -21,10 +31,40 @@ pub const TEXT: Rgb = Rgb { r: 0xf2 as f64 / 255.0, g: 0xf3 as f64 / 255.0, b: 0
 pub const MUTED: Rgb = Rgb { r: 0xa3 as f64 / 255.0, g: 0xa9 as f64 / 255.0, b: 0xb4 as f64 / 255.0 };
 pub const SOFT: Rgb = Rgb { r: 0xdf as f64 / 255.0, g: 0xe2 as f64 / 255.0, b: 0xe7 as f64 / 255.0 };
 pub const BORDER: Rgb = Rgb { r: 0x6e as f64 / 255.0, g: 0x76 as f64 / 255.0, b: 0x81 as f64 / 255.0 };
-pub const ACCENT: Rgb = Rgb { r: 0xe0 as f64 / 255.0, g: 0x7e as f64 / 255.0, b: 0xf5 as f64 / 255.0 };
-pub const ACCENT_HOVER: Rgb = Rgb { r: 0xe9 as f64 / 255.0, g: 0x9a as f64 / 255.0, b: 0xf8 as f64 / 255.0 };
-pub const ACCENT_DOWN: Rgb = Rgb { r: 0xc8 as f64 / 255.0, g: 0x65 as f64 / 255.0, b: 0xde as f64 / 255.0 };
-pub const ON_ACCENT: Rgb = Rgb { r: 0x1c as f64 / 255.0, g: 0x0f as f64 / 255.0, b: 0x22 as f64 / 255.0 };
+const PINK: Rgb = Rgb { r: 0xe0 as f64 / 255.0, g: 0x7e as f64 / 255.0, b: 0xf5 as f64 / 255.0 };
+const PINK_HOVER: Rgb = Rgb { r: 0xe9 as f64 / 255.0, g: 0x9a as f64 / 255.0, b: 0xf8 as f64 / 255.0 };
+const PINK_DOWN: Rgb = Rgb { r: 0xc8 as f64 / 255.0, g: 0x65 as f64 / 255.0, b: 0xde as f64 / 255.0 };
+const PINK_INK: Rgb = Rgb { r: 0x1c as f64 / 255.0, g: 0x0f as f64 / 255.0, b: 0x22 as f64 / 255.0 };
+/// #33C4FF, the blue in the logo.
+const BLUE: Rgb = Rgb { r: 0x33 as f64 / 255.0, g: 0xc4 as f64 / 255.0, b: 0xff as f64 / 255.0 };
+const BLUE_HOVER: Rgb = Rgb { r: 0x66 as f64 / 255.0, g: 0xd4 as f64 / 255.0, b: 0xff as f64 / 255.0 };
+const BLUE_DOWN: Rgb = Rgb { r: 0x1a as f64 / 255.0, g: 0xa8 as f64 / 255.0, b: 0xe0 as f64 / 255.0 };
+const BLUE_INK: Rgb = Rgb { r: 0x0e as f64 / 255.0, g: 0x10 as f64 / 255.0, b: 0x15 as f64 / 255.0 };
+
+thread_local! {
+    static THEME_PINK: Cell<bool> = const { Cell::new(false) };
+}
+
+/// `pink` selects the previous accent. Anything else is the blue logo color.
+pub fn set_accent(name: &str) {
+    THEME_PINK.with(|cell| cell.set(name == "pink"));
+}
+
+pub fn accent() -> Rgb {
+    if THEME_PINK.with(|cell| cell.get()) { PINK } else { BLUE }
+}
+
+pub fn accent_hover() -> Rgb {
+    if THEME_PINK.with(|cell| cell.get()) { PINK_HOVER } else { BLUE_HOVER }
+}
+
+pub fn accent_down() -> Rgb {
+    if THEME_PINK.with(|cell| cell.get()) { PINK_DOWN } else { BLUE_DOWN }
+}
+
+pub fn on_accent() -> Rgb {
+    if THEME_PINK.with(|cell| cell.get()) { PINK_INK } else { BLUE_INK }
+}
 pub const DANGER: Rgb = Rgb { r: 0xe5 as f64 / 255.0, g: 0x53 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
 pub const DANGER_FILL: Rgb = Rgb { r: 0x2a as f64 / 255.0, g: 0x15 as f64 / 255.0, b: 0x18 as f64 / 255.0 };
 pub const DANGER_HOVER: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1c as f64 / 255.0, b: 0x1f as f64 / 255.0 };
@@ -37,8 +77,6 @@ pub const LABEL_SOFT: Rgb = Rgb { r: 0xc9 as f64 / 255.0, g: 0xcd as f64 / 255.0
 pub const DIVIDER: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x3f as f64 / 255.0, b: 0x4a as f64 / 255.0 };
 pub const CHIP_OK_FILL: Rgb = Rgb { r: 0x17 as f64 / 255.0, g: 0x34 as f64 / 255.0, b: 0x24 as f64 / 255.0 };
 pub const CHIP_OK_TEXT: Rgb = Rgb { r: 0x4a as f64 / 255.0, g: 0xde as f64 / 255.0, b: 0x80 as f64 / 255.0 };
-pub const METER_GREEN: Rgb = Rgb { r: 0x3d as f64 / 255.0, g: 0xbe as f64 / 255.0, b: 0x6a as f64 / 255.0 };
-pub const METER_YELLOW: Rgb = Rgb { r: 0xe6 as f64 / 255.0, g: 0xc1 as f64 / 255.0, b: 0x5a as f64 / 255.0 };
 
 /// How a button is painted. Matches Frame Mic Tuner's frame-ui button kinds.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,8 +140,8 @@ fn find_font(paths: &[&str]) -> Result<String, String> {
         .ok_or_else(|| format!("no font in {paths:?}"))
 }
 
-pub fn surface() -> Result<ImageSurface, String> {
-    ImageSurface::create(Format::ARgb32, WIDTH, HEIGHT).map_err(|e| e.to_string())
+pub fn surface_wh(width: i32, height: i32) -> Result<ImageSurface, String> {
+    ImageSurface::create(Format::ARgb32, width, height).map_err(|e| e.to_string())
 }
 
 pub fn rounded(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
@@ -171,6 +209,52 @@ pub fn label_fit(
     label(cr, fonts, bold, size, c, x, baseline, &format!("{kept}…"));
 }
 
+/// Break `text` into lines no wider than `max_w`. Text without spaces (Japanese,
+/// Chinese) breaks between characters. Past `max_lines` the last line ends in an ellipsis.
+pub fn wrap(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, max_lines: usize, text: &str) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut pieces: Vec<String> = Vec::new();
+    let mut word = String::new();
+    for c in text.chars() {
+        if is_cjk(c) {
+            if !word.is_empty() {
+                pieces.push(std::mem::take(&mut word));
+            }
+            pieces.push(c.to_string());
+        } else {
+            word.push(c);
+            if c == ' ' {
+                pieces.push(std::mem::take(&mut word));
+            }
+        }
+    }
+    if !word.is_empty() {
+        pieces.push(word);
+    }
+    for piece in pieces {
+        let candidate = format!("{line}{piece}");
+        if line.is_empty() || text_width(cr, fonts, bold, size, candidate.trim_end()) <= max_w {
+            line = candidate;
+        } else {
+            lines.push(line.trim_end().to_string());
+            line = piece.trim_start().to_string();
+        }
+    }
+    if !line.trim().is_empty() {
+        lines.push(line.trim_end().to_string());
+    }
+    if lines.len() > max_lines.max(1) {
+        let rest = lines.split_off(max_lines.max(1) - 1).join(" ");
+        lines.push(rest);
+    }
+    lines
+}
+
+fn is_cjk(c: char) -> bool {
+    matches!(c as u32, 0x3000..=0x30FF | 0x3400..=0x9FFF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF)
+}
+
 pub fn stroke(cr: &Context, c: Rgb, width: f64) {
     cr.set_source_rgb(c.r, c.g, c.b);
     cr.set_line_width(width);
@@ -182,11 +266,11 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
     let (fill_c, border, text_c) = match kind {
         ButtonKind::Accent => {
             let fill_c = match look {
-                Look::Down => ACCENT_DOWN,
-                Look::Hover => ACCENT_HOVER,
-                Look::Rest => ACCENT,
+                Look::Down => accent_down(),
+                Look::Hover => accent_hover(),
+                Look::Rest => accent(),
             };
-            (fill_c, fill_c, ON_ACCENT)
+            (fill_c, fill_c, on_accent())
         }
         ButtonKind::Danger => {
             let fill_c = match look {
@@ -196,7 +280,7 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
             };
             (fill_c, DANGER, TEXT)
         }
-        ButtonKind::DangerArmed => (DANGER, DANGER, ON_ACCENT),
+        ButtonKind::DangerArmed => (DANGER, DANGER, on_accent()),
         ButtonKind::Plain => {
             let fill_c = match look {
                 Look::Down => CONTROL_DOWN,
@@ -220,10 +304,26 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
 pub fn button_colors(kind: ButtonKind) -> (Rgb, Rgb, Rgb) {
     match kind {
         ButtonKind::Plain => (CONTROL, BORDER, TEXT),
-        ButtonKind::Accent => (ACCENT, ACCENT, ON_ACCENT),
+        ButtonKind::Accent => (accent(), accent(), on_accent()),
         ButtonKind::Danger => (DANGER_FILL, DANGER, TEXT),
-        ButtonKind::DangerArmed => (DANGER, DANGER, ON_ACCENT),
+        ButtonKind::DangerArmed => (DANGER, DANGER, on_accent()),
     }
+}
+
+pub fn paint_png_bytes(cr: &Context, bytes: &[u8], x: f64, y: f64, w: f64, h: f64) {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let Ok(image) = ImageSurface::create_from_png(&mut cursor) else { return };
+    let iw = image.width() as f64;
+    let ih = image.height() as f64;
+    if iw <= 0.0 || ih <= 0.0 {
+        return;
+    }
+    let _ = cr.save();
+    cr.translate(x, y);
+    cr.scale(w / iw, h / ih);
+    let _ = cr.set_source_surface(&image, 0.0, 0.0);
+    let _ = cr.paint();
+    let _ = cr.restore();
 }
 
 pub fn icon(cr: &Context, path: &str, view: f64, x: f64, y: f64, size: f64, c: Rgb) {
@@ -298,18 +398,51 @@ pub fn chevron(cr: &Context, x: f64, y: f64, size: f64, c: Rgb, right: bool, up:
     let _ = cr.restore();
 }
 
-/// Color of a meter reading. `fraction` is 0 at the bottom and 1 at the top.
+/// Color of a meter reading. `fraction` is 0 at the quiet end (blue) and 1 at the loud end (pink).
 pub fn level_color(fraction: f64) -> Rgb {
-    let blend = |a: Rgb, b: Rgb, t: f64| Rgb {
-        r: a.r + (b.r - a.r) * t,
-        g: a.g + (b.g - a.g) * t,
-        b: a.b + (b.b - a.b) * t,
-    };
     let f = fraction.clamp(0.0, 1.0);
-    if f < 0.62 {
-        blend(METER_GREEN, METER_YELLOW, f / 0.62)
+    Rgb {
+        r: BLUE.r + (PINK.r - BLUE.r) * f,
+        g: BLUE.g + (PINK.g - BLUE.g) * f,
+        b: BLUE.b + (PINK.b - BLUE.b) * f,
+    }
+}
+
+/// Brand gradient, blue at the start of the span and pink at the end.
+/// `vertical` grows up from the bottom. Otherwise the fill grows to the right.
+pub fn fill_meter(cr: &Context, x: f64, y: f64, full_w: f64, h: f64, radius: f64, fraction: f64, vertical: bool) {
+    let fraction = fraction.clamp(0.0, 1.0);
+    if fraction <= 0.004 || full_w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let _ = cr.save();
+    rounded(cr, x, y, full_w, h, radius);
+    let _ = cr.clip();
+    let grad = if vertical {
+        cairo::LinearGradient::new(0.0, y + h, 0.0, y)
     } else {
-        blend(METER_YELLOW, DANGER, (f - 0.62) / 0.38)
+        cairo::LinearGradient::new(x, 0.0, x + full_w, 0.0)
+    };
+    grad.add_color_stop_rgb(0.0, BLUE.r, BLUE.g, BLUE.b);
+    grad.add_color_stop_rgb(1.0, PINK.r, PINK.g, PINK.b);
+    let _ = cr.set_source(&grad);
+    if vertical {
+        let lit = y + h - h * fraction;
+        cr.rectangle(x, lit, full_w, y + h - lit);
+    } else {
+        cr.rectangle(x, y, full_w * fraction, h);
+    }
+    let _ = cr.fill();
+    let _ = cr.restore();
+}
+
+/// Path, view box, and a size boost so a muted glyph fills the same square as the live one.
+pub fn fader_icon(glyph: FaderGlyph, muted: bool) -> (&'static str, f64, f64) {
+    match (glyph, muted) {
+        (FaderGlyph::Mic, true) => (MIC_OFF_PATH, 512.0, 1.32),
+        (FaderGlyph::Mic, false) => (MIC_PATH, 24.0, 1.0),
+        (FaderGlyph::Speaker, true) => (SPEAKER_OFF_PATH, 56.0, 1.48),
+        (FaderGlyph::Speaker, false) => (SPEAKER_PATH, 56.0, 1.0),
     }
 }
 
@@ -343,6 +476,7 @@ pub fn paint_fader(
     meters: bool,
     muted: bool,
     glyph: FaderGlyph,
+    snaps: bool,
 ) -> FaderGeom {
     let cap_w = 32.0;
     let x = cx - cap_w / 2.0;
@@ -356,11 +490,25 @@ pub fn paint_fader(
     let fill_top = top + cap_h - cap_h * fraction;
     if top + cap_h - fill_top > 0.5 {
         rounded(cr, x, fill_top, cap_w, top + cap_h - fill_top, 0.0);
-        fill(cr, ACCENT, 1.0);
+        fill(cr, accent(), 1.0);
     }
     let _ = cr.restore();
     rounded(cr, x, top, cap_w, cap_h, radius);
     stroke(cr, BORDER, 1.5);
+    // Snap points below 100% are dots, so they never read as the 100% line.
+    if snaps {
+        for point in crate::config::FADER_SNAPS {
+            let mark = point * 100.0;
+            if (mark - 100.0).abs() < 0.5 {
+                continue;
+            }
+            let dot_y = top + cap_h - cap_h * (mark / 150.0);
+            let filled = mark <= percent + 0.01;
+            let (c, a) = if filled { (on_accent(), 0.6) } else { (TEXT, 0.45) };
+            let _ = cr.arc(cx, dot_y, 2.5, 0.0, 2.0 * PI);
+            fill(cr, c, a);
+        }
+    }
     let notch_y = top + cap_h - cap_h * (100.0 / 150.0);
     cr.set_source_rgb(TEXT.r, TEXT.g, TEXT.b);
     cr.set_line_width(2.0);
@@ -369,54 +517,35 @@ pub fn paint_fader(
     cr.line_to(x + cap_w - 5.0, notch_y);
     let _ = cr.stroke();
 
+    let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
+    let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
+    let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
     let meter_right = if meters {
         let mx = x + cap_w + 4.0;
         let mw = 6.0;
         rounded(cr, mx, top, mw, cap_h, 3.0);
         fill(cr, BG, 1.0);
-        let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
-        let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
-        let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
-        if level > 0.004 {
-            let _ = cr.save();
-            rounded(cr, mx, top, mw, cap_h, 3.0);
-            let _ = cr.clip();
-            let lit = top + cap_h - cap_h * level;
-            let grad = cairo::LinearGradient::new(0.0, top + cap_h, 0.0, top);
-            grad.add_color_stop_rgb(0.0, METER_GREEN.r, METER_GREEN.g, METER_GREEN.b);
-            grad.add_color_stop_rgb(0.62, METER_YELLOW.r, METER_YELLOW.g, METER_YELLOW.b);
-            grad.add_color_stop_rgb(1.0, DANGER.r, DANGER.g, DANGER.b);
-            let _ = cr.set_source(&grad);
-            cr.rectangle(mx, lit, mw, top + cap_h - lit);
-            let _ = cr.fill();
-            let _ = cr.restore();
-        }
+        fill_meter(cr, mx, top, mw, cap_h, 3.0, level, true);
         mx + mw
     } else {
         x + cap_w
     };
 
     let pct = format!("{:.0}%", percent);
-    let pct_color = if (percent - 100.0).abs() < 0.5 { ACCENT } else { TEXT };
+    let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
     let tw = text_width(cr, fonts, true, 13.0, &pct);
     label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + 13.0, &pct);
 
     let icon_s = 20.0;
-    let icon_x = cx - icon_s / 2.0;
-    let icon_y = top + cap_h + 20.0;
-    match (glyph, muted) {
-        (FaderGlyph::Mic, true) => {
-            icon(cr, MIC_OFF_PATH, 512.0, icon_x, icon_y, icon_s, TEXT);
-            mic_off_slash(cr, icon_x, icon_y, icon_s, TEXT);
-        }
-        (FaderGlyph::Mic, false) => icon(cr, MIC_PATH, 24.0, icon_x, icon_y, icon_s, TEXT),
-        (FaderGlyph::Speaker, true) => icon(cr, SPEAKER_OFF_PATH, 56.0, icon_x, icon_y, icon_s, TEXT),
-        (FaderGlyph::Speaker, false) => icon(cr, SPEAKER_PATH, 56.0, icon_x, icon_y, icon_s, TEXT),
+    let (path, view, boost) = fader_icon(glyph, muted);
+    let draw_s = icon_s * boost;
+    let icon_x = cx - draw_s / 2.0;
+    let icon_y = top + cap_h + 30.0 - draw_s / 2.0;
+    icon(cr, path, view, icon_x, icon_y, draw_s, TEXT);
+    if muted && glyph == FaderGlyph::Mic {
+        mic_off_slash(cr, icon_x, icon_y, draw_s, TEXT);
     }
     if meters {
-        let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
-        let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
-        let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
         if db > -47.5 {
             let shown = if db > -0.5 { 0.0 } else { db };
             let text = format!("{shown:.0}");
@@ -432,7 +561,97 @@ pub fn paint_fader(
         meter_right,
         icon_x,
         icon_y,
-        icon_s,
+        icon_s: draw_s,
+    }
+}
+
+/// A sideways fader: the track grows to the right. The 100% mark stays a line.
+pub fn paint_side_fader(
+    cr: &Context,
+    fonts: &Fonts,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    percent: f64,
+    peak: f32,
+    meters: bool,
+    muted: bool,
+    glyph: FaderGlyph,
+    snaps: bool,
+) -> FaderGeom {
+    let track_h = 26.0;
+    let icon_box = 36.0;
+    let pct_w = 46.0;
+    let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
+    let track_x = x;
+    let track_y = y + (h - track_h) / 2.0;
+    let radius = track_h / 2.0;
+    let fraction = (percent / 150.0).clamp(0.0, 1.0);
+    let _ = cr.save();
+    rounded(cr, track_x, track_y, track_w, track_h, radius);
+    let _ = cr.clip();
+    rounded(cr, track_x, track_y, track_w, track_h, 0.0);
+    fill(cr, BG, 1.0);
+    if track_w * fraction > 0.5 {
+        rounded(cr, track_x, track_y, track_w * fraction, track_h, 0.0);
+        fill(cr, accent(), 1.0);
+    }
+    let _ = cr.restore();
+    rounded(cr, track_x, track_y, track_w, track_h, radius);
+    stroke(cr, BORDER, 1.5);
+    if snaps {
+        for point in crate::config::FADER_SNAPS {
+            let mark = point * 100.0;
+            if (mark - 100.0).abs() < 0.5 {
+                continue;
+            }
+            let dot_x = track_x + track_w * (mark / 150.0);
+            let filled = mark <= percent + 0.01;
+            let (c, a) = if filled { (on_accent(), 0.6) } else { (TEXT, 0.45) };
+            let _ = cr.arc(dot_x, track_y + track_h / 2.0, 2.5, 0.0, 2.0 * PI);
+            fill(cr, c, a);
+        }
+    }
+    let notch_x = track_x + track_w * (100.0 / 150.0);
+    cr.set_source_rgb(TEXT.r, TEXT.g, TEXT.b);
+    cr.set_line_width(2.0);
+    cr.set_line_cap(cairo::LineCap::Round);
+    cr.move_to(notch_x, track_y + 4.0);
+    cr.line_to(notch_x, track_y + track_h - 4.0);
+    let _ = cr.stroke();
+
+    let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
+    let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
+    let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
+    if meters {
+        let my = (track_y - 8.0).max(y);
+        rounded(cr, track_x, my, track_w, 5.0, 2.5);
+        fill(cr, BG, 1.0);
+        fill_meter(cr, track_x, my, track_w, 5.0, 2.5, level, false);
+    }
+
+    let pct = format!("{:.0}%", percent);
+    let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
+    label(cr, fonts, true, 13.0, pct_color, track_x + track_w + 6.0, track_y + track_h / 2.0 + 4.0, &pct);
+
+    let (path, view, boost) = fader_icon(glyph, muted);
+    let draw_s = (22.0 * boost).min(icon_box);
+    let icon_x = x + w - draw_s;
+    let icon_y = y + (h - draw_s) / 2.0;
+    icon(cr, path, view, icon_x, icon_y, draw_s, TEXT);
+    if muted && glyph == FaderGlyph::Mic {
+        mic_off_slash(cr, icon_x, icon_y, draw_s, TEXT);
+    }
+    FaderGeom {
+        capsule_x: track_x,
+        capsule_y: track_y,
+        capsule_w: track_w,
+        capsule_h: track_h,
+        meter_right: track_x + track_w,
+        icon_x,
+        icon_y,
+        icon_s: draw_s,
     }
 }
 
@@ -443,25 +662,33 @@ pub fn surface_to_rgba(surface: &mut ImageSurface) -> Vec<u8> {
     // data() needs the only cairo reference, so the drawing context must already be dropped.
     let data = surface.data().expect("surface data");
     let mut out = vec![0u8; width * height * 4];
+    if width == 0 || height == 0 {
+        return out;
+    }
+    let need = (height - 1) * stride + width * 4;
+    assert!(data.len() >= need, "cairo surface shorter than its size");
     for y in 0..height {
+        let row = y * stride;
+        let dst = y * width * 4;
         for x in 0..width {
-            let i = y * stride + x * 4;
+            let i = row + x * 4;
             let b = data[i] as u32;
             let g = data[i + 1] as u32;
             let r = data[i + 2] as u32;
-            let a = data[i + 3] as u32;
-            let un = |c: u32| -> u8 {
-                if a == 0 {
-                    0
-                } else {
-                    ((c * 255 + a / 2) / a).min(255) as u8
-                }
-            };
-            let o = (y * width + x) * 4;
-            out[o] = un(r);
-            out[o + 1] = un(g);
-            out[o + 2] = un(b);
-            out[o + 3] = a as u8;
+            let a = data[i + 3];
+            let o = dst + x * 4;
+            if a == 0 {
+                out[o] = 0;
+                out[o + 1] = 0;
+                out[o + 2] = 0;
+                out[o + 3] = 0;
+            } else {
+                let a32 = a as u32;
+                out[o] = ((r * 255 + a32 / 2) / a32).min(255) as u8;
+                out[o + 1] = ((g * 255 + a32 / 2) / a32).min(255) as u8;
+                out[o + 2] = ((b * 255 + a32 / 2) / a32).min(255) as u8;
+                out[o + 3] = a;
+            }
         }
     }
     out
@@ -485,6 +712,8 @@ pub const LANG_PATH: &str = "M11 5a.75.75 0 0 1 .688.452l3.25 7.5a.75.75 0 1 1-1
 pub const HEADPHONES_PATH: &str = "M8 1a7 7 0 0 1 7 7v5a2 2 0 0 1-2 2h-2a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2V8A5 5 0 0 0 3 8v1h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H3a2 2 0 0 1-2-2V8a7 7 0 0 1 7-7";
 /// material-symbols:settings-rounded, view box 24, Apache-2.0, Google.
 pub const SETTINGS_PATH: &str = "M10.825 22q-.675 0-1.162-.45t-.588-1.1L8.85 18.8q-.325-.125-.612-.3t-.563-.375l-1.55.65q-.625.275-1.25.05t-.975-.8l-1.175-2.05q-.35-.575-.2-1.225t.675-1.075l1.325-1Q4.5 12.5 4.5 12.337v-.675q0-.162.025-.337l-1.325-1Q2.675 9.9 2.525 9.25t.2-1.225L3.9 5.975q.35-.575.975-.8t1.25.05l1.55.65q.275-.2.575-.375t.6-.3l.225-1.65q.1-.65.588-1.1T10.825 2h2.35q.675 0 1.163.45t.587 1.1l.225 1.65q.325.125.613.3t.562.375l1.55-.65q.625-.275 1.25-.05t.975.8l1.175 2.05q.35.575.2 1.225t-.675 1.075l-1.325 1q.025.175.025.338v.674q0 .163-.05.338l1.325 1q.525.425.675 1.075t-.2 1.225l-1.2 2.05q-.35.575-.975.8t-1.25-.05l-1.5-.65q-.275.2-.575.375t-.6.3l-.225 1.65q-.1.65-.587 1.1t-1.163.45zm1.225-6.5q1.45 0 2.475-1.025T15.55 12t-1.025-2.475T12.05 8.5q-1.475 0-2.488 1.025T8.55 12t1.013 2.475T12.05 15.5";
+/// ep:close-bold, view box 1024, MIT, Element Plus.
+pub const CLOSE_PATH: &str = "M195.2 195.2a64 64 0 0 1 90.5 0L512 421.5l226.3-226.3a64 64 0 0 1 90.5 90.5L602.5 512l226.3 226.3a64 64 0 0 1-90.5 90.5L512 602.5L285.7 828.8a64 64 0 0 1-90.5-90.5L421.5 512L195.2 285.7a64 64 0 0 1 0-90.5";
 
 fn read_number(bytes: &[u8], i: &mut usize) -> Option<f64> {
     while *i < bytes.len() && (bytes[*i] == b' ' || bytes[*i] == b',') {
@@ -602,6 +831,14 @@ fn svg_arc(cr: &Context, cx: &mut f64, cy: &mut f64, mut rx: f64, mut ry: f64, p
     *cy = y2;
 }
 
+fn quad_curve(cr: &Context, x0: f64, y0: f64, cpx: f64, cpy: f64, x: f64, y: f64) {
+    let c1x = x0 + (2.0 / 3.0) * (cpx - x0);
+    let c1y = y0 + (2.0 / 3.0) * (cpy - y0);
+    let c2x = x + (2.0 / 3.0) * (cpx - x);
+    let c2y = y + (2.0 / 3.0) * (cpy - y);
+    let _ = cr.curve_to(c1x, c1y, c2x, c2y, x, y);
+}
+
 fn append_svg(cr: &Context, d: &str) {
     let bytes = d.as_bytes();
     let mut i = 0;
@@ -610,6 +847,9 @@ fn append_svg(cr: &Context, d: &str) {
     let mut sx = 0.0;
     let mut sy = 0.0;
     let mut command = 0u8;
+    let mut qcx = 0.0;
+    let mut qcy = 0.0;
+    let mut quad = false;
     while i < bytes.len() {
         while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b',') {
             i += 1;
@@ -639,6 +879,7 @@ fn append_svg(cr: &Context, d: &str) {
                 cy = y;
                 sx = x;
                 sy = y;
+                quad = false;
             }
             b'L' | b'l' => {
                 let (Some(mut x), Some(mut y)) = (read_number(bytes, &mut i), read_number(bytes, &mut i)) else { return };
@@ -649,6 +890,7 @@ fn append_svg(cr: &Context, d: &str) {
                 let _ = cr.line_to(x, y);
                 cx = x;
                 cy = y;
+                quad = false;
             }
             b'H' | b'h' => {
                 let Some(mut x) = read_number(bytes, &mut i) else { return };
@@ -657,6 +899,7 @@ fn append_svg(cr: &Context, d: &str) {
                 }
                 let _ = cr.line_to(x, cy);
                 cx = x;
+                quad = false;
             }
             b'V' | b'v' => {
                 let Some(mut y) = read_number(bytes, &mut i) else { return };
@@ -665,6 +908,7 @@ fn append_svg(cr: &Context, d: &str) {
                 }
                 let _ = cr.line_to(cx, y);
                 cy = y;
+                quad = false;
             }
             b'C' | b'c' => {
                 let nums = [(); 6].map(|_| read_number(bytes, &mut i));
@@ -683,6 +927,7 @@ fn append_svg(cr: &Context, d: &str) {
                 let _ = cr.curve_to(n[0], n[1], n[2], n[3], n[4], n[5]);
                 cx = n[4];
                 cy = n[5];
+                quad = false;
             }
             b'Q' | b'q' => {
                 let nums = [(); 4].map(|_| read_number(bytes, &mut i));
@@ -696,13 +941,26 @@ fn append_svg(cr: &Context, d: &str) {
                     n[2] += cx;
                     n[3] += cy;
                 }
-                let c1x = cx + (2.0 / 3.0) * (n[0] - cx);
-                let c1y = cy + (2.0 / 3.0) * (n[1] - cy);
-                let c2x = n[2] + (2.0 / 3.0) * (n[0] - n[2]);
-                let c2y = n[3] + (2.0 / 3.0) * (n[1] - n[3]);
-                let _ = cr.curve_to(c1x, c1y, c2x, c2y, n[2], n[3]);
+                quad_curve(cr, cx, cy, n[0], n[1], n[2], n[3]);
+                qcx = n[0];
+                qcy = n[1];
                 cx = n[2];
                 cy = n[3];
+                quad = true;
+            }
+            b'T' | b't' => {
+                let (Some(mut x), Some(mut y)) = (read_number(bytes, &mut i), read_number(bytes, &mut i)) else { return };
+                if command == b't' {
+                    x += cx;
+                    y += cy;
+                }
+                let (cpx, cpy) = if quad { (2.0 * cx - qcx, 2.0 * cy - qcy) } else { (cx, cy) };
+                quad_curve(cr, cx, cy, cpx, cpy, x, y);
+                qcx = cpx;
+                qcy = cpy;
+                cx = x;
+                cy = y;
+                quad = true;
             }
             b'A' | b'a' => {
                 let nums = [(); 7].map(|_| read_number(bytes, &mut i));
@@ -717,11 +975,13 @@ fn append_svg(cr: &Context, d: &str) {
                     y += cy;
                 }
                 svg_arc(cr, &mut cx, &mut cy, n[0], n[1], n[2], n[3] != 0.0, n[4] != 0.0, x, y);
+                quad = false;
             }
             b'Z' | b'z' => {
                 let _ = cr.close_path();
                 cx = sx;
                 cy = sy;
+                quad = false;
             }
             _ => return,
         }
@@ -741,6 +1001,7 @@ pub fn self_test_paths() -> Result<(), String> {
         (LANG_PATH, 16.0),
         (HEADPHONES_PATH, 16.0),
         (SETTINGS_PATH, 24.0),
+        (CLOSE_PATH, 1024.0),
     ] {
         icon(&cr, path, view, 0.0, 0.0, 16.0, TEXT);
     }
@@ -752,11 +1013,22 @@ pub fn self_test_paths() -> Result<(), String> {
     if (armed.r - DANGER.r).abs() > 0.01 {
         return Err("armed danger fill".into());
     }
+    if fader_icon(FaderGlyph::Speaker, true).0 != SPEAKER_OFF_PATH || fader_icon(FaderGlyph::Mic, true).0 != MIC_OFF_PATH {
+        return Err("muted icons".into());
+    }
+    if fader_icon(FaderGlyph::Speaker, false).0 != SPEAKER_PATH || fader_icon(FaderGlyph::Mic, false).0 != MIC_PATH {
+        return Err("live icons".into());
+    }
+    let quiet = level_color(0.0);
+    let loud = level_color(1.0);
+    if (quiet.b - BLUE.b).abs() > 0.01 || (loud.r - PINK.r).abs() > 0.01 {
+        return Err("meter gradient".into());
+    }
     record_dot(&cr, 8.0, 8.0, 3.0, DANGER);
     stop_square(&cr, 8.0, 8.0, 6.0, TEXT);
     play_triangle(&cr, 8.0, 8.0, 8.0, TEXT);
     if let Ok(fonts) = Fonts::load() {
-        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, 100.0, 0.2, true, false, FaderGlyph::Mic);
+        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, 100.0, 0.2, true, false, FaderGlyph::Mic, true);
         if geom.capsule_w != 32.0 {
             return Err("fader width".into());
         }

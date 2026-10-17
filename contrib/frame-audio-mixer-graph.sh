@@ -44,7 +44,8 @@ if [[ "$mode" == "core" ]]; then
         --capture-props="{ node.name = frame_amix_from_mic node.passive = false node.virtual = true audio.position = [ FL FR ] stream.dont-remix = true media.name = \"Frame Mix from mic\" }" \
         --playback-props="{ node.name = frame_amix_mic_virtual_sink target.object = frame_amix_bus node.passive = true node.virtual = true node.dont-fallback = true audio.position = [ FL FR ] media.name = \"Frame Mix mic level\" }"
 elif [[ "$mode" == "channel" ]]; then
-    if [[ ! "$id" =~ ^ch[1-8]$ ]]; then
+    # Same rule as is_channel_id in src/config.rs (ch1 to ch32).
+    if [[ ! "$id" =~ ^ch[1-9][0-9]?$ ]] || (( 10#${id#ch} > 32 )); then
         echo "frame-audio-mixer: bad channel id: $id" >&2
         exit 1
     fi

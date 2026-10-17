@@ -36,6 +36,9 @@ https://api.iconify.design/collection?prefix=<set>&info=1):
 - material-symbols:settings-rounded — Material Symbols, Google, Apache-2.0
   https://icon-sets.iconify.design/material-symbols/settings-rounded/
   https://github.com/google/material-design-icons/blob/master/LICENSE
+- ep:close-bold — Element Plus, Element Plus, MIT
+  https://icon-sets.iconify.design/ep/close-bold/
+  https://github.com/element-plus/element-plus-icons/blob/main/packages/svg/package.json
 
 Record, Stop, Play, the chevrons and the back arrow are drawn as shapes in
 this repository. They are not Iconify icons.

@@ -59,6 +59,9 @@ pub struct Session {
     vulkan: Vulkan,
     panel: Option<Texture>,
     thumbnail: Option<Texture>,
+    fitted: Option<(i32, i32)>,
+    tex_size: (i32, i32),
+    retire: Option<Texture>,
 }
 
 pub struct Pointer {
@@ -176,7 +179,27 @@ impl Session {
             vulkan,
             panel: None,
             thumbnail: None,
+            fitted: None,
+            tex_size: (0, 0),
+            retire: None,
         })
+    }
+
+    /// Resize the dashboard quad and the mouse scale. The texture is rebuilt on the next submit.
+    pub fn fit(&mut self, width: i32, height: i32) -> Result<(), String> {
+        if self.fitted == Some((width, height)) {
+            return Ok(());
+        }
+        let set_width: unsafe extern "C" fn(*mut c_void, u64, f32) -> u32 = unsafe { vslot(self.overlay, SET_WIDTH) };
+        let set_scale: unsafe extern "C" fn(*mut c_void, u64, *const f32) -> u32 = unsafe { vslot(self.overlay, SET_MOUSE_SCALE) };
+        let meters = overlay_width_m(width, height);
+        unsafe {
+            let _ = set_width(self.overlay, self.handle, meters);
+            let scale = [width as f32, height as f32];
+            let _ = set_scale(self.overlay, self.handle, scale.as_ptr());
+        }
+        self.fitted = Some((width, height));
+        Ok(())
     }
 
     pub fn show(&self) {
@@ -191,8 +214,16 @@ impl Session {
     }
 
     pub fn submit(&mut self, rgba: &[u8], thumb: Option<&[u8]>) -> Result<(), String> {
+        if let Some(mut old) = self.retire.take() {
+            self.vulkan.destroy_texture(&mut old);
+        }
+        let (w, h) = self.fitted.unwrap_or((crate::draw::WIDTH, crate::draw::HEIGHT));
+        if self.panel.is_some() && self.tex_size != (w, h) {
+            self.retire = self.panel.take();
+        }
         if self.panel.is_none() {
-            self.panel = Some(self.vulkan.create_texture(crate::draw::WIDTH, crate::draw::HEIGHT)?);
+            self.panel = Some(self.vulkan.create_texture(w, h)?);
+            self.tex_size = (w, h);
         }
         let image = {
             let tex = self.panel.as_mut().unwrap();
@@ -276,11 +307,21 @@ impl Drop for Session {
         if let Some(tex) = self.panel.as_mut() {
             self.vulkan.destroy_texture(tex);
         }
+        if let Some(tex) = self.retire.as_mut() {
+            self.vulkan.destroy_texture(tex);
+        }
         if let Some(tex) = self.thumbnail.as_mut() {
             self.vulkan.destroy_texture(tex);
         }
         unsafe { (self.shutdown)() };
     }
+}
+
+/// Keep the shorter side the same physical size as the 1200×788 panel.
+fn overlay_width_m(width: i32, height: i32) -> f32 {
+    let aspect = width as f32 / height.max(1) as f32;
+    let short = WIDTH_M * (crate::draw::HEIGHT as f32) / (crate::draw::WIDTH as f32);
+    if aspect >= 1.0 { short * aspect } else { short }
 }
 
 fn decode(buf: &[u8], panel_h: f64) -> Pointer {

@@ -11,9 +11,9 @@ mod mix;
 
 use crate::apps::Entry;
 use crate::config::{self, Config, Pin};
-use crate::draw::{self, ButtonKind, Fonts, Look, Rgb, ACCENT, BG, CARD, HEIGHT, TEXT, WIDTH};
+use crate::draw::{self, ButtonKind, Fonts, Look, Rgb, BG, TEXT};
 use crate::graph::Graph;
-use crate::i18n::{self, Lang, Text, LANGS};
+use crate::i18n::{self, Lang, Text};
 use crate::worker::{CheckPhase, Snapshot};
 use cairo::Context;
 use std::collections::HashMap;
@@ -53,7 +53,35 @@ struct FaderHit {
     y: f64,
     w: f64,
     h: f64,
+    horizontal: bool,
 }
+
+/// Scrollbar for the channel strip. `thumb_w` is the thumb's length along the scroll axis.
+#[derive(Clone, Copy)]
+pub(crate) struct HBar {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub thumb_w: f64,
+    pub max_scroll: f64,
+    pub vertical: bool,
+}
+
+/// Where the mixer, Mix Check, and the footer sit for the current window.
+pub(crate) struct Stage {
+    pub w: f64,
+    pub portrait: bool,
+    pub footer: (f64, f64, f64, f64),
+    pub picker: (f64, f64, f64, f64),
+    pub mix: (f64, f64, f64, f64),
+    pub check: (f64, f64, f64, f64),
+}
+
+const HSCROLL: &str = "hscroll";
+const PAN: &str = "pan";
+/// How close, in pixels, a fader drag has to come to a snap point.
+const SNAP_REACH_PX: f64 = 8.0;
 
 pub struct Panel {
     pub config: Config,
@@ -61,6 +89,7 @@ pub struct Panel {
     page: Page,
     overlay: Overlay,
     language_open: bool,
+    color_open: bool,
     quit_until: Option<Instant>,
     delete_until: Option<(String, Instant)>,
     scroll: f64,
@@ -72,9 +101,24 @@ pub struct Panel {
     keyboard: Option<Keyboard>,
     hots: Vec<Hot>,
     faders: Vec<FaderHit>,
+    pub(crate) hbar: Option<HBar>,
+    /// Channel strip from the last frame. Empty space here drag-scrolls.
+    strip: Option<(f64, f64, f64, f64)>,
+    pan_at: Option<(f64, f64)>,
+    /// Channels drawn in the last frame. Only these get a meter tap.
+    pub(crate) visible_channels: Vec<String>,
     icons: Option<crate::icons::IconIndex>,
     icon_rx: Option<std::sync::mpsc::Receiver<crate::icons::IconIndex>>,
     pngs: HashMap<String, cairo::ImageSurface>,
+    /// App waiting for a channel choice: a new channel named after it, or an existing one.
+    pub(crate) pin_app: Option<String>,
+    /// Name and binary of each app in the last Running list, for the channel icon.
+    pub(crate) app_binaries: Vec<(String, String)>,
+    /// Record was clicked and the worker has not published Recording yet.
+    pub(crate) record_pending: bool,
+    record_message: String,
+    record_at: Option<Instant>,
+    seen_message: String,
 }
 
 pub enum Action {
@@ -84,14 +128,14 @@ pub enum Action {
     ShowKeyboard { description: String, existing: String },
     Record,
     StopCheck,
-    PlayCheck,
+    PlayClip(u64),
     CheckUpdates,
     InstallUpdate,
     OpenInstaller(String),
     Autostart(bool),
 }
 
-pub const SUGGESTIONS: [&str; 5] = ["SoundNinja", "Zen", "Moonlight", "Chromium", "WebCord"];
+pub const SUGGESTIONS: [&str; 5] = ["Soundboard", "Music", "Video", "Browser", "Game"];
 
 impl Panel {
     pub fn new(config: Config) -> Self {
@@ -102,6 +146,7 @@ impl Panel {
             page: Page::Mix,
             overlay: Overlay::None,
             language_open: false,
+            color_open: false,
             quit_until: None,
             delete_until: None,
             scroll: 0.0,
@@ -113,9 +158,19 @@ impl Panel {
             keyboard: None,
             hots: Vec::new(),
             faders: Vec::new(),
+            hbar: None,
+            strip: None,
+            pan_at: None,
+            visible_channels: Vec::new(),
             icons: None,
             icon_rx: None,
             pngs: HashMap::new(),
+            pin_app: None,
+            app_binaries: Vec::new(),
+            record_pending: false,
+            record_message: String::new(),
+            record_at: None,
+            seen_message: String::new(),
         }
     }
 
@@ -128,7 +183,15 @@ impl Panel {
         game.to_mic = 0.8;
         game.phones = 0.6;
         config.channels.push(game);
-        config.pins.push(Pin { app: "Zen".into(), channel: "ch1".into() });
+        let mut zen = config::Channel::new("ch3", "Zen");
+        zen.app = "Zen".into();
+        zen.binary = "zen".into();
+        zen.to_mic = 0.2;
+        config.channels.push(zen);
+        for (n, name) in ["Video", "Browser", "Discord", "Soundboard", "Voice", "Alerts", "Radio"].iter().enumerate() {
+            config.channels.push(config::Channel::new(format!("ch{}", n + 4), *name));
+        }
+        config.pins.push(Pin { app: "Zen".into(), channel: "ch3".into() });
         Self::new(config)
     }
 
@@ -141,6 +204,10 @@ impl Panel {
         if self.delete_until.as_ref().is_some_and(|(_, until)| now > *until) {
             self.delete_until = None;
         }
+        let app_channels = self.config.channels.iter().any(|channel| !channel.app.is_empty());
+        if app_channels && self.icons.is_none() && self.icon_rx.is_none() {
+            self.icon_rx = Some(crate::icons::spawn());
+        }
         if let Some(rx) = &self.icon_rx {
             if let Ok(index) = rx.try_recv() {
                 self.icons = Some(index);
@@ -150,7 +217,7 @@ impl Panel {
     }
 
     pub fn wants_meters(&self) -> bool {
-        self.config.meters && self.config.mix_on && matches!(self.page, Page::Mix) && matches!(self.overlay, Overlay::None)
+        self.config.meters && matches!(self.page, Page::Mix) && matches!(self.overlay, Overlay::None)
     }
 
     /// PipeWire nodes to meter. The mic tap is not passive. Channel taps are.
@@ -159,15 +226,23 @@ impl Panel {
             return Vec::new();
         }
         let mut targets = Vec::new();
-        if let Some(object) = resolved_source(&self.config.mic_source, &snap.graph) {
-            targets.push(crate::meter::Target { key: "mic".into(), object, capture_sink: false, passive: false });
+        if let Some(name) = resolved_source(&self.config.mic_source, &snap.graph) {
+            targets.push(crate::meter::Target {
+                key: "mic".into(),
+                object: snap.graph.link_target(&name),
+                capture_sink: false,
+                passive: false,
+                virtual_node: false,
+            });
         }
-        for channel in &self.config.channels {
+        for channel in self.config.channels.iter().filter(|channel| self.visible_channels.contains(&channel.id)) {
+            let name = format!("frame_amix_{}", channel.id);
             targets.push(crate::meter::Target {
                 key: channel.id.clone(),
-                object: format!("frame_amix_{}", channel.id),
+                object: snap.graph.link_target(&name),
                 capture_sink: true,
                 passive: true,
+                virtual_node: true,
             });
         }
         targets
@@ -206,6 +281,8 @@ impl Panel {
             if let Some(app) = pin_app {
                 self.pin(app, existing.id.clone());
             }
+            self.pin_app = None;
+            self.overlay = Overlay::None;
             return Action::Save;
         }
         let Some(id) = config::next_channel_id(&self.config.channels) else {
@@ -216,8 +293,32 @@ impl Panel {
         if let Some(app) = pin_app {
             self.pin(app, id);
         }
+        self.pin_app = None;
         self.overlay = Overlay::None;
+        // The new channel is last in the row. The next frame clamps this to the end.
+        self.scroll = f64::MAX;
         Action::Save
+    }
+
+    /// A channel named after a running app, with that app pinned to it and its icon in the strip.
+    fn add_app_channel(&mut self, app: &str) -> Action {
+        let Some(name) = config::name_from_app(app) else {
+            self.notice = i18n::text(self.lang).name_rejected.to_string();
+            return Action::None;
+        };
+        let binary = self.binary_of(app);
+        let action = self.add_channel(name.clone(), Some(app.to_string()));
+        if let Some(channel) = self.config.channels.iter_mut().find(|c| c.name.eq_ignore_ascii_case(&name)) {
+            if channel.app.is_empty() {
+                channel.app = app.to_string();
+                channel.binary = binary;
+            }
+        }
+        action
+    }
+
+    fn binary_of(&self, app: &str) -> String {
+        self.app_binaries.iter().find(|(name, _)| name == app).map(|(_, binary)| binary.clone()).unwrap_or_default()
     }
 
     fn pin(&mut self, app: String, channel: String) {
@@ -229,21 +330,34 @@ impl Panel {
         if kind == crate::overlay::MOUSE_MOVE {
             self.pointer = Some((x, y));
             if let Some(id) = self.drag.clone() {
-                self.set_fader(&id, y);
+                if id == HSCROLL {
+                    self.set_hscroll(x, y);
+                } else if id == PAN {
+                    if let Some((px, py)) = self.pan_at {
+                        let delta = if self.config.list { y - py } else { x - px };
+                        self.scroll = (self.scroll - delta).max(0.0);
+                    }
+                    self.pan_at = Some((x, y));
+                } else {
+                    self.set_fader(&id, x, y);
+                }
             }
             return Action::None;
         }
         if kind == crate::overlay::MOUSE_UP {
             self.pressed = false;
-            let save = self.drag.take().is_some();
+            self.pan_at = None;
+            let save = self.drag.take().is_some_and(|id| id != HSCROLL && id != PAN);
             return if save { Action::Save } else { Action::None };
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
             let delta = if y.abs() > 0.01 && y.abs() < 400.0 { y } else { x };
+            // A controller notch is about ±1, which used to move the row by one pixel.
+            let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
             if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {
-                self.dialog_scroll = (self.dialog_scroll - delta).max(0.0);
+                self.dialog_scroll = (self.dialog_scroll - step * 0.45).max(0.0);
             } else {
-                self.scroll = (self.scroll - delta).max(0.0);
+                self.scroll = (self.scroll - step).max(0.0);
             }
             return Action::None;
         }
@@ -262,12 +376,25 @@ impl Panel {
         if !matches!(self.overlay, Overlay::None) {
             return self.hit_at(x, y);
         }
-        if let Some(id) = self.fader_at(x, y) {
-            self.drag = Some(id.clone());
-            self.set_fader(&id, y);
+        if self.hbar.is_some_and(|bar| x >= bar.x - 10.0 && x < bar.x + bar.w + 10.0 && y >= bar.y - 10.0 && y < bar.y + bar.h + 10.0) {
+            self.drag = Some(HSCROLL.to_string());
+            self.set_hscroll(x, y);
             return Action::None;
         }
-        self.hit_at(x, y)
+        if let Some(id) = self.fader_at(x, y) {
+            self.drag = Some(id.clone());
+            self.set_fader(&id, x, y);
+            return Action::None;
+        }
+        if self.hot_at(x, y).is_some() {
+            return self.hit_at(x, y);
+        }
+        if self.strip.is_some_and(|(sx, sy, sw, sh)| x >= sx && x < sx + sw && y >= sy && y < sy + sh) {
+            self.drag = Some(PAN.to_string());
+            self.pan_at = Some((x, y));
+            return Action::None;
+        }
+        Action::None
     }
 
     fn hit_at(&mut self, x: f64, y: f64) -> Action {
@@ -285,6 +412,8 @@ impl Panel {
         let t = i18n::text(self.lang);
         if id == "dismiss" {
             self.overlay = Overlay::None;
+            self.pin_app = None;
+            self.color_open = false;
             self.dialog_scroll = 0.0;
             return Action::None;
         }
@@ -313,11 +442,36 @@ impl Panel {
         if id == "settings" {
             self.overlay = Overlay::Settings;
             self.language_open = false;
+            self.color_open = false;
             return Action::None;
         }
         if id == "meters-on" || id == "meters-off" {
             self.config.meters = id == "meters-on";
             return Action::Save;
+        }
+        if id == "snap-on" || id == "snap-off" {
+            self.config.snap = id == "snap-on";
+            return Action::Save;
+        }
+        if id == "list-on" || id == "list-off" {
+            self.config.list = id == "list-on";
+            self.scroll = 0.0;
+            return Action::Save;
+        }
+        if id == "wide-on" || id == "wide-off" {
+            self.config.wide = id == "wide-on";
+            return Action::Save;
+        }
+        if id == "color-open" {
+            self.color_open = !self.color_open;
+            return Action::None;
+        }
+        if let Some(color) = id.strip_prefix("color:") {
+            if color == "blue" || color == "pink" {
+                self.config.accent = color.to_string();
+                self.color_open = false;
+                return Action::Save;
+            }
         }
         if id == "auto-on" || id == "auto-off" {
             return Action::Autostart(id == "auto-on");
@@ -352,6 +506,7 @@ impl Panel {
                 return Action::None;
             }
             self.overlay = Overlay::Add;
+            self.pin_app = None;
             self.dialog_scroll = 0.0;
             if self.icon_rx.is_none() && self.icons.is_none() {
                 self.icon_rx = Some(crate::icons::spawn());
@@ -369,7 +524,31 @@ impl Panel {
             return Action::ShowKeyboard { description: t.channel_name.to_string(), existing: String::new() };
         }
         if let Some(app) = id.strip_prefix("use:") {
-            return self.add_channel(app.to_string(), Some(app.to_string()));
+            if self.config.channels.is_empty() {
+                return self.add_app_channel(app);
+            }
+            self.pin_app = Some(app.to_string());
+            self.dialog_scroll = 0.0;
+            return Action::None;
+        }
+        if id == "pin-new" {
+            let Some(app) = self.pin_app.clone() else { return Action::None };
+            return self.add_app_channel(&app);
+        }
+        if id == "pin-back" {
+            self.pin_app = None;
+            self.dialog_scroll = 0.0;
+            return Action::None;
+        }
+        if let Some(channel) = id.strip_prefix("pin:") {
+            let Some(app) = self.pin_app.clone() else { return Action::None };
+            if !self.config.channels.iter().any(|item| item.id == channel) {
+                return Action::None;
+            }
+            self.pin(app, channel.to_string());
+            self.pin_app = None;
+            self.overlay = Overlay::None;
+            return Action::Save;
         }
         if let Some(name) = id.strip_prefix("suggest:") {
             return self.add_channel(name.to_string(), None);
@@ -407,13 +586,20 @@ impl Panel {
             return Action::Save;
         }
         if id == "rec" {
+            self.record_pending = true;
+            self.record_message = self.seen_message.clone();
+            self.record_at = Some(Instant::now());
             return Action::Record;
         }
         if id == "stop" {
+            self.record_pending = false;
+            self.record_at = None;
             return Action::StopCheck;
         }
-        if id == "play" {
-            return Action::PlayCheck;
+        if let Some(id) = id.strip_prefix("clip:") {
+            if let Ok(clip) = id.parse::<u64>() {
+                return Action::PlayClip(clip);
+            }
         }
         if id == "upd-on" || id == "upd-off" {
             self.config.check_updates = id == "upd-on";
@@ -449,10 +635,18 @@ impl Panel {
         self.faders.iter().rev().find(|f| x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h).map(|f| f.id.clone())
     }
 
-    fn set_fader(&mut self, id: &str, y: f64) {
-        let Some(fader) = self.faders.iter().find(|f| f.id == id) else { return };
-        let t = (1.0 - ((y - fader.y) / fader.h)).clamp(0.0, 1.0);
-        let value = config::clamp_volume(t * 1.5);
+    fn set_fader(&mut self, id: &str, x: f64, y: f64) {
+        let Some((horizontal, fx, fy, fw, fh)) = self.faders.iter().find(|f| f.id == id).map(|f| (f.horizontal, f.x, f.y, f.w, f.h)) else {
+            return;
+        };
+        let span = if horizontal { fw } else { fh };
+        let along = if horizontal { x - fx } else { fy + fh - y };
+        let t = if span <= 0.0 { 0.0 } else { (along / span).clamp(0.0, 1.0) };
+        let mut value = config::clamp_volume(t * 1.5);
+        if self.config.snap {
+            let reach = if span > 0.0 { SNAP_REACH_PX / span * 1.5 } else { 0.0 };
+            value = config::snap_volume(value, reach);
+        }
         if id == "mic" {
             self.config.mic_volume = value;
         } else if let Some(rest) = id.strip_prefix("phones:") {
@@ -466,22 +660,100 @@ impl Panel {
         }
     }
 
+    /// The thumb follows the pointer; a click on the track jumps there.
+    fn set_hscroll(&mut self, x: f64, y: f64) {
+        let Some(bar) = self.hbar else { return };
+        let (pos, origin, span) = if bar.vertical { (y, bar.y, bar.h) } else { (x, bar.x, bar.w) };
+        let travel = span - bar.thumb_w;
+        if travel <= 0.0 {
+            return;
+        }
+        let t = ((pos - origin - bar.thumb_w / 2.0) / travel).clamp(0.0, 1.0);
+        self.scroll = t * bar.max_scroll;
+    }
+
+    pub(crate) fn dragging(&self, id: &str) -> bool {
+        self.drag.as_deref() == Some(id)
+    }
+
     pub fn render(&mut self, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) -> Vec<u8> {
         let mut surface = self.render_surface(fonts, snap, peaks);
         draw::surface_to_rgba(&mut surface)
     }
 
+    pub fn pixel_size(&self) -> (i32, i32) {
+        draw::panel_pixels(self.config.wide, self.config.list)
+    }
+
+    pub fn interacting(&self) -> bool {
+        self.drag.is_some()
+    }
+
+    pub(crate) fn size_f(&self) -> (f64, f64) {
+        let (w, h) = self.pixel_size();
+        (w as f64, h as f64)
+    }
+
+    /// Center a dialog, keeping `margin` clear of the panel edges.
+    pub(crate) fn dialog_rect(&self, max_w: f64, max_h: f64, margin: f64) -> (f64, f64, f64, f64) {
+        let (pw, ph) = self.size_f();
+        let w = max_w.min(pw - margin * 2.0).max(280.0);
+        let h = max_h.min(ph - margin * 2.0).max(200.0);
+        ((pw - w) / 2.0, (ph - h) / 2.0, w, h)
+    }
+
+    pub(crate) fn sheet(&self, margin: f64) -> (f64, f64, f64, f64) {
+        let (pw, ph) = self.size_f();
+        (margin, margin, (pw - margin * 2.0).max(200.0), (ph - margin * 2.0).max(200.0))
+    }
+
+    pub(crate) fn stage(&self) -> Stage {
+        let (w, h) = self.size_f();
+        let portrait = h > w;
+        let footer = (28.0, h - 114.0, w - 56.0, 88.0);
+        if portrait {
+            let check_h = 520.0_f64.min((h - 280.0) * 0.42).max(280.0);
+            let check = (28.0, footer.1 - 14.0 - check_h, w - 56.0, check_h);
+            let picker = (28.0, 92.0, w - 56.0, 60.0);
+            let mix = (28.0, 168.0, w - 56.0, (check.1 - 16.0 - 168.0).max(180.0));
+            return Stage { w, portrait, footer, picker, mix, check };
+        }
+        let check_w = 381.0;
+        let check = (w - 28.0 - check_w, 92.0, check_w, footer.1 - 14.0 - 92.0);
+        let mix_w = check.0 - 16.0 - 28.0;
+        let picker = (28.0, 92.0, mix_w, 60.0);
+        let mix = (28.0, 168.0, mix_w, check.1 + check.3 - 168.0);
+        Stage { w, portrait, footer, picker, mix, check }
+    }
+
     pub fn render_surface(&mut self, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) -> cairo::ImageSurface {
-        let surface = draw::surface().expect("surface");
+        let (w, h) = self.pixel_size();
+        let surface = draw::surface_wh(w, h).expect("surface");
         let cr = Context::new(&surface).expect("context");
         self.draw(&cr, fonts, snap, peaks);
         surface
     }
 
+    fn note_check(&mut self, snap: &Snapshot) {
+        let failed = self.record_pending
+            && snap.check != CheckPhase::Recording
+            && (snap.message != self.record_message || self.record_at.is_some_and(|start| start.elapsed() > Duration::from_secs(8)));
+        if snap.check == CheckPhase::Recording || failed {
+            self.record_pending = false;
+            self.record_at = None;
+        }
+        self.seen_message = snap.message.clone();
+    }
+
     fn draw(&mut self, cr: &Context, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) {
+        self.note_check(snap);
+        draw::set_accent(&self.config.accent);
         self.hots.clear();
         self.faders.clear();
-        fill_round(cr, 0.0, 0.0, WIDTH as f64, HEIGHT as f64, 24.0, BG);
+        self.hbar = None;
+        self.strip = None;
+        let (pw, ph) = self.size_f();
+        fill_round(cr, 0.0, 0.0, pw, ph, 24.0, BG);
         let t = i18n::text(self.lang);
         self.header(cr, fonts, t);
         if self.page == Page::Apps {
@@ -515,7 +787,8 @@ impl Panel {
 
     fn header(&mut self, cr: &Context, fonts: &Fonts, t: &Text) {
         draw::label(cr, fonts, true, 28.0, TEXT, 36.0, 58.0, t.title);
-        let rect = (964.0, 22.0, 208.0, 56.0);
+        let (w, _) = self.size_f();
+        let rect = (w - 236.0, 22.0, 208.0, 56.0);
         if self.page == Page::Mix {
             self.button(cr, fonts, rect.0, rect.1, rect.2, rect.3, t.apps, ButtonKind::Plain);
             self.hot("apps", rect.0, rect.1, rect.2, rect.3);
@@ -529,8 +802,8 @@ impl Panel {
         let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 256, 256).expect("thumb");
         {
             let cr = Context::new(&surface).expect("context");
-            fill_round(&cr, 0.0, 0.0, 256.0, 256.0, 48.0, CARD);
-            draw::icon(&cr, draw::HEADPHONES_PATH, 16.0, 64.0, 64.0, 128.0, ACCENT);
+            let bytes = crate::brand::icon_png(self.config.accent == "pink", 256);
+            draw::paint_png_bytes(&cr, bytes, 0.0, 0.0, 256.0, 256.0);
         }
         draw::surface_to_rgba(&mut surface)
     }
@@ -539,8 +812,16 @@ impl Panel {
         self.hots.push(Hot { id: id.to_string(), x, y, w, h });
     }
 
-    pub(crate) fn fader_hit(&mut self, id: &str, x: f64, y: f64, w: f64, h: f64) {
-        self.faders.push(FaderHit { id: id.to_string(), x, y, w, h });
+    pub(crate) fn fader_hit(&mut self, id: &str, x: f64, y: f64, w: f64, h: f64, horizontal: bool) {
+        self.faders.push(FaderHit { id: id.to_string(), x, y, w, h, horizontal });
+    }
+
+    pub(crate) fn set_strip(&mut self, x: f64, y: f64, w: f64, h: f64) {
+        self.strip = Some((x, y, w, h));
+    }
+
+    fn hot_at(&self, x: f64, y: f64) -> Option<String> {
+        self.hots.iter().rev().find(|hot| x >= hot.x && x < hot.x + hot.w && y >= hot.y && y < hot.y + hot.h).map(|hot| hot.id.clone())
     }
 
     pub(crate) fn look(&self, x: f64, y: f64, w: f64, h: f64) -> Look {
@@ -571,17 +852,32 @@ pub(crate) fn resolved_source(choice: &str, graph: &Graph) -> Option<String> {
     let wanted = if choice == "builtin" {
         Graph::BUILTIN_SOURCE.to_string()
     } else if choice.is_empty() {
-        graph.default_source.clone()
+        if !graph.default_source.is_empty() {
+            graph.default_source.clone()
+        } else if graph.node_by_name(Graph::BUILTIN_SOURCE).is_some() {
+            Graph::BUILTIN_SOURCE.to_string()
+        } else {
+            String::new()
+        }
     } else {
         choice.to_string()
     };
-    if !wanted.is_empty() && wanted != "frame_amix_source" && graph.node_by_name(&wanted).is_some() {
-        Some(wanted)
-    } else if !graph.default_source.is_empty() && graph.default_source != "frame_amix_source" {
-        Some(graph.default_source.clone())
-    } else {
-        None
+    if live_source(graph, &wanted) {
+        return Some(wanted);
     }
+    if choice.is_empty() || choice == "builtin" {
+        if live_source(graph, Graph::BUILTIN_SOURCE) {
+            return Some(Graph::BUILTIN_SOURCE.to_string());
+        }
+    }
+    if live_source(graph, &graph.default_source) {
+        return Some(graph.default_source.clone());
+    }
+    None
+}
+
+fn live_source(graph: &Graph, name: &str) -> bool {
+    !name.is_empty() && name != "frame_amix_source" && graph.node_by_name(name).is_some()
 }
 
 pub(crate) fn source_label(choice: &str, graph: &Graph, t: &Text) -> String {
@@ -608,10 +904,11 @@ pub(crate) fn stroke_round(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64,
 }
 
 pub(crate) fn backdrop(panel: &mut Panel, cr: &Context) {
-    fill_round(cr, 0.0, 0.0, WIDTH as f64, HEIGHT as f64, 24.0, BG);
+    let (w, h) = panel.size_f();
+    fill_round(cr, 0.0, 0.0, w, h, 24.0, BG);
     cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
     let _ = cr.paint();
-    panel.hot("dismiss", 0.0, 0.0, WIDTH as f64, HEIGHT as f64);
+    panel.hot("dismiss", 0.0, 0.0, w, h);
 }
 
 pub(crate) fn fmt_token(template: &str, key: &str, value: &str) -> String {
@@ -626,6 +923,12 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     snap.graph.default_sink = "alsa_output.platform-sound.HiFi__Speaker__sink".into();
     snap.graph.default_source = Graph::BUILTIN_SOURCE.into();
     snap.check = CheckPhase::Ready;
+    snap.clips.push(crate::worker::MixClip {
+        id: 1,
+        seconds: 4.2,
+        clock: "21:52:10".into(),
+        wave: (0..36).map(|i| (i as f32 * 0.7).sin().abs() * 0.6).collect(),
+    });
     snap.apps = demo_apps();
     snap.update.state = crate::updater::UpdateState::UpToDate;
     snap.update.latest = crate::updater::VERSION.into();
@@ -637,6 +940,29 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "list"))?;
     panel.overlay = Overlay::Confirm("mic".into());
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "confirm"))?;
+    panel.overlay = Overlay::Add;
+    snap.graph.clients.push(crate::graph::AppRef { name: "Zen".into(), binary: "zen".into() });
+    snap.graph.clients.push(crate::graph::AppRef { name: "Steam".into(), binary: "steam".into() });
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "add"))?;
+    panel.pin_app = Some("Steam".into());
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "pin"))?;
+    panel.pin_app = None;
+    panel.overlay = Overlay::None;
+    panel.page = Page::Mix;
+    panel.scroll = f64::MAX;
+    snap.check = CheckPhase::Recording;
+    snap.check_secs = 3.0;
+    let mut loud = HashMap::new();
+    loud.insert("mic".to_string(), 0.4f32);
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "scrolled"))?;
+    snap.check = CheckPhase::Ready;
+    panel.scroll = 0.0;
+    panel.overlay = Overlay::Settings;
+    panel.color_open = true;
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "settings"))?;
+    panel.overlay = Overlay::None;
+    panel.language_open = true;
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "lang"))?;
     Ok(())
 }
 
@@ -696,7 +1022,7 @@ pub(crate) fn paint_app_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts, nam
     fill_round(cr, x, y, size, size, size * 0.22, draw::CONTROL);
     let letter: String = mono.chars().take(4).collect();
     let width = draw::text_width(cr, fonts, true, size * 0.28, &letter);
-    draw::label(cr, fonts, true, size * 0.28, ACCENT, x + (size - width) / 2.0, y + size * 0.62, &letter);
+    draw::label(cr, fonts, true, size * 0.28, draw::accent(), x + (size - width) / 2.0, y + size * 0.62, &letter);
     false
 }
 
@@ -733,7 +1059,8 @@ pub(crate) fn paint_desktop_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts,
         }
     }
     let letter: String = app.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
-    fill_round(cr, x, y, size, size, 8.0, draw::CONTROL);
-    let width = draw::text_width(cr, fonts, true, 16.0, &letter);
-    draw::label(cr, fonts, true, 16.0, TEXT, x + (size - width) / 2.0, y + size * 0.68, &letter);
+    fill_round(cr, x, y, size, size, size * 0.25, draw::CONTROL);
+    let font = size * 0.5;
+    let width = draw::text_width(cr, fonts, true, font, &letter);
+    draw::label(cr, fonts, true, font, TEXT, x + (size - width) / 2.0, y + size * 0.68, &letter);
 }

@@ -98,7 +98,7 @@ pub struct Text {
     pub suggest: &'static str,
     pub running: &'static str,
     pub custom: &'static str,
-    pub pick_channel: &'static str,
+    pub new_channel_fmt: &'static str,
     pub pinned: &'static str,
     pub mix_check: &'static str,
     pub mix_check_body: &'static str,
@@ -125,6 +125,12 @@ pub struct Text {
     pub back_mixer: &'static str,
     pub settings: &'static str,
     pub meters: &'static str,
+    pub color: &'static str,
+    pub color_blue: &'static str,
+    pub color_pink: &'static str,
+    pub snap: &'static str,
+    pub list_sliders: &'static str,
+    pub wide: &'static str,
     pub mix_hint: &'static str,
     pub mic_picker: &'static str,
     pub mic_system: &'static str,
@@ -180,7 +186,7 @@ pub fn text(lang: Lang) -> &'static Text {
 }
 
 const EN: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "Apps & updates",
     back: "Back",
     on: "On",
@@ -193,9 +199,9 @@ const EN: Text = Text {
     add: "Add",
     picker: "Send an app to the selected channel",
     suggest: "Suggestions",
-    running: "Playing now",
+    running: "Running",
     custom: "Custom name",
-    pick_channel: "Select a channel first.",
+    new_channel_fmt: "New channel: {name}",
     pinned: "Pinned",
     mix_check: "Mix Check",
     mix_check_body: "Records Frame Mic + Mix for up to 10 seconds, then plays it on the current output.",
@@ -222,6 +228,12 @@ const EN: Text = Text {
     back_mixer: "Mixer",
     settings: "App settings",
     meters: "Level meters",
+    color: "Color",
+    color_blue: "Blue",
+    color_pink: "Pink",
+    snap: "Snap points",
+    list_sliders: "List sliders",
+    wide: "Wide window",
     mix_hint: "Meters follow the faders. Mute a channel with the icon under its fader.",
     mic_picker: "Microphone",
     mic_system: "System default",
@@ -265,7 +277,7 @@ const EN: Text = Text {
 };
 
 const JA: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "アプリと更新",
     back: "戻る",
     on: "オン",
@@ -278,9 +290,9 @@ const JA: Text = Text {
     add: "追加",
     picker: "選んだチャンネルへアプリを送る",
     suggest: "候補",
-    running: "再生中",
+    running: "実行中",
     custom: "名前を入力",
-    pick_channel: "先にチャンネルを選んでください。",
+    new_channel_fmt: "新しいチャンネル: {name}",
     pinned: "固定中",
     mix_check: "ミックス確認",
     mix_check_body: "Frame Mic + Mix を最大 10 秒録音し、今の出力で再生します。",
@@ -307,6 +319,12 @@ const JA: Text = Text {
     back_mixer: "ミキサー",
     settings: "アプリ設定",
     meters: "レベルメーター",
+    color: "色",
+    color_blue: "青",
+    color_pink: "ピンク",
+    snap: "スナップ",
+    list_sliders: "リストのスライダー",
+    wide: "ワイド表示",
     mix_hint: "メーターはフェーダーに従います。フェーダー下のアイコンでミュートします。",
     mic_picker: "マイク",
     mic_system: "システムの既定",
@@ -350,7 +368,7 @@ const JA: Text = Text {
 };
 
 const SC: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "应用和更新",
     back: "返回",
     on: "开",
@@ -363,9 +381,9 @@ const SC: Text = Text {
     add: "添加",
     picker: "把应用送到选中的通道",
     suggest: "建议",
-    running: "正在播放",
+    running: "正在运行",
     custom: "自定义名称",
-    pick_channel: "请先选择一个通道。",
+    new_channel_fmt: "新通道：{name}",
     pinned: "已固定",
     mix_check: "混音检查",
     mix_check_body: "录制 Frame Mic + Mix 最多 10 秒，然后在当前输出上播放。",
@@ -392,6 +410,12 @@ const SC: Text = Text {
     back_mixer: "混音器",
     settings: "应用设置",
     meters: "电平表",
+    color: "颜色",
+    color_blue: "蓝色",
+    color_pink: "粉色",
+    snap: "吸附刻度",
+    list_sliders: "列表滑杆",
+    wide: "宽窗口",
     mix_hint: "电平表跟随推子。用推子下方的图标静音。",
     mic_picker: "麦克风",
     mic_system: "系统默认",
@@ -435,7 +459,7 @@ const SC: Text = Text {
 };
 
 const DE: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "Apps und Updates",
     back: "Zurück",
     on: "An",
@@ -448,9 +472,9 @@ const DE: Text = Text {
     add: "Hinzufügen",
     picker: "App auf den gewählten Kanal legen",
     suggest: "Vorschläge",
-    running: "Läuft gerade",
+    running: "Laufende Apps",
     custom: "Eigener Name",
-    pick_channel: "Zuerst einen Kanal wählen.",
+    new_channel_fmt: "Neuer Kanal: {name}",
     pinned: "Festgelegt",
     mix_check: "Mix-Check",
     mix_check_body: "Nimmt Frame Mic + Mix bis zu 10 Sekunden auf und spielt es auf dem aktuellen Ausgang ab.",
@@ -477,6 +501,12 @@ const DE: Text = Text {
     back_mixer: "Mixer",
     settings: "App-Einstellungen",
     meters: "Pegelanzeige",
+    color: "Farbe",
+    color_blue: "Blau",
+    color_pink: "Rosa",
+    snap: "Einrastpunkte",
+    list_sliders: "Regler als Liste",
+    wide: "Breites Fenster",
     mix_hint: "Die Pegel folgen den Reglern. Mit dem Symbol unter dem Regler stumm schalten.",
     mic_picker: "Mikrofon",
     mic_system: "Systemstandard",
@@ -520,7 +550,7 @@ const DE: Text = Text {
 };
 
 const FR: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "Applis et mises à jour",
     back: "Retour",
     on: "Oui",
@@ -533,9 +563,9 @@ const FR: Text = Text {
     add: "Ajouter",
     picker: "Envoyer une appli vers le canal choisi",
     suggest: "Suggestions",
-    running: "En lecture",
+    running: "Applications en cours",
     custom: "Nom personnalisé",
-    pick_channel: "Choisissez d'abord un canal.",
+    new_channel_fmt: "Nouveau canal : {name}",
     pinned: "Épinglé",
     mix_check: "Contrôle du mix",
     mix_check_body: "Enregistre Frame Mic + Mix pendant 10 secondes au plus, puis le joue sur la sortie actuelle.",
@@ -562,6 +592,12 @@ const FR: Text = Text {
     back_mixer: "Mixeur",
     settings: "Réglages",
     meters: "Niveaux",
+    color: "Couleur",
+    color_blue: "Bleu",
+    color_pink: "Rose",
+    snap: "Crans",
+    list_sliders: "Curseurs en liste",
+    wide: "Fenêtre large",
     mix_hint: "Les niveaux suivent les curseurs. L'icône sous un curseur coupe le son.",
     mic_picker: "Microphone",
     mic_system: "Défaut du système",
@@ -605,7 +641,7 @@ const FR: Text = Text {
 };
 
 const ES: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "Apps y actualizaciones",
     back: "Volver",
     on: "Sí",
@@ -618,9 +654,9 @@ const ES: Text = Text {
     add: "Añadir",
     picker: "Enviar una app al canal elegido",
     suggest: "Sugerencias",
-    running: "Sonando ahora",
+    running: "Aplicaciones en ejecución",
     custom: "Nombre propio",
-    pick_channel: "Elige primero un canal.",
+    new_channel_fmt: "Canal nuevo: {name}",
     pinned: "Fijado",
     mix_check: "Prueba de mezcla",
     mix_check_body: "Graba Frame Mic + Mix hasta 10 segundos y lo reproduce en la salida actual.",
@@ -647,6 +683,12 @@ const ES: Text = Text {
     back_mixer: "Mezclador",
     settings: "Ajustes",
     meters: "Medidores",
+    color: "Color",
+    color_blue: "Azul",
+    color_pink: "Rosa",
+    snap: "Ajuste",
+    list_sliders: "Deslizadores en lista",
+    wide: "Ventana ancha",
     mix_hint: "Los medidores siguen los faders. El icono bajo el fader silencia.",
     mic_picker: "Micrófono",
     mic_system: "Predeterminado del sistema",
@@ -690,7 +732,7 @@ const ES: Text = Text {
 };
 
 const IT: Text = Text {
-    title: "Mix",
+    title: "Frame Audio Mixer",
     apps: "App e aggiornamenti",
     back: "Indietro",
     on: "Sì",
@@ -703,9 +745,9 @@ const IT: Text = Text {
     add: "Aggiungi",
     picker: "Manda un'app al canale scelto",
     suggest: "Suggeriti",
-    running: "In riproduzione",
+    running: "App in esecuzione",
     custom: "Nome personalizzato",
-    pick_channel: "Prima scegli un canale.",
+    new_channel_fmt: "Nuovo canale: {name}",
     pinned: "Fissato",
     mix_check: "Prova mix",
     mix_check_body: "Registra Frame Mic + Mix per al massimo 10 secondi e lo riproduce sull'uscita attuale.",
@@ -732,6 +774,12 @@ const IT: Text = Text {
     back_mixer: "Mixer",
     settings: "Impostazioni",
     meters: "Livelli",
+    color: "Colore",
+    color_blue: "Blu",
+    color_pink: "Rosa",
+    snap: "Aggancio",
+    list_sliders: "Cursori in elenco",
+    wide: "Finestra larga",
     mix_hint: "I livelli seguono i fader. L'icona sotto il fader mette in muto.",
     mic_picker: "Microfono",
     mic_system: "Predefinito di sistema",
@@ -781,7 +829,7 @@ pub fn self_test() -> Result<(), String> {
             return Err(code.into());
         }
         let t = text(lang);
-        if t.title.is_empty() || t.footer_start.is_empty() || t.apps.is_empty() {
+        if t.title.is_empty() || t.footer_start.is_empty() || t.apps.is_empty() || !t.new_channel_fmt.contains("{name}") {
             return Err(format!("empty {code}"));
         }
     }

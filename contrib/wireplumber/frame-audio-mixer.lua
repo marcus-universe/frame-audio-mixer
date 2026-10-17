@@ -175,7 +175,7 @@ local function pin_channel_targets ()
     local props = node.properties
     local target = props["target.object"] or props["node.target"] or ""
     local id = tonumber (props["object.id"])
-    if id ~= nil and target:find ("^frame_amix_ch[1-8]$") then
+    if id ~= nil and target:find ("^frame_amix_ch[1-9]%d*$") then
       local serial = node_serial (target)
       if serial ~= nil then
         metadata:set (id, "target.object", nil, tostring (serial))

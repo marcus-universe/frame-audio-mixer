@@ -9,21 +9,32 @@ use crate::updater::{UpdateState, UpdateView, VERSION};
 use crate::worker::Snapshot;
 use cairo::Context;
 
-const APP: (f64, f64, f64, f64) = (28.0, 92.0, 560.0, 568.0);
-const RELATED: (f64, f64, f64, f64) = (604.0, 92.0, 568.0, 568.0);
-
 pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
-    this_app(panel, cr, fonts, t, snap);
-    related(panel, cr, fonts, t, snap);
+    let stage = panel.stage();
+    let top = 92.0;
+    let bottom = stage.footer.1 - 14.0;
+    let gap = 16.0;
+    let (app, related_box) = if stage.portrait {
+        let h = ((bottom - top - gap) / 2.0).max(240.0);
+        ((28.0, top, stage.w - 56.0, h), (28.0, top + h + gap, stage.w - 56.0, h))
+    } else {
+        let inner = stage.w - 56.0;
+        let left_w = (inner - gap) * 560.0 / 1128.0;
+        let right_w = inner - gap - left_w;
+        let h = bottom - top;
+        ((28.0, top, left_w, h), (28.0 + left_w + gap, top, right_w, h))
+    };
+    this_app(panel, cr, fonts, t, snap, app);
+    related(panel, cr, fonts, t, snap, related_box);
 }
 
-fn this_app(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
-    let (x, y, w, h) = APP;
+fn this_app(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, card: (f64, f64, f64, f64)) {
+    let (x, y, w, h) = card;
     draw::card(cr, x, y, w, h);
     let left = x + 22.0;
     draw::label(cr, fonts, true, 22.0, TEXT, left, y + 42.0, t.this_app);
-    fill_round(cr, left, y + 64.0, 64.0, 64.0, 16.0, draw::ACCENT);
-    draw::icon(cr, draw::HEADPHONES_PATH, 16.0, left + 16.0, y + 80.0, 32.0, draw::ON_ACCENT);
+    let logo = crate::brand::icon_png(panel.config.accent == "pink", 128);
+    draw::paint_png_bytes(cr, logo, left, y + 64.0, 64.0, 64.0);
     draw::label(cr, fonts, true, 20.0, TEXT, left + 80.0, y + 90.0, "Frame Audio Mixer");
     draw::label(cr, fonts, false, 14.0, MUTED, left + 80.0 + 196.0, y + 90.0, VERSION);
     draw::label_fit(cr, fonts, false, 13.0, MUTED, left + 80.0, y + 114.0, w - 120.0, t.this_app_desc);
@@ -35,12 +46,12 @@ fn this_app(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Sna
     let seg = (left + 210.0, y + 284.0, 180.0, 48.0);
     fill_round(cr, seg.0, seg.1, seg.2, seg.3, 14.0, draw::CONTROL);
     if on {
-        fill_round(cr, seg.0 + 4.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::ACCENT);
+        fill_round(cr, seg.0 + 4.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::accent());
     } else {
-        fill_round(cr, seg.0 + 90.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::ACCENT);
+        fill_round(cr, seg.0 + 90.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::accent());
     }
-    draw::label(cr, fonts, true, 16.0, if on { draw::ON_ACCENT } else { SOFT }, seg.0 + 28.0, seg.1 + 30.0, t.on);
-    draw::label(cr, fonts, true, 16.0, if on { SOFT } else { draw::ON_ACCENT }, seg.0 + 118.0, seg.1 + 30.0, t.off);
+    draw::label(cr, fonts, true, 16.0, if on { draw::on_accent() } else { SOFT }, seg.0 + 28.0, seg.1 + 30.0, t.on);
+    draw::label(cr, fonts, true, 16.0, if on { SOFT } else { draw::on_accent() }, seg.0 + 118.0, seg.1 + 30.0, t.off);
     panel.hot("upd-on", seg.0, seg.1, 90.0, 48.0);
     panel.hot("upd-off", seg.0 + 90.0, seg.1, 90.0, 48.0);
     draw::label_fit(cr, fonts, false, 13.0, MUTED, left, y + 360.0, w - 44.0, t.list_note);
@@ -78,8 +89,8 @@ fn update_line(t: &Text, update: &UpdateView) -> (String, bool) {
     }
 }
 
-fn related(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
-    let (x, y, w, _h) = RELATED;
+fn related(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, card: (f64, f64, f64, f64)) {
+    let (x, y, w, _h) = card;
     draw::card(cr, x, y, w, _h);
     let left = x + 22.0;
     let inner = w - 44.0;
@@ -145,7 +156,7 @@ fn app_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, entry: &Ent
         let name_w = draw::text_width(cr, fonts, true, 18.0, &entry.name);
         if name_w + 12.0 + tag_w < text_w {
             fill_round(cr, text_x + name_w + 10.0, y + 22.0, tag_w, 22.0, 11.0, draw::CONTROL);
-            draw::label(cr, fonts, true, 12.0, draw::ACCENT, text_x + name_w + 18.0, y + 38.0, t.related_tag);
+            draw::label(cr, fonts, true, 12.0, draw::accent(), text_x + name_w + 18.0, y + 38.0, t.related_tag);
         }
     }
     let desc = if panel.lang == Lang::Ja { entry.desc_ja.as_str() } else { entry.desc_en.as_str() };
@@ -155,15 +166,16 @@ fn app_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, entry: &Ent
 
 pub(crate) fn list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
     backdrop(panel, cr);
-    let (x, y, w, h) = (56.0, 56.0, 1088.0, 676.0);
+    let (x, y, w, h) = panel.sheet(40.0);
     fill_round(cr, x, y, w, h, 18.0, CARD);
     stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    panel.hot("noop", x, y, w, h);
     draw::label(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 40.0, t.all_title);
     draw::label_fit(cr, fonts, false, 13.0, MUTED, x + 28.0, y + 64.0, w - 80.0, t.list_sub);
-    draw::label(cr, fonts, true, 20.0, TEXT, x + w - 48.0, y + 44.0, "×");
-    panel.hot("dismiss", x + w - 56.0, y + 16.0, 40.0, 40.0);
+    draw::icon(cr, draw::CLOSE_PATH, 1024.0, x + w - 48.0, y + 18.0, 28.0, TEXT);
+    panel.hot("dismiss", x + w - 56.0, y + 12.0, 44.0, 44.0);
     let list_top = y + 88.0;
-    let list_h = 400.0;
+    let list_h = (h - 188.0).max(160.0);
     let content = snap.apps.len() as f64 * 104.0;
     panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (content - list_h).max(0.0));
     let _ = cr.save();
@@ -184,14 +196,14 @@ pub(crate) fn list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     if !snap.menu_busy {
         panel.hot("app:", x + w - 250.0, y + h - 80.0, 214.0, 52.0);
     }
-    panel.hot("noop", x, y, w, h);
 }
 
 pub(crate) fn confirm(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, key: &str) {
     backdrop(panel, cr);
-    let (x, y, w, h) = (260.0, 150.0, 680.0, 476.0);
+    let (x, y, w, h) = panel.dialog_rect(680.0, 476.0, 24.0);
     fill_round(cr, x, y, w, h, 18.0, CARD);
     stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    panel.hot("noop", x, y, w, h);
     let entry = snap.apps.iter().find(|entry| entry.key == key);
     let title = if let Some(entry) = entry {
         fmt_token(t.confirm_install_fmt, "name", &entry.name)
@@ -222,5 +234,4 @@ pub(crate) fn confirm(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, 
     panel.hot("confirm-no", x + 28.0, y + h - 76.0, 180.0, 48.0);
     panel.button(cr, fonts, x + w - 230.0, y + h - 76.0, 200.0, 48.0, t.confirm_launch, ButtonKind::Accent);
     panel.hot(&format!("confirm-yes:{key}"), x + w - 230.0, y + h - 76.0, 200.0, 48.0);
-    panel.hot("noop", x, y, w, h);
 }

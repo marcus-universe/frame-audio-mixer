@@ -3,6 +3,7 @@
 //! onto that mix.
 
 mod apps;
+mod brand;
 mod config;
 mod draw;
 mod graph;
@@ -98,7 +99,8 @@ fn main() {
     let mut ui = panel::Panel::new(config);
     let mut levels = meter::Meter::new();
     let mut session: Option<overlay::Session> = None;
-    let mut thumb_sent = false;
+    // Accent of the dashboard icon SteamVR has now. A color change sends the icon again.
+    let mut thumb_accent: Option<String> = None;
     let mut last_draw = Instant::now() - Duration::from_secs(1);
     loop {
         if session.is_none() {
@@ -118,7 +120,11 @@ fn main() {
         if SHOW.swap(false, Ordering::Relaxed) {
             session.show();
         }
-        let events = session.poll(draw::HEIGHT as f64);
+        let (panel_w, panel_h) = ui.pixel_size();
+        if let Err(err) = session.fit(panel_w, panel_h) {
+            eprintln!("frame-audio-mixer: {err}");
+        }
+        let events = session.poll(panel_h as f64);
         let mut dirty = false;
         for event in events {
             if event.kind == overlay::QUIT || event.kind == overlay::OVERLAY_CLOSED {
@@ -141,7 +147,7 @@ fn main() {
                 session.show_keyboard(description, existing);
             }
             apply(&worker, &mut ui, action);
-            if matches!(event.kind, overlay::MOUSE_DOWN | overlay::MOUSE_UP | overlay::SCROLL_DISCRETE | overlay::SCROLL_SMOOTH) {
+            if matches!(event.kind, overlay::MOUSE_DOWN | overlay::MOUSE_UP | overlay::SCROLL_DISCRETE | overlay::SCROLL_SMOOTH) || ui.interacting() {
                 dirty = true;
             }
         }
@@ -154,15 +160,22 @@ fn main() {
             levels.sync(&[]);
         }
         let meters_live = visible && ui.wants_meters() && !ui.meter_targets(&snap).is_empty();
-        let interval = if meters_live { Duration::from_millis(66) } else { Duration::from_millis(250) };
+        let interval = if meters_live { Duration::from_millis(33) } else { Duration::from_millis(250) };
         if visible && (dirty || last_draw.elapsed() >= interval) {
-            let peaks = levels.peaks();
-            let pixels = ui.render(&fonts, &snap, &peaks);
-            let thumb = if thumb_sent { None } else { Some(ui.thumbnail(&fonts)) };
+            let (panel_w, panel_h) = ui.pixel_size();
+            if let Err(err) = session.fit(panel_w, panel_h) {
+                eprintln!("frame-audio-mixer: {err}");
+            }
+            let pixels = {
+                let peaks = levels.peaks();
+                ui.render(&fonts, &snap, peaks)
+            };
+            let accent = ui.config.accent.clone();
+            let thumb = if thumb_accent.as_deref() == Some(accent.as_str()) { None } else { Some(ui.thumbnail(&fonts)) };
             if let Err(err) = session.submit(&pixels, thumb.as_deref()) {
                 eprintln!("frame-audio-mixer: {err}");
             } else {
-                thumb_sent = true;
+                thumb_accent = Some(accent);
             }
             last_draw = Instant::now();
         }
@@ -185,7 +198,7 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
         }
         Action::Record => worker.send(Job::Record),
         Action::StopCheck => worker.send(Job::StopCheck),
-        Action::PlayCheck => worker.send(Job::PlayCheck),
+        Action::PlayClip(id) => worker.send(Job::PlayClip(id)),
         Action::CheckUpdates => {
             let _ = config::save(&config::config_path(), &ui.config);
             worker.send(Job::CheckUpdates);
@@ -203,6 +216,7 @@ fn self_test() -> Result<(), String> {
     draw::self_test_paths()?;
     icons::self_test()?;
     meter::self_test()?;
+    worker::self_test()?;
     updater::self_test()?;
     apps::self_test()?;
     let mut seen = std::collections::HashMap::new();
@@ -220,6 +234,28 @@ fn self_test() -> Result<(), String> {
     };
     if !worker::pin_once(&mut seen, &stream) || worker::pin_once(&mut seen, &stream) {
         return Err("pin once".into());
+    }
+    let mut graph = graph::Graph::default();
+    if panel::resolved_source("", &graph).is_some() {
+        return Err("empty default".into());
+    }
+    graph.nodes.push(graph::AudioNode {
+        id: 4,
+        serial: 77,
+        name: graph::Graph::BUILTIN_SOURCE.into(),
+        description: "Built-in".into(),
+        media_class: "Audio/Source".into(),
+        media_name: String::new(),
+        app_name: String::new(),
+        binary: String::new(),
+        is_virtual: false,
+        target: String::new(),
+    });
+    if panel::resolved_source("", &graph).as_deref() != Some(graph::Graph::BUILTIN_SOURCE) {
+        return Err("system default fallback".into());
+    }
+    if graph.link_target(graph::Graph::BUILTIN_SOURCE) != "77" {
+        return Err("mic serial".into());
     }
     Ok(())
 }

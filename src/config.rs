@@ -6,8 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const MAX_CHANNELS: usize = 8;
+/// Each channel is one systemd instance with two `pw-loopback` processes.
+pub const MAX_CHANNELS: usize = 32;
 pub const NAME_MAX_CHARS: usize = 32;
+/// Fader values a drag snaps to (1.0 is 100%).
+pub const FADER_SNAPS: [f64; 4] = [0.2, 0.5, 0.8, 1.0];
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Channel {
@@ -21,6 +24,11 @@ pub struct Channel {
     pub to_mic_muted: bool,
     #[serde(default)]
     pub phones_muted: bool,
+    /// Set when the channel was created from a running app. Only used to find its icon.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub app: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub binary: String,
 }
 
 impl Channel {
@@ -32,6 +40,8 @@ impl Channel {
             phones: default_phones(),
             to_mic_muted: false,
             phones_muted: false,
+            app: String::new(),
+            binary: String::new(),
         }
     }
 }
@@ -69,6 +79,19 @@ pub struct Config {
     /// Level meters on the faders. Off skips the PipeWire taps entirely.
     #[serde(default = "default_true")]
     pub meters: bool,
+    /// "blue" or "pink". Blue is the default logo color, #33C4FF.
+    #[serde(default = "default_accent")]
+    pub accent: String,
+    /// Drag snaps to 20, 50, 80 and 100 %, and those three dots are drawn.
+    /// Off leaves only the 100 % line and the drag follows the pointer.
+    #[serde(default = "default_true")]
+    pub snap: bool,
+    /// Channels are a vertical list of sideways sliders. Off keeps upright faders.
+    #[serde(default)]
+    pub list: bool,
+    /// Wider dashboard window: 21:9, or 9:21 while `list` is on.
+    #[serde(default)]
+    pub wide: bool,
 }
 
 fn default_language() -> String {
@@ -86,6 +109,9 @@ fn default_phones() -> f64 {
 fn default_true() -> bool {
     true
 }
+fn default_accent() -> String {
+    "blue".to_string()
+}
 
 impl Default for Config {
     fn default() -> Self {
@@ -100,6 +126,10 @@ impl Default for Config {
             pins: Vec::new(),
             mic_source: String::new(),
             meters: true,
+            accent: default_accent(),
+            snap: true,
+            list: false,
+            wide: false,
         }
     }
 }
@@ -153,6 +183,9 @@ fn sanitize(mut config: Config) -> Config {
     }
     config.pins.retain(|pin| is_channel_id(&pin.channel) && !pin.app.is_empty());
     config.mic_source = sanitize_mic_source(&config.mic_source);
+    if config.accent != "pink" {
+        config.accent = "blue".into();
+    }
     config
 }
 
@@ -170,8 +203,31 @@ pub fn clamp_volume(value: f64) -> f64 {
     value.clamp(0.0, 1.5)
 }
 
+/// `ch1` to `ch<MAX_CHANNELS>`, without leading zeros. The id is part of unit and node names.
 pub fn is_channel_id(id: &str) -> bool {
-    matches!(id, "ch1" | "ch2" | "ch3" | "ch4" | "ch5" | "ch6" | "ch7" | "ch8")
+    let Some(digits) = id.strip_prefix("ch") else { return false };
+    if digits.is_empty() || digits.starts_with('0') || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return false;
+    }
+    digits.parse::<usize>().is_ok_and(|n| (1..=MAX_CHANNELS).contains(&n))
+}
+
+/// Pull `value` onto a snap point when it is within `reach` of one.
+pub fn snap_volume(value: f64, reach: f64) -> f64 {
+    FADER_SNAPS
+        .iter()
+        .copied()
+        .filter(|point| (value - point).abs() <= reach)
+        .min_by(|a, b| (value - a).abs().total_cmp(&(value - b).abs()))
+        .unwrap_or(value)
+}
+
+/// A channel name built from an app name, or None when nothing usable is left.
+pub fn name_from_app(app: &str) -> Option<String> {
+    let cleaned: String = app.chars().filter(|c| !matches!(c, '"' | '\\' | '{' | '}' | '\r' | '\n')).collect();
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    let cut: String = collapsed.chars().take(NAME_MAX_CHARS).collect();
+    normalize_name(&cut).ok()
 }
 
 /// Trim, collapse spaces, and reject names that would break a PipeWire property.
@@ -207,6 +263,10 @@ pub fn next_channel_id(channels: &[Channel]) -> Option<String> {
 }
 
 pub fn self_test() -> Result<(), String> {
+    let fresh = Config::default();
+    if !fresh.snap || fresh.list || fresh.wide {
+        return Err("slider defaults".into());
+    }
     assert_eq!(normalize_name("  Music   bed ").unwrap(), "Music bed");
     assert!(normalize_name("").is_err());
     assert!(normalize_name("a\"b").is_err());
@@ -223,6 +283,20 @@ pub fn self_test() -> Result<(), String> {
         channel.id = format!("ch{}", n + 1);
     }
     assert!(next_channel_id(&channels).is_none());
+    assert!(MAX_CHANNELS > 8);
+    for good in ["ch1", "ch9", "ch10", &format!("ch{MAX_CHANNELS}")] {
+        assert!(is_channel_id(good), "{good}");
+    }
+    for bad in ["ch", "ch0", "ch01", "ch-1", "chx", "ch1 ", &format!("ch{}", MAX_CHANNELS + 1)] {
+        assert!(!is_channel_id(bad), "{bad}");
+    }
+    assert_eq!(snap_volume(0.49, 0.02), 0.5);
+    assert_eq!(snap_volume(1.015, 0.02), 1.0);
+    assert_eq!(snap_volume(0.65, 0.02), 0.65);
+    assert_eq!(snap_volume(0.19, 0.02), 0.2);
+    assert_eq!(name_from_app("  Zen \"Browser\"  ").as_deref(), Some("Zen Browser"));
+    assert_eq!(name_from_app(&"y".repeat(40)).map(|n| n.chars().count()), Some(NAME_MAX_CHARS));
+    assert!(name_from_app("\"\"").is_none());
     let dir = std::env::temp_dir().join(format!("frame-amix-test-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -235,7 +309,10 @@ pub fn self_test() -> Result<(), String> {
     game.to_mic = 0.25;
     game.phones = 1.2;
     game.to_mic_muted = true;
+    game.app = "Zen".into();
+    game.binary = "zen".into();
     config.channels.push(game);
+    config.channels.push(Channel::new("ch12", "Video"));
     if sanitize_mic_source("bad name").is_empty() && sanitize_mic_source("builtin") == "builtin" {
     } else {
         return Err("mic source".into());

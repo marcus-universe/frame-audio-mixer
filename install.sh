@@ -113,13 +113,19 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
     echo "This is for the Steam Frame (aarch64), but this machine is $(uname -m)." >&2
     exit 1
 fi
-tools="wpctl systemctl cargo rustc"
+tools="wpctl systemctl"
+if [[ $from_source -eq 1 ]]; then
+    tools="$tools cargo rustc"
+fi
 for tool in $tools; do
     if ! command -v "$tool" >/dev/null 2>&1; then
         if [[ "$tool" == "cargo" || "$tool" == "rustc" ]] && [[ -x "$HOME/.cargo/bin/$tool" ]]; then
             continue
         fi
         echo "Missing tool: $tool" >&2
+        if [[ "$tool" == "cargo" || "$tool" == "rustc" ]]; then
+            echo "Building from source needs Rust (https://rustup.rs). A release archive does not." >&2
+        fi
         exit 1
     fi
 done
@@ -139,7 +145,11 @@ install -Dm755 "$built_bin" "$bin"
 rm -f "$old_update"
 install -Dm755 contrib/frame-audio-mixer-graph.sh "$lib_dir/frame-audio-mixer-graph.sh"
 for size in 48 128 256; do
-    install -Dm644 "contrib/icons/frame-audio-mixer-$size.png" "$icons/${size}x${size}/apps/frame-audio-mixer.png"
+    icon_src="assets/icons/blue-$size.png"
+    if [[ ! -f "$icon_src" ]]; then
+        icon_src="contrib/icons/frame-audio-mixer-$size.png"
+    fi
+    install -Dm644 "$icon_src" "$icons/${size}x${size}/apps/frame-audio-mixer.png"
 done
 mkdir -p "$(dirname "$desktop")" "$name_dir"
 sed "s|@BINARY@|$bin|" contrib/frame-audio-mixer.desktop > "$desktop.tmp"
