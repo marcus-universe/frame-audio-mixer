@@ -122,3 +122,13 @@ Le panneau, l'overlay OpenVR et le programme de mise à jour sont adaptés de Fr
 - https://icon-sets.iconify.design/fluent/record-24-filled/
 - https://icon-sets.iconify.design/fluent/stop-24-filled/
 - https://icon-sets.iconify.design/fluent/play-24-filled/
+
+## Contrôle sur le casque (2026-10-17)
+
+Mesuré pendant que `steamvr.service` et `gamescope-session.service` étaient active. WirePlumber n'a pas été redémarré. Le nouveau script est installé et pas encore chargé.
+
+- `~/.local/bin/frame-audio-mixer` est installé. `frame-audio-mixer.service` est enabled et inactive. `frame-audio-mixer-graph.service` est disabled et inactive. `frame-mic-tuner.service` est enabled et active.
+- `frame-mic-tracker.lua` et `90-frame-mic.conf` sont toujours là et ne mentionnent pas `frame_amix`. `91-frame-audio-mixer.conf` et `frame-audio-mixer.lua` sont installés. Il n'y a pas d'unité `frame-mic-mix.service`.
+- `frame-mic.echo-cancel` vaut false (enregistré false). `frame-mic.noise-suppression` vaut true (enregistré true). `frame-mic.mix` est encore listé, valeur false (enregistré false) : le WirePlumber en cours a gardé la clé. `frame-audio-mixer.enabled` et `frame-audio-mixer.vrlink-gain` ne sont pas encore dans les réglages en cours.
+- `pw-dump` avait 19 nœuds et aucun `frame_amix_*`, `frame_mix_*` ou `frame_micmix*`. Les flux de capture étaient `eq_capture`, `echo_cancel_capture`, `ns_capture` et la boucle ALSA du microphone. Aucun flux de capture VRLink n'était présent, donc son volume n'a pas été mesuré. La source par défaut était `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`. Le sink par défaut était `alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink`.
+- Les contrôles audibles (microphone, écho doublé, micro externe) n'ont pas été faits. Il faut quelqu'un au PC, et le graphe de mixage n'a pas été démarré pendant cette session VR.

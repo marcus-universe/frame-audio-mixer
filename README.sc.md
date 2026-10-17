@@ -122,3 +122,13 @@ cargo build --release
 - https://icon-sets.iconify.design/fluent/record-24-filled/
 - https://icon-sets.iconify.design/fluent/stop-24-filled/
 - https://icon-sets.iconify.design/fluent/play-24-filled/
+
+## 头显上的检查（2026-10-17）
+
+测量时 `steamvr.service` 和 `gamescope-session.service` 都是 active。没有重启 WirePlumber。新脚本已经安装，尚未加载。
+
+- `~/.local/bin/frame-audio-mixer` 已安装。`frame-audio-mixer.service` 为 enabled、inactive。`frame-audio-mixer-graph.service` 为 disabled、inactive。`frame-mic-tuner.service` 为 enabled、active。
+- `frame-mic-tracker.lua` 和 `90-frame-mic.conf` 仍在，其中没有 `frame_amix`。`91-frame-audio-mixer.conf` 和 `frame-audio-mixer.lua` 已安装。没有 `frame-mic-mix.service` 单元。
+- `frame-mic.echo-cancel` 为 false（保存值也是 false）。`frame-mic.noise-suppression` 为 true（保存值也是 true）。`frame-mic.mix` 仍在列表中，值为 false（保存值也是 false）：正在运行的 WirePlumber 保留了这个键。`frame-audio-mixer.enabled` 和 `frame-audio-mixer.vrlink-gain` 还不在正在运行的设置里。
+- `pw-dump` 有 19 个节点，没有 `frame_amix_*`、`frame_mix_*` 或 `frame_micmix*`。采集流是 `eq_capture`、`echo_cancel_capture`、`ns_capture` 和 ALSA 麦克风 loopback。没有 VRLink 采集流，因此没有测量它的音量。默认源是 `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`。默认 sink 是 `alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink`。
+- 没有做听感检查（麦克风、回声叠成两遍、外接麦克风）。那需要有人在 PC 旁，而且这次 VR 会话中没有启动混音图。

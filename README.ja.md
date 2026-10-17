@@ -122,3 +122,13 @@ cargo build --release
 - https://icon-sets.iconify.design/fluent/record-24-filled/
 - https://icon-sets.iconify.design/fluent/stop-24-filled/
 - https://icon-sets.iconify.design/fluent/play-24-filled/
+
+## ヘッドセットでの確認（2026-10-17）
+
+`steamvr.service` と `gamescope-session.service` が active のときに測りました。WirePlumber は再起動していません。新しいスクリプトはインストール済みで、まだ読み込まれていません。
+
+- `~/.local/bin/frame-audio-mixer` は入りました。`frame-audio-mixer.service` は enabled で inactive です。`frame-audio-mixer-graph.service` は disabled で inactive です。`frame-mic-tuner.service` は enabled で active です。
+- `frame-mic-tracker.lua` と `90-frame-mic.conf` はそのままで、`frame_amix` は出てきません。`91-frame-audio-mixer.conf` と `frame-audio-mixer.lua` はインストール済みです。`frame-mic-mix.service` のユニットはありません。
+- `frame-mic.echo-cancel` は false（保存値も false）です。`frame-mic.noise-suppression` は true（保存値も true）です。`frame-mic.mix` はまだ一覧にあり、値は false（保存値も false）です。動いている WirePlumber がキーを残しています。`frame-audio-mixer.enabled` と `frame-audio-mixer.vrlink-gain` は、動いている設定にはまだありません。
+- `pw-dump` のノードは 19 個で、`frame_amix_*`、`frame_mix_*`、`frame_micmix*` はありませんでした。キャプチャは `eq_capture`、`echo_cancel_capture`、`ns_capture`、ALSA のマイクループバックです。VRLink のキャプチャストリームは無く、音量は測っていません。既定のソースは `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`、既定のシンクは `alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink` でした。
+- 聞こえるかどうかの確認（マイク、エコーの二重、外部マイク）はしていません。PC の前に人が必要で、この VR セッション中はミックスのグラフを起動していません。
