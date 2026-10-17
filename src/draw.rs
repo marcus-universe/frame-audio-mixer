@@ -8,13 +8,18 @@ use std::f64::consts::PI;
 pub const WIDTH: i32 = 1200;
 pub const HEIGHT: i32 = 788;
 
-/// Dashboard pixels. Wide is 21:9, and 9:21 while the channel list is on.
+/// Dashboard pixels. Extend is 21:9. With the channel list it is 16:12, as wide
+/// as that 21:9 dashboard so the sliders stay full size.
 pub fn panel_pixels(wide: bool, list: bool) -> (i32, i32) {
     if !wide {
         return (WIDTH, HEIGHT);
     }
     let long = (HEIGHT as f64 * 21.0 / 9.0).round() as i32;
-    if list { (HEIGHT, long) } else { (long, HEIGHT) }
+    if !list {
+        return (long, HEIGHT);
+    }
+    let unit = (long as f64 / 16.0).round() as i32;
+    (unit * 16, unit * 12)
 }
 
 #[derive(Clone, Copy)]
@@ -422,57 +427,20 @@ pub fn fill_meter(cr: &Context, x: f64, y: f64, full_w: f64, h: f64, radius: f64
     let _ = cr.restore();
 }
 
-/// Path and view box. Mute and live glyphs are fitted into one square by `icon_fitted`.
+/// Path and view box. Mute and live glyphs share one view box, so the symbol
+/// stays the same size and stays centered when the slash is drawn.
 pub fn fader_icon(glyph: FaderGlyph, muted: bool) -> (&'static str, f64) {
     match (glyph, muted) {
-        (FaderGlyph::Mic, true) => (MIC_OFF_PATH, 512.0),
-        (FaderGlyph::Mic, false) => (MIC_PATH, 24.0),
-        (FaderGlyph::Speaker, true) => (SPEAKER_OFF_PATH, 56.0),
-        (FaderGlyph::Speaker, false) => (SPEAKER_PATH, 56.0),
+        (FaderGlyph::Mic, true) => (MIC_OFF_PATH, FADER_ICON_VIEW),
+        (FaderGlyph::Mic, false) => (MIC_PATH, FADER_ICON_VIEW),
+        (FaderGlyph::Speaker, true) => (SPEAKER_OFF_PATH, FADER_ICON_VIEW),
+        (FaderGlyph::Speaker, false) => (SPEAKER_PATH, FADER_ICON_VIEW),
     }
-}
-
-/// Draw a glyph so its ink fills `size` and stays centered in that square.
-/// Mute and unmute then occupy the same place.
-pub fn icon_fitted(cr: &Context, path: &str, slash: bool, x: f64, y: f64, size: f64, c: Rgb) {
-    let _ = cr.save();
-    append_svg(cr, path);
-    if slash {
-        cr.move_to(96.0, 64.0);
-        cr.line_to(432.0, 400.0);
-    }
-    let Ok((mut x1, mut y1, mut x2, mut y2)) = cr.path_extents() else {
-        let _ = cr.restore();
-        return;
-    };
-    let _ = cr.new_path();
-    if slash {
-        x1 -= 16.0;
-        y1 -= 16.0;
-        x2 += 16.0;
-        y2 += 16.0;
-    }
-    let bw = (x2 - x1).max(0.01);
-    let bh = (y2 - y1).max(0.01);
-    let scale = size / bw.max(bh);
-    cr.translate(x + (size - bw * scale) / 2.0 - x1 * scale, y + (size - bh * scale) / 2.0 - y1 * scale);
-    cr.scale(scale, scale);
-    append_svg(cr, path);
-    fill(cr, c, 1.0);
-    if slash {
-        cr.set_source_rgb(c.r, c.g, c.b);
-        cr.set_line_width(32.0);
-        cr.set_line_cap(cairo::LineCap::Round);
-        cr.move_to(96.0, 64.0);
-        cr.line_to(432.0, 400.0);
-        let _ = cr.stroke();
-    }
-    let _ = cr.restore();
 }
 
 fn paint_fader_glyph(cr: &Context, glyph: FaderGlyph, muted: bool, x: f64, y: f64, size: f64) {
-    let (path, _) = fader_icon(glyph, muted);
-    icon_fitted(cr, path, muted && glyph == FaderGlyph::Mic, x, y, size, TEXT);
+    let (path, view) = fader_icon(glyph, muted);
+    icon(cr, path, view, x, y, size, TEXT);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -589,7 +557,8 @@ pub fn paint_fader(
     }
 }
 
-/// A sideways fader: the track grows to the right. The 100% mark stays a line.
+/// A sideways fader: the mute icon, then the track growing to the right, then the percent.
+/// The 100% mark stays a line.
 pub fn paint_side_fader(
     cr: &Context,
     fonts: &Fonts,
@@ -603,14 +572,13 @@ pub fn paint_side_fader(
     muted: bool,
     glyph: FaderGlyph,
     snaps: bool,
-    icon_at_start: bool,
 ) -> FaderGeom {
     let track_h = 26.0;
     let icon_box = 28.0;
     let icon_s = 22.0;
     let pct_w = 46.0;
     let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
-    let track_x = if icon_at_start { x + icon_box + 6.0 } else { x };
+    let track_x = x + icon_box + 6.0;
     let track_y = y + (h - track_h) / 2.0;
     let radius = track_h / 2.0;
     let fraction = (percent / 150.0).clamp(0.0, 1.0);
@@ -661,7 +629,7 @@ pub fn paint_side_fader(
     let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
     label(cr, fonts, true, 13.0, pct_color, track_x + track_w + 6.0, track_y + track_h / 2.0 + 4.0, &pct);
 
-    let icon_x = if icon_at_start { x + (icon_box - icon_s) / 2.0 } else { x + w - icon_box + (icon_box - icon_s) / 2.0 };
+    let icon_x = x + (icon_box - icon_s) / 2.0;
     let icon_y = y + (h - icon_s) / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
     FaderGeom {
@@ -716,15 +684,17 @@ pub fn surface_to_rgba(surface: &mut ImageSurface) -> Vec<u8> {
 }
 
 // Icon paths are copied from Iconify and stored here. Nothing is fetched at runtime.
-// They are the same paths Frame Mic Tuner's mic-mix branch draws. Licenses are in NOTICE.
-/// fontisto:mic, view box 24, MIT.
-pub const MIC_PATH: &str = "M8.4 16.8a4.805 4.805 0 0 0 4.8-4.8V4.8a4.8 4.8 0 1 0-9.6 0V12a4.805 4.805 0 0 0 4.8 4.8 M16.8 12V9.6a1.2 1.2 0 1 0-2.4 0V12a6 6 0 1 1-12 0V9.6a1.2 1.2 0 1 0-2.4 0V12a8.406 8.406 0 0 0 7.154 8.298l.046.006V21.6H3.6a1.2 1.2 0 1 0 0 2.4h9.6a1.2 1.2 0 1 0 0-2.4H9.6v-1.296c4.09-.609 7.193-4.093 7.2-8.303z";
-/// famicons:mic-off, view box 512, MIT. The slash is `mic_off_slash`.
-pub const MIC_OFF_PATH: &str = "M400 240v-31.55c0-8.61-6.62-16-15.23-16.43A16 16 0 0 0 368 208v32a111.7 111.7 0 0 1-2.68 24.38a2 2 0 0 0 .53 1.84l22.59 22.59a2 2 0 0 0 3.29-.72A143.3 143.3 0 0 0 400 240M256 352a112.36 112.36 0 0 1-112-112v-31.55c0-8.61-6.62-16-15.23-16.43A16 16 0 0 0 112 208v32c0 74 56.1 135.12 128 143.11V432h-47.55c-8.61 0-16 6.62-16.43 15.23A16 16 0 0 0 192 464h127.55c8.61 0 16-6.62 16.43-15.23A16 16 0 0 0 320 432h-48v-48.89a143.1 143.1 0 0 0 52-16.22a4 4 0 0 0 .91-6.35l-18.4-18.39a3 3 0 0 0-3.41-.58A111 111 0 0 1 256 352m1.14-304a79.66 79.66 0 0 0-68.47 36.57a4 4 0 0 0 .54 5L332.59 233a2 2 0 0 0 3.41-1.42V128.91C336 85 301 48.6 257.14 48M179.41 215a2 2 0 0 0-3.41 1.42V239a80.9 80.9 0 0 0 23.45 56.9a78.55 78.55 0 0 0 77.8 21.19a2 2 0 0 0 .86-3.35Z";
-/// f7:speaker-2-fill, view box 56, MIT.
-pub const SPEAKER_PATH: &str = "M26 49.451c1.581 0 2.721-1.163 2.721-2.721V9.637c0-1.558-1.14-2.86-2.767-2.86c-1.14 0-1.907.511-3.14 1.674l-10.256 9.698a.9.9 0 0 1-.604.209H5.046C1.768 18.358 0 20.148 0 23.637v9.023c0 3.489 1.767 5.28 5.047 5.28h6.907c.232 0 .441.07.604.209l10.256 9.79c1.116 1.047 2.046 1.512 3.186 1.512m22.489-4.744c.906.604 2.023.372 2.674-.558c3.07-4.28 4.837-9.977 4.837-15.93c0-5.977-1.744-11.675-4.837-15.954c-.674-.907-1.768-1.14-2.674-.535c-.884.605-1.024 1.744-.326 2.744c2.535 3.721 4.093 8.605 4.093 13.744c0 5.14-1.512 10.07-4.117 13.745c-.65 1-.534 2.14.35 2.744m-9.28-6.28c.791.559 1.93.373 2.605-.534c1.814-2.442 2.907-6.024 2.907-9.675c0-3.65-1.116-7.209-2.907-9.697c-.674-.907-1.79-1.093-2.605-.535c-1.023.674-1.14 1.86-.395 2.883c1.349 1.814 2.163 4.582 2.163 7.35s-.86 5.534-2.186 7.371c-.698 1-.582 2.14.418 2.838";
-/// f7:speaker-slash-fill, view box 56, MIT.
-pub const SPEAKER_OFF_PATH: &str = "M39.18 33.402V8.207c0-1.57-1.149-2.883-2.79-2.883c-1.148 0-1.921.516-3.163 1.688l-9.61 9.093c-.14.141-.281.235-.445.282l-.938.07Zm7.593 16.57c.727.704 1.875.704 2.555 0c.703-.726.727-1.85 0-2.554L9.203 7.293a1.84 1.84 0 0 0-2.578 0c-.68.68-.68 1.875 0 2.555Zm-10.336-1.64c1.383 0 2.344-.82 2.649-2.203l-27.68-27.633c-.75.89-1.172 2.18-1.172 3.82v9.094c0 3.516 1.781 5.32 5.086 5.32h6.961c.235 0 .446.07.586.211l10.36 9.868c1.125 1.054 2.062 1.523 3.21 1.523";
+// Licenses are in NOTICE. The fader pair shares one view box so mute does not rescale the glyph.
+/// Phosphor microphone, microphone-slash, speaker-high and speaker-slash. View box 256.
+const FADER_ICON_VIEW: f64 = 256.0;
+/// ph:microphone-fill, view box 256, MIT.
+pub const MIC_PATH: &str = "M80 128V64a48 48 0 0 1 96 0v64a48 48 0 0 1-96 0m128 0a8 8 0 0 0-16 0a64 64 0 0 1-128 0a8 8 0 0 0-16 0a80.11 80.11 0 0 0 72 79.6V240a8 8 0 0 0 16 0v-32.4a80.11 80.11 0 0 0 72-79.6";
+/// ph:microphone-slash-fill, view box 256, MIT.
+pub const MIC_OFF_PATH: &str = "M213.38 229.92a8 8 0 0 1-11.3-.54l-30.92-34A78.8 78.8 0 0 1 136 207.59V240a8 8 0 0 1-16 0v-32.4A80.11 80.11 0 0 1 48 128a8 8 0 0 1 16 0a64.07 64.07 0 0 0 64 64a63.4 63.4 0 0 0 32.21-8.68l-11.1-12.2A48 48 0 0 1 80 128V95.09L42.08 53.38a8 8 0 0 1 11.84-10.76l160 176a8 8 0 0 1-.54 11.3m-24.19-63.13a7.9 7.9 0 0 0 3.51.82a8 8 0 0 0 7.19-4.49A79.16 79.16 0 0 0 208 128a8 8 0 0 0-16 0a63.3 63.3 0 0 1-6.48 28.09a8 8 0 0 0 3.67 10.7m-27.33-29.22a8 8 0 0 0 13.88-4.57a50 50 0 0 0 .26-5V64a48 48 0 0 0-92-19.13a8 8 0 0 0 1.41 8.57Z";
+/// ph:speaker-high-fill, view box 256, MIT.
+pub const SPEAKER_PATH: &str = "M160 32.25v191.44a8.29 8.29 0 0 1-3.91 7.18a8 8 0 0 1-9-.56l-65.57-51a4 4 0 0 1-1.52-3.15V79.84a4 4 0 0 1 1.55-3.15l65.57-51a8 8 0 0 1 10 .16a8.27 8.27 0 0 1 2.88 6.4M60 80H32a16 16 0 0 0-16 16v64a16 16 0 0 0 16 16h28a4 4 0 0 0 4-4V84a4 4 0 0 0-4-4m126.77 20.84a8 8 0 0 0-.72 11.3a24 24 0 0 1 0 31.72a8 8 0 1 0 12 10.58a40 40 0 0 0 0-52.88a8 8 0 0 0-11.31-.72Zm40.89-26.17a8 8 0 1 0-11.92 10.66a64 64 0 0 1 0 85.34a8 8 0 1 0 11.92 10.66a80 80 0 0 0 0-106.66";
+/// ph:speaker-slash-fill, view box 256, MIT.
+pub const SPEAKER_OFF_PATH: &str = "M213.92 210.62a8 8 0 1 1-11.84 10.76L160 175.09v48.6a8.29 8.29 0 0 1-3.91 7.18a8 8 0 0 1-9-.56l-65.55-51a4 4 0 0 1-1.54-3.13V87.09L42.08 45.38a8 8 0 1 1 11.84-10.76Zm-27.21-55.46a8 8 0 0 0 11.29-.7a40 40 0 0 0 0-52.88a8 8 0 1 0-12 10.57a24 24 0 0 1 0 31.72a8 8 0 0 0 .71 11.29m40.92-80.49a8 8 0 1 0-11.92 10.66a64 64 0 0 1 0 85.34a8 8 0 1 0 11.92 10.66a80 80 0 0 0 0-106.66M153 119.87a4 4 0 0 0 7-2.7V32.25a8.27 8.27 0 0 0-2.88-6.4a8 8 0 0 0-10-.16l-43.29 33.64a4 4 0 0 0-.5 5.85ZM60 80H32a16 16 0 0 0-16 16v64a16 16 0 0 0 16 16h28a4 4 0 0 0 4-4V84a4 4 0 0 0-4-4";
 /// fluent:add-square-28-filled, view box 28, MIT.
 pub const ADD_PATH: &str = "M3 6.75A3.75 3.75 0 0 1 6.75 3h14.5A3.75 3.75 0 0 1 25 6.75v14.5A3.75 3.75 0 0 1 21.25 25H6.75A3.75 3.75 0 0 1 3 21.25zm11 .75a.75.75 0 0 0-.75.75v5h-5a.75.75 0 0 0 0 1.5h5v5a.75.75 0 0 0 1.5 0v-5h5a.75.75 0 0 0 0-1.5h-5v-5A.75.75 0 0 0 14 7.5";
 /// heroicons:language-16-solid, view box 16, MIT.
@@ -1014,10 +984,10 @@ pub fn self_test_paths() -> Result<(), String> {
     let surface = ImageSurface::create(Format::ARgb32, 16, 16).map_err(|e| e.to_string())?;
     let cr = Context::new(&surface).map_err(|e| e.to_string())?;
     for (path, view) in [
-        (MIC_PATH, 24.0),
-        (MIC_OFF_PATH, 512.0),
-        (SPEAKER_PATH, 56.0),
-        (SPEAKER_OFF_PATH, 56.0),
+        (MIC_PATH, FADER_ICON_VIEW),
+        (MIC_OFF_PATH, FADER_ICON_VIEW),
+        (SPEAKER_PATH, FADER_ICON_VIEW),
+        (SPEAKER_OFF_PATH, FADER_ICON_VIEW),
         (ADD_PATH, 28.0),
         (LANG_PATH, 16.0),
         (HEADPHONES_PATH, 16.0),
@@ -1039,6 +1009,26 @@ pub fn self_test_paths() -> Result<(), String> {
     }
     if fader_icon(FaderGlyph::Speaker, false).0 != SPEAKER_PATH || fader_icon(FaderGlyph::Mic, false).0 != MIC_PATH {
         return Err("live icons".into());
+    }
+    let (list_w, list_h) = panel_pixels(true, true);
+    if list_w * 12 != list_h * 16 || list_w <= WIDTH {
+        return Err(format!("list extend {list_w}x{list_h}"));
+    }
+    let (wide_w, wide_h) = panel_pixels(true, false);
+    if wide_h != HEIGHT || wide_w <= WIDTH {
+        return Err(format!("extend 21:9 {wide_w}x{wide_h}"));
+    }
+    if panel_pixels(false, true) != (WIDTH, HEIGHT) || panel_pixels(false, false) != (WIDTH, HEIGHT) {
+        return Err("normal dashboard".into());
+    }
+    let views = [
+        fader_icon(FaderGlyph::Mic, false).1,
+        fader_icon(FaderGlyph::Mic, true).1,
+        fader_icon(FaderGlyph::Speaker, false).1,
+        fader_icon(FaderGlyph::Speaker, true).1,
+    ];
+    if views.iter().any(|view| (*view - FADER_ICON_VIEW).abs() > 0.01) {
+        return Err("icon view".into());
     }
     let quiet = level_color(0.0);
     let loud = level_color(1.0);

@@ -195,7 +195,6 @@ fn draw_list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peaks: &H
         panel.config.mic_muted,
         draw::FaderGlyph::Mic,
         panel.config.snap,
-        false,
     );
     panel.fader_hit("mic", mic.capsule_x, mic.capsule_y, mic.capsule_w, mic.capsule_h, true);
     panel.hot("mute:mic", mic.icon_x - 4.0, mic.icon_y - 4.0, mic.icon_s + 8.0, mic.icon_s + 8.0);
@@ -298,7 +297,6 @@ fn list_channel(
         channel.phones_muted,
         draw::FaderGlyph::Speaker,
         panel.config.snap,
-        true,
     );
     view.fader(panel, &format!("phones:{}", channel.id), left.capsule_x, left.capsule_y, left.capsule_w, left.capsule_h);
     view.hot(panel, &format!("mute:phones:{}", channel.id), left.icon_x - 4.0, left.icon_y - 4.0, left.icon_s + 8.0, left.icon_s + 8.0);
@@ -315,7 +313,6 @@ fn list_channel(
         channel.to_mic_muted,
         draw::FaderGlyph::Mic,
         panel.config.snap,
-        false,
     );
     view.fader(panel, &format!("tomic:{}", channel.id), right.capsule_x, right.capsule_y, right.capsule_w, right.capsule_h);
     view.hot(panel, &format!("mute:tomic:{}", channel.id), right.icon_x - 4.0, right.icon_y - 4.0, right.icon_s + 8.0, right.icon_s + 8.0);

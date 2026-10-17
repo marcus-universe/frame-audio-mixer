@@ -317,11 +317,10 @@ impl Drop for Session {
     }
 }
 
-/// Keep the shorter side the same physical size as the 1200×788 panel.
-fn overlay_width_m(width: i32, height: i32) -> f32 {
-    let aspect = width as f32 / height.max(1) as f32;
-    let short = WIDTH_M * (crate::draw::HEIGHT as f32) / (crate::draw::WIDTH as f32);
-    if aspect >= 1.0 { short * aspect } else { short }
+/// Meters across the overlay. A pixel keeps the size it has on the 1200×788
+/// panel, so a wider or taller dashboard grows in the headset.
+fn overlay_width_m(width: i32, _height: i32) -> f32 {
+    WIDTH_M * (width as f32) / (crate::draw::WIDTH as f32)
 }
 
 fn decode(buf: &[u8], panel_h: f64) -> Pointer {

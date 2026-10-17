@@ -14,16 +14,10 @@ at runtime. Licenses below are the ones published with each Iconify collection
 (@iconify-json/*/info.json, the same metadata as
 https://api.iconify.design/collection?prefix=<set>&info=1):
 
-- fontisto:mic — Fontisto, Kenan Gündoğan, MIT
-  https://icon-sets.iconify.design/fontisto/mic/
-  https://github.com/kenangundogan/fontisto/blob/master/LICENSE
-- famicons:mic-off — Famicons, Family, MIT
-  https://icon-sets.iconify.design/famicons/mic-off/
-  https://github.com/familyjs/famicons/blob/main/LICENSE
-- f7:speaker-2-fill and f7:speaker-slash-fill — Framework7 Icons,
-  Vladimir Kharlampidi, MIT
-  https://icon-sets.iconify.design/f7/speaker-2-fill/
-  https://github.com/framework7io/framework7-icons/blob/master/LICENSE
+- ph:microphone-fill, ph:microphone-slash-fill, ph:speaker-high-fill and
+  ph:speaker-slash-fill — Phosphor Icons, MIT
+  https://icon-sets.iconify.design/ph/microphone-fill/
+  https://github.com/phosphor-icons/core/blob/main/LICENSE
 - fluent:add-square-28-filled — Fluent UI System Icons, Microsoft Corporation, MIT
   https://icon-sets.iconify.design/fluent/add-square-28-filled/
   https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE

@@ -8,10 +8,10 @@ The Frame Audio Mixer logo is in `assets/logo/` as SVG, in blue and pink. `asset
 
 | Icon | Set | Author | License |
 | --- | --- | --- | --- |
-| [fontisto:mic](https://icon-sets.iconify.design/fontisto/mic/) | fontisto | Kenan Gündoğan | MIT |
-| [famicons:mic-off](https://icon-sets.iconify.design/famicons/mic-off/) | famicons | Family | MIT |
-| [f7:speaker-2-fill](https://icon-sets.iconify.design/f7/speaker-2-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
-| [f7:speaker-slash-fill](https://icon-sets.iconify.design/f7/speaker-slash-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [ph:microphone-fill](https://icon-sets.iconify.design/ph/microphone-fill/) | Phosphor | Phosphor Icons | MIT |
+| [ph:microphone-slash-fill](https://icon-sets.iconify.design/ph/microphone-slash-fill/) | Phosphor | Phosphor Icons | MIT |
+| [ph:speaker-high-fill](https://icon-sets.iconify.design/ph/speaker-high-fill/) | Phosphor | Phosphor Icons | MIT |
+| [ph:speaker-slash-fill](https://icon-sets.iconify.design/ph/speaker-slash-fill/) | Phosphor | Phosphor Icons | MIT |
 | [fluent:add-square-28-filled](https://icon-sets.iconify.design/fluent/add-square-28-filled/) | Fluent | Microsoft | MIT |
 | [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
 | [circle-flags](https://icon-sets.iconify.design/circle-flags/) en, de, fr, cn, jp, es, it (PNG) | Circle Flags | HatScripts | MIT |
