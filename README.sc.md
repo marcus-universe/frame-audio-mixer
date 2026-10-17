@@ -102,26 +102,36 @@ cargo build --release
 
 2026-10-17 在这台头显上，`cargo build --release` 已完成，`--self-test` 打印了 `self-test ok`。`ja`、`en`、`sc`、`de`、`fr`、`es`、`it` 的 `--dump-png` 都是 1200×788 的图像。每张图页脚最右侧像素是 x=1152，没有一种语言的页脚超出 1200px 的面板。
 
+## 麦克风、电平、应用
+
+麦克风选择只作用于混音。应用不会调用 `wpctl set-default`。「系统默认」跟随系统音源。「Frame 内置麦克风」是 `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`，即 Frame Mic Tuner 之后 Valve 链路的末端。`frame-audio-mixer.mic-source` 要等头显空闲、WirePlumber 下次启动时才生效。
+
+电平表只在面板可见、混音打开、并且语言菜单旁齿轮里的电平表为开时运行。每个采样是带 `node.virtual=true` 的 `pw-record`。声道是 passive，麦克风不是。可见时以 15 fps 重绘。
+
+应用与更新显示本应用、作为相关应用的 Frame Mic Tuner，以及 sasaken 的 Frame 应用。安装会打开 Konsole。已经在运行的 Frame Mic Tuner 没有安装按钮。
+
+更新器是 Rust（`ureq` 与 rustls、`sha2`、`flate2`、`tar`）。不再安装 `frame-update.sh`。检查会读取 GitHub 最新 release。安装会复制二进制并用 `systemd-run --user --unit=frame-audio-mixer-update` 启动。下载仅限 GitHub 的 HTTPS，最多 256 MB，SHA-256 必须一致，tar 不得包含绝对路径、`..`、链接或设备文件。`scripts/get.sh` 需要 `curl`、`sha256sum` 和 `tar`。在发布 release 之前，它会说明还没有 release。`scripts/package.sh` 还会写出内容相同的 `dist/frame-audio-mixer-aarch64.tar.gz`。
+
 ## 致谢
 
-面板、OpenVR overlay 和更新器移植自 sasaken1102r 的 Frame Mic Tuner（MIT）：https://github.com/sasaken1102r/frame-mic-tuner
+面板和 OpenVR overlay 移植自 sasaken1102r 的 Frame Mic Tuner（MIT）：https://github.com/sasaken1102r/frame-mic-tuner
 
-`vendor/frame-updater/frame-update.sh` 是该项目的更新器。
+应用列表是 frame-apps 0.3.1 的 Rust 移植，那些图标是 MIT。更新器按该项目的行为用 Rust 重写。见 `NOTICE`。
 
 ## 图标
 
-`scripts/make-icons.py` 绘制仪表盘图标。面板字形来自 Iconify 上的 MIT 图标：
+`scripts/make-icons.py` 绘制仪表盘图标。录音、停止和播放是绘制的形状。其余字形是嵌入的路径：
 
-- https://icon-sets.iconify.design/heroicons/language-16-solid/
-- https://icon-sets.iconify.design/fontisto/mic/
-- https://icon-sets.iconify.design/famicons/mic-off/
-- https://icon-sets.iconify.design/f7/speaker-2-fill/
-- https://icon-sets.iconify.design/f7/speaker-slash-fill/
-- https://icon-sets.iconify.design/fluent/add-square-28-filled/
-- https://icon-sets.iconify.design/at-icons/headphones/（@icons，作者 Valentin Fossati）
-- https://icon-sets.iconify.design/fluent/record-24-filled/
-- https://icon-sets.iconify.design/fluent/stop-24-filled/
-- https://icon-sets.iconify.design/fluent/play-24-filled/
+| 图标 | 集合 | 作者 | 许可 |
+| --- | --- | --- | --- |
+| [fontisto:mic](https://icon-sets.iconify.design/fontisto/mic/) | fontisto | Kenan Gündoğan | MIT |
+| [famicons:mic-off](https://icon-sets.iconify.design/famicons/mic-off/) | famicons | Family | MIT |
+| [f7:speaker-2-fill](https://icon-sets.iconify.design/f7/speaker-2-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [f7:speaker-slash-fill](https://icon-sets.iconify.design/f7/speaker-slash-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [fluent:add-square-28-filled](https://icon-sets.iconify.design/fluent/add-square-28-filled/) | Fluent | Microsoft | MIT |
+| [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
+| [at-icons:headphones](https://icon-sets.iconify.design/at-icons/headphones/) | @icons | Valentin Fossati | MIT |
+| [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 
 ## 头显上的检查（2026-10-17）
 

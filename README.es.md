@@ -102,26 +102,36 @@ cargo build --release
 
 En este visor el 2026-10-17, `cargo build --release` terminó y `--self-test` imprimió `self-test ok`. `--dump-png` para `ja`, `en`, `sc`, `de`, `fr`, `es` e `it` escribió imágenes de 1200×788. En cada imagen el píxel más a la derecha del pie estaba en x=1152. Ningún idioma se salía del panel de 1200 px.
 
+## Micrófono, medidores, apps
+
+La elección del micrófono solo afecta a la mezcla. La app no llama a `wpctl set-default`. «Predeterminado del sistema» sigue la fuente del sistema. «Micrófono del Frame» es `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`, el final de la cadena de Valve después de Frame Mic Tuner. `frame-audio-mixer.mic-source` se lee la próxima vez que WirePlumber arranca, solo con el visor en reposo.
+
+Los medidores solo funcionan si el panel está visible, la mezcla está activa y los medidores están activos en Ajustes (el engranaje junto al idioma). Cada toma es un `pw-record` con `node.virtual=true`. Los canales son pasivos; el micrófono no. El panel se redibuja a 15 fps mientras están activos.
+
+Apps y actualizaciones muestra esta app, Frame Mic Tuner como app relacionada y las apps de Frame de sasaken. Instalar abre Konsole. Un Frame Mic Tuner que ya está en ejecución no tiene botón Instalar.
+
+El actualizador es Rust (`ureq` con rustls, `sha2`, `flate2`, `tar`). Ya no se instala `frame-update.sh`. La comprobación lee la última release de GitHub. La instalación copia el binario y lo arranca con `systemd-run --user --unit=frame-audio-mixer-update`. Descargas solo por HTTPS de GitHub, máximo 256 MB, el SHA-256 debe coincidir, y el tar se rechaza si tiene una ruta absoluta, `..`, un enlace o un dispositivo. `scripts/get.sh` necesita `curl`, `sha256sum` y `tar`. Hasta que haya una release, dice que todavía no hay. `scripts/package.sh` también escribe `dist/frame-audio-mixer-aarch64.tar.gz` con los mismos bytes.
+
 ## Crédito
 
-El panel, el overlay de OpenVR y el actualizador están adaptados de Frame Mic Tuner de sasaken1102r, con licencia MIT: https://github.com/sasaken1102r/frame-mic-tuner
+El panel y el overlay de OpenVR están adaptados de Frame Mic Tuner de sasaken1102r, con licencia MIT: https://github.com/sasaken1102r/frame-mic-tuner
 
-`vendor/frame-updater/frame-update.sh` es el actualizador de ese proyecto.
+La lista de apps es un port a Rust de frame-apps 0.3.1. Esos iconos son MIT. El actualizador sigue el comportamiento de ese proyecto, reescrito en Rust. Véase `NOTICE`.
 
 ## Iconos
 
-`scripts/make-icons.py` dibuja el icono del panel. Los glifos del panel son iconos MIT de Iconify:
+`scripts/make-icons.py` dibuja el icono del panel. Grabar, Parar y Reproducir son formas dibujadas. Los demás glifos son trazados incrustados:
 
-- https://icon-sets.iconify.design/heroicons/language-16-solid/
-- https://icon-sets.iconify.design/fontisto/mic/
-- https://icon-sets.iconify.design/famicons/mic-off/
-- https://icon-sets.iconify.design/f7/speaker-2-fill/
-- https://icon-sets.iconify.design/f7/speaker-slash-fill/
-- https://icon-sets.iconify.design/fluent/add-square-28-filled/
-- https://icon-sets.iconify.design/at-icons/headphones/ (@icons de Valentin Fossati)
-- https://icon-sets.iconify.design/fluent/record-24-filled/
-- https://icon-sets.iconify.design/fluent/stop-24-filled/
-- https://icon-sets.iconify.design/fluent/play-24-filled/
+| Icono | Conjunto | Autor | Licencia |
+| --- | --- | --- | --- |
+| [fontisto:mic](https://icon-sets.iconify.design/fontisto/mic/) | fontisto | Kenan Gündoğan | MIT |
+| [famicons:mic-off](https://icon-sets.iconify.design/famicons/mic-off/) | famicons | Family | MIT |
+| [f7:speaker-2-fill](https://icon-sets.iconify.design/f7/speaker-2-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [f7:speaker-slash-fill](https://icon-sets.iconify.design/f7/speaker-slash-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [fluent:add-square-28-filled](https://icon-sets.iconify.design/fluent/add-square-28-filled/) | Fluent | Microsoft | MIT |
+| [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
+| [at-icons:headphones](https://icon-sets.iconify.design/at-icons/headphones/) | @icons | Valentin Fossati | MIT |
+| [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 
 ## Comprobación en el visor (2026-10-17)
 

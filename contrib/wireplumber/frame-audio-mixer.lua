@@ -102,17 +102,52 @@ local function apply_route ()
   end
 end
 
--- The mic capture follows the current default source, and never our own output.
+-- End of the Valve chain that Frame Mic Tuner already configured.
+local builtin_source = "alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source"
+
+local function setting_string (key)
+  if Settings.get_string == nil then
+    return ""
+  end
+  local ok, value = pcall (Settings.get_string, key)
+  if ok and type (value) == "string" then
+    return value
+  end
+  return ""
+end
+
+-- frame-audio-mixer.mic-source: "" follows the system default, "builtin" is the
+-- loopback after Frame Mic Tuner, anything else is a source node.name.
+-- A missing node, or our own mix source, falls back to the system default.
+-- This never calls wpctl set-default.
 local function pin_from_mic ()
   local metadata = default_om:lookup ()
   if metadata == nil then
     return
   end
-  local name = metadata_name (metadata, "default.audio.source")
+  local chosen = setting_string ("frame-audio-mixer.mic-source")
+  local name
+  if chosen == "" then
+    name = metadata_name (metadata, "default.audio.source")
+  elseif chosen == "builtin" then
+    name = builtin_source
+  else
+    name = chosen
+  end
+  if name == nil or name == "" or name == source_name or name:find ("^frame_amix_") then
+    name = metadata_name (metadata, "default.audio.source")
+  end
   if name == nil or name == source_name then
     return
   end
   local serial = node_serial (name)
+  if serial == nil then
+    name = metadata_name (metadata, "default.audio.source")
+    if name == nil or name == source_name then
+      return
+    end
+    serial = node_serial (name)
+  end
   if serial == nil then
     return
   end

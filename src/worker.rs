@@ -4,7 +4,8 @@
 
 use crate::config::{Channel, Config, is_channel_id};
 use crate::graph::{AudioNode, Graph, parse_dump};
-use crate::updates::{self, UpdateView};
+use crate::apps::{self, Entry};
+use crate::updater::{self, UpdateView};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -29,7 +30,10 @@ pub struct Snapshot {
     pub tuner_version: String,
     pub update: UpdateView,
     pub check: CheckPhase,
+    pub check_secs: f64,
     pub message: String,
+    pub apps: Vec<Entry>,
+    pub menu_busy: bool,
 }
 
 impl Default for Snapshot {
@@ -42,7 +46,10 @@ impl Default for Snapshot {
             tuner_version: String::new(),
             update: UpdateView::default(),
             check: CheckPhase::Idle,
+            check_secs: 0.0,
             message: String::new(),
+            apps: Vec::new(),
+            menu_busy: false,
         }
     }
 }
@@ -56,6 +63,7 @@ pub enum Job {
     PlayCheck,
     CheckUpdates,
     InstallUpdate,
+    OpenInstaller(String),
     Quit,
 }
 
@@ -100,6 +108,9 @@ struct State {
     check_phase: CheckPhase,
     check_started: Option<Instant>,
     message: String,
+    apps: apps::Manager,
+    mutes: HashMap<String, bool>,
+    last_check: Option<Instant>,
 }
 
 fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
@@ -111,6 +122,9 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         check_phase: CheckPhase::Idle,
         check_started: None,
         message: String::new(),
+        apps: apps::Manager::new(),
+        mutes: HashMap::new(),
+        last_check: None,
     };
     publish(&snap, &state);
     loop {
@@ -123,14 +137,20 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
             Ok(Job::StopCheck) => stop_check(&mut state, true),
             Ok(Job::PlayCheck) => play_check(&mut state),
             Ok(Job::CheckUpdates) => {
-                let view = updates::check();
+                let view = updater::check(true);
+                state.last_check = Some(Instant::now());
                 if let Ok(mut guard) = snap.lock() {
                     guard.update = view;
                 }
             }
             Ok(Job::InstallUpdate) => {
-                if let Err(err) = updates::install() {
+                if let Err(err) = updater::detach() {
                     state.message = err;
+                }
+            }
+            Ok(Job::OpenInstaller(key)) => {
+                if let Err(err) = state.apps.launch(&key) {
+                    state.message = format!("{err:?}");
                 }
             }
             Ok(Job::Refresh) | Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -148,18 +168,31 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
                 Job::StopCheck => stop_check(&mut state, true),
                 Job::PlayCheck => play_check(&mut state),
                 Job::CheckUpdates => {
-                    let view = updates::check();
+                    let view = updater::check(true);
+                    state.last_check = Some(Instant::now());
                     if let Ok(mut guard) = snap.lock() {
                         guard.update = view;
                     }
                 }
                 Job::InstallUpdate => {
-                    if let Err(err) = updates::install() {
+                    if let Err(err) = updater::detach() {
                         state.message = err;
+                    }
+                }
+                Job::OpenInstaller(key) => {
+                    if let Err(err) = state.apps.launch(&key) {
+                        state.message = format!("{err:?}");
                     }
                 }
                 Job::Refresh | Job::Quit => {}
             }
+        }
+        state.apps.tick(state.config.check_updates);
+        let check_due = state.config.check_updates
+            && state.last_check.is_none_or(|start| start.elapsed() >= Duration::from_secs(3600));
+        if check_due {
+            let _ = updater::check(false);
+            state.last_check = Some(Instant::now());
         }
         tick_check(&mut state);
         sync_audio(&mut state);
@@ -177,23 +210,29 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    let update = guard.update.clone();
     *guard = Snapshot {
         graph,
         mix_active: unit_active("frame-audio-mixer-graph.service"),
         echo_cancel: echo_cancel(),
         autostart: unit_enabled("frame-audio-mixer.service"),
-        tuner_version: updates::tuner_version(),
-        update,
+        tuner_version: tuner_version(),
+        update: updater::current_view(),
         check: state.check_phase,
+        check_secs: state.check_started.map(|start| start.elapsed().as_secs_f64()).unwrap_or(0.0),
         message: state.message.clone(),
+        apps: state.apps.entries().to_vec(),
+        menu_busy: state.apps.menu_busy(),
     };
 }
 
 fn apply_config(state: &mut State, config: Config) {
     let was = state.config.mix_on;
+    let old_mic = state.config.mic_source.clone();
     let old_ids: Vec<String> = state.config.channels.iter().map(|c| c.id.clone()).collect();
     state.config = config;
+    if state.config.mic_source != old_mic {
+        save_setting("frame-audio-mixer.mic-source", &state.config.mic_source);
+    }
     write_names(&state.config.channels);
     if state.config.mix_on && !was {
         for channel in &state.config.channels {
@@ -245,16 +284,18 @@ fn sync_audio(state: &mut State) {
         return;
     }
     apply_level(state, "frame_amix_mic_virtual_sink", state.config.mic_volume, &graph);
-    mute_node("frame_amix_mic_virtual_sink", state.config.mic_muted, &graph);
-    let channel_levels: Vec<(String, f64, f64)> = state
+    set_mute(state, "frame_amix_mic_virtual_sink", state.config.mic_muted, &graph);
+    let channel_levels: Vec<(String, f64, f64, bool, bool)> = state
         .config
         .channels
         .iter()
-        .map(|channel| (channel.id.clone(), channel.phones, channel.to_mic))
+        .map(|channel| (channel.id.clone(), channel.phones, channel.to_mic, channel.phones_muted, channel.to_mic_muted))
         .collect();
-    for (id, phones, to_mic) in channel_levels {
+    for (id, phones, to_mic, phones_muted, to_mic_muted) in channel_levels {
         apply_level(state, &format!("frame_amix_{id}_virtual_sink_playback"), phones, &graph);
         apply_level(state, &format!("frame_amix_{id}_virtual_sink_to_bus"), to_mic, &graph);
+        set_mute(state, &format!("frame_amix_{id}_virtual_sink_playback"), phones_muted, &graph);
+        set_mute(state, &format!("frame_amix_{id}_virtual_sink_to_bus"), to_mic_muted, &graph);
     }
     pin_apps(state, &graph);
     touch_vrlink(state, &graph);
@@ -268,6 +309,16 @@ fn apply_level(state: &mut State, name: &str, volume: f64, graph: &Graph) {
     }
     let _ = Command::new("wpctl").args(["set-volume", &node.id.to_string(), &printed]).status();
     state.levels.insert(name.to_string(), (node.id, printed));
+}
+
+fn set_mute(state: &mut State, name: &str, muted: bool, graph: &Graph) {
+    let Some(node) = graph.node_by_name(name) else { return };
+    let key = format!("{name}:{}", node.id);
+    if state.mutes.get(&key) == Some(&muted) {
+        return;
+    }
+    mute_node(name, muted, graph);
+    state.mutes.insert(key, muted);
 }
 
 fn mute_node(name: &str, muted: bool, graph: &Graph) {
@@ -442,6 +493,19 @@ fn unit_active(unit: &str) -> bool {
 
 fn unit_enabled(unit: &str) -> bool {
     Command::new("systemctl").args(["--user", "is-enabled", "--quiet", unit]).status().is_ok_and(|s| s.success())
+}
+
+fn tuner_version() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let bin = PathBuf::from(home).join(".local/bin/frame-mic-tuner");
+    if !bin.exists() {
+        return String::new();
+    }
+    let out = Command::new(&bin).arg("--version").output();
+    match out {
+        Ok(out) => String::from_utf8_lossy(&out.stdout).split_whitespace().last().unwrap_or("").to_string(),
+        Err(_) => "installed".into(),
+    }
 }
 
 fn echo_cancel() -> Option<bool> {

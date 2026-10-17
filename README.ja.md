@@ -102,26 +102,36 @@ cargo build --release
 
 2026-10-17 のこのヘッドセットでは、`cargo build --release` が完了し、`--self-test` は `self-test ok` と表示しました。`ja`、`en`、`sc`、`de`、`fr`、`es`、`it` の `--dump-png` は 1200×788 の画像でした。どの画像もフッターの右端の画素は x=1152 で、言語のフッターが 1200px のパネルを超えることはありませんでした。
 
+## マイク、メーター、アプリ
+
+マイクの選択はミックスだけに効きます。`wpctl set-default` は呼びません。「システムの既定」はシステムのソースに従います。「Frame 内蔵マイク」は `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source` で、Frame Mic Tuner の後にある Valve の鎖の終わりです。`frame-audio-mixer.mic-source` は、待機中に WirePlumber が再起動してから読み込まれます。
+
+メーターは、パネルが見えていて、ミックスがオンで、言語の隣の歯車（アプリ設定）でメーターがオンのときだけ動きます。各タップは `node.virtual=true` の `pw-record` です。チャンネルは passive、マイクは passive ではありません。表示中は 15 fps で描きます。
+
+アプリと更新には、このアプリ、関連アプリとしての Frame Mic Tuner、sasaken の Frame アプリが出ます。インストールは Konsole を開きます。すでに動いている Frame Mic Tuner にはインストールボタンがありません。
+
+アップデータは Rust です（`ureq` と rustls、`sha2`、`flate2`、`tar`）。`frame-update.sh` は入れません。確認は GitHub の最新リリースを読みます。インストールはバイナリをコピーし、`systemd-run --user --unit=frame-audio-mixer-update` で起動します。ダウンロードは GitHub の HTTPS だけ、256 MB まで、SHA-256 が一致し、tar に絶対パス、`..`、リンク、デバイスがあってはなりません。`scripts/get.sh` は `curl`、`sha256sum`、`tar` が必要です。リリースが出るまでは「まだリリースがない」と表示します。`scripts/package.sh` は同じ内容の `dist/frame-audio-mixer-aarch64.tar.gz` も書きます。
+
 ## クレジット
 
-パネル、OpenVR オーバーレイ、アップデータは、sasaken1102r による Frame Mic Tuner（MIT）を移植したものです。https://github.com/sasaken1102r/frame-mic-tuner
+パネルと OpenVR オーバーレイは、sasaken1102r による Frame Mic Tuner（MIT）を移植したものです。https://github.com/sasaken1102r/frame-mic-tuner
 
-`vendor/frame-updater/frame-update.sh` はそのプロジェクトのアップデータです。
+アプリ一覧は frame-apps 0.3.1 の Rust 移植です。そのアイコンは MIT です。アップデータの動きは同じプロジェクトに合わせ、Rust で書き直しています。`NOTICE` を見てください。
 
 ## アイコン
 
-`scripts/make-icons.py` がダッシュボード用アイコンを描きます。パネルの字形は Iconify の MIT ライセンスのアイコンです。
+`scripts/make-icons.py` がダッシュボード用アイコンを描きます。録音、停止、再生は描いた形です。ほかの字形は埋め込んだパスです。
 
-- https://icon-sets.iconify.design/heroicons/language-16-solid/
-- https://icon-sets.iconify.design/fontisto/mic/
-- https://icon-sets.iconify.design/famicons/mic-off/
-- https://icon-sets.iconify.design/f7/speaker-2-fill/
-- https://icon-sets.iconify.design/f7/speaker-slash-fill/
-- https://icon-sets.iconify.design/fluent/add-square-28-filled/
-- https://icon-sets.iconify.design/at-icons/headphones/ （@icons、Valentin Fossati）
-- https://icon-sets.iconify.design/fluent/record-24-filled/
-- https://icon-sets.iconify.design/fluent/stop-24-filled/
-- https://icon-sets.iconify.design/fluent/play-24-filled/
+| アイコン | セット | 作者 | ライセンス |
+| --- | --- | --- | --- |
+| [fontisto:mic](https://icon-sets.iconify.design/fontisto/mic/) | fontisto | Kenan Gündoğan | MIT |
+| [famicons:mic-off](https://icon-sets.iconify.design/famicons/mic-off/) | famicons | Family | MIT |
+| [f7:speaker-2-fill](https://icon-sets.iconify.design/f7/speaker-2-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [f7:speaker-slash-fill](https://icon-sets.iconify.design/f7/speaker-slash-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [fluent:add-square-28-filled](https://icon-sets.iconify.design/fluent/add-square-28-filled/) | Fluent | Microsoft | MIT |
+| [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
+| [at-icons:headphones](https://icon-sets.iconify.design/at-icons/headphones/) | @icons | Valentin Fossati | MIT |
+| [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 
 ## ヘッドセットでの確認（2026-10-17）
 

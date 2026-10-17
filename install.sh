@@ -21,8 +21,8 @@ unit_dir="$config_home/systemd/user"
 app_config="$config_home/frame-audio-mixer"
 wp_script="$data_home/wireplumber/scripts/frame-audio-mixer.lua"
 wp_conf="$config_home/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf"
-update_script="$data_home/frame-audio-mixer/frame-update.sh"
 name_dir="$config_home/pipewire/frame-audio-mixer"
+old_update="$data_home/frame-audio-mixer/frame-update.sh"
 
 if [[ -f "$here/Cargo.toml" ]]; then
     from_source=1
@@ -76,7 +76,7 @@ stop_mixer() {
 
 if [[ $uninstall -eq 1 ]]; then
     stop_mixer
-    rm -f "$bin" "$desktop" "$update_script" \
+    rm -f "$bin" "$desktop" "$old_update" \
         "$unit_dir/frame-audio-mixer.service" \
         "$unit_dir/frame-audio-mixer-graph.service" \
         "$unit_dir/frame-audio-mixer-channel@.service" \
@@ -95,6 +95,7 @@ if [[ $uninstall -eq 1 ]]; then
         rm -rf "$app_config"
         wpctl settings --delete frame-audio-mixer.enabled >/dev/null 2>&1 || true
         wpctl settings --delete frame-audio-mixer.vrlink-gain >/dev/null 2>&1 || true
+        wpctl settings --delete frame-audio-mixer.mic-source >/dev/null 2>&1 || true
         echo "Removed Frame Audio Mixer, its settings and the saved frame-audio-mixer.* values."
     else
         echo "Removed Frame Audio Mixer. Settings stay in $app_config (add --purge to delete them)."
@@ -135,7 +136,7 @@ else
 fi
 
 install -Dm755 "$built_bin" "$bin"
-install -Dm755 vendor/frame-updater/frame-update.sh "$update_script"
+rm -f "$old_update"
 install -Dm755 contrib/frame-audio-mixer-graph.sh "$lib_dir/frame-audio-mixer-graph.sh"
 for size in 48 128 256; do
     install -Dm644 "contrib/icons/frame-audio-mixer-$size.png" "$icons/${size}x${size}/apps/frame-audio-mixer.png"

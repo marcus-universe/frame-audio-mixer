@@ -2,13 +2,16 @@
 //! (already filtered) is mixed with named app channels, and only VRLink is moved
 //! onto that mix.
 
+mod apps;
 mod config;
 mod draw;
 mod graph;
 mod i18n;
+mod icons;
+mod meter;
 mod overlay;
 mod panel;
-mod updates;
+mod updater;
 mod vulkan;
 mod worker;
 
@@ -16,7 +19,6 @@ use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -32,11 +34,18 @@ extern "C" fn on_usr1(_: i32) {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == "--version") {
-        println!("frame-audio-mixer {}", updates::VERSION);
+        println!("frame-audio-mixer {}", updater::VERSION);
+        return;
+    }
+    if args.iter().any(|arg| arg == "--update-install") {
+        if let Err(err) = updater::run() {
+            eprintln!("frame-audio-mixer: {err}");
+            std::process::exit(1);
+        }
         return;
     }
     if args.iter().any(|arg| arg == "--help") {
-        println!("frame-audio-mixer [--version] [--self-test] [--dump-png PATH] [--language CODE]");
+        println!("frame-audio-mixer [--version] [--self-test] [--dump-png PATH] [--language CODE] [--update-install]");
         return;
     }
     if args.iter().any(|arg| arg == "--self-test") {
@@ -87,6 +96,7 @@ fn main() {
         }
     };
     let mut ui = panel::Panel::new(config);
+    let mut levels = meter::Meter::new();
     let mut session: Option<overlay::Session> = None;
     let mut thumb_sent = false;
     let mut last_draw = Instant::now() - Duration::from_secs(1);
@@ -135,9 +145,19 @@ fn main() {
                 dirty = true;
             }
         }
-        if dirty || last_draw.elapsed() >= Duration::from_millis(250) {
-            let snap = worker.snapshot();
-            let pixels = ui.render(&fonts, &snap);
+        ui.tick();
+        let visible = session.dashboard_visible();
+        let snap = worker.snapshot();
+        if visible && ui.wants_meters() {
+            levels.sync(&ui.meter_targets(&snap));
+        } else {
+            levels.sync(&[]);
+        }
+        let meters_live = visible && ui.wants_meters() && !ui.meter_targets(&snap).is_empty();
+        let interval = if meters_live { Duration::from_millis(66) } else { Duration::from_millis(250) };
+        if visible && (dirty || last_draw.elapsed() >= interval) {
+            let peaks = levels.peaks();
+            let pixels = ui.render(&fonts, &snap, &peaks);
             let thumb = if thumb_sent { None } else { Some(ui.thumbnail(&fonts)) };
             if let Err(err) = session.submit(&pixels, thumb.as_deref()) {
                 eprintln!("frame-audio-mixer: {err}");
@@ -171,9 +191,7 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
             worker.send(Job::CheckUpdates);
         }
         Action::InstallUpdate => worker.send(Job::InstallUpdate),
-        Action::Open(url) => {
-            let _ = Command::new("xdg-open").arg(url).spawn();
-        }
+        Action::OpenInstaller(key) => worker.send(Job::OpenInstaller(key)),
         Action::Autostart(on) => worker.send(Job::Autostart(on)),
     }
 }
@@ -183,6 +201,10 @@ fn self_test() -> Result<(), String> {
     graph::self_test()?;
     i18n::self_test()?;
     draw::self_test_paths()?;
+    icons::self_test()?;
+    meter::self_test()?;
+    updater::self_test()?;
+    apps::self_test()?;
     let mut seen = std::collections::HashMap::new();
     let stream = graph::AudioNode {
         id: 9,

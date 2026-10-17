@@ -72,6 +72,28 @@ The panel pins an app to a channel the same way, with the sink's `object.serial`
 
 `frame-audio-mixer.vrlink-gain` defaults to `1.0`. At that value the app does not change VRLink's volume. Any other gain is saved and restored when Mix turns off. Turning Mix off stops the graph units, so the `frame_amix_*` nodes disappear.
 
+## Microphone
+
+The mixer's microphone choice is only for the mix. Nothing in this app calls `wpctl set-default`, so the system default that Frame Mic Tuner uses stays as it is.
+
+- **System default** follows `default.audio.source`.
+- **Frame built-in mic** is `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`. That is the end of Valve's chain, after noise suppression, echo cancellation and the mic EQ that Frame Mic Tuner controls.
+- Any other listed source is stored as that node's `node.name`.
+
+The value is the WirePlumber string `frame-audio-mixer.mic-source` (`""`, `builtin`, or a node name). The script resolves `builtin` to the loopback above and falls back to the system default if that node is missing. It never targets `frame_amix_source`. WirePlumber reads a new setting the next time it starts, and only while the headset is idle. Until then the choice is saved and the mix still follows the system default.
+
+## Level meters
+
+Meters run only while the dashboard is visible, Mix is on, and level meters are on. The gear next to the language menu opens App Settings, where meters can be turned off. Each meter is a `pw-record` tap with `node.virtual=true`, so it does not turn Valve's mic filters on. Channel taps are passive and listen to the channel sink. The microphone tap is not passive. The panel redraws at 15 fps while those taps are running, and not at all while the dashboard is hidden.
+
+## Apps and updates
+
+Apps & updates shows this app, Frame Mic Tuner as the related app (echo cancel and noise suppression before the mix), and the Frame apps from sasaken's catalog. Install opens Konsole with `curl -fsSL https://frame.sasaken1102s.net | sh`. A Frame Mic Tuner that is already running has no Install button, so this page does not replace the fork on this headset.
+
+The updater is Rust: `ureq` with rustls, `sha2`, `flate2` and `tar`. `frame-update.sh` is not installed. A check reads the latest GitHub release, compares versions, and looks for `frame-audio-mixer-<version>.tar.gz` and `SHA256SUMS`. Install copies the running binary into `~/.cache/frame-audio-mixer/update/` and starts it with `systemd-run --user --unit=frame-audio-mixer-update --collect`. Downloads are HTTPS only, from `github.com`, `api.github.com`, `codeload.github.com` and `*.githubusercontent.com`, unless `FRAME_UPDATE_ALLOW_INSECURE=1` is set. Redirects are checked, the download stops at 256 MB, the SHA-256 must match, and the tar is rejected if it has an absolute path, `..`, a link or a device node. Cache files stay under `~/.cache/frame-audio-mixer/` (`update-check.json`, `update-state.json`, `update.log`, `update.lock/`, `update/`).
+
+`scripts/get.sh` is the first install. It needs `curl`, `sha256sum` and `tar`, downloads `frame-audio-mixer-aarch64.tar.gz` (the same bytes as the versioned archive) and checks `SHA256SUMS`. Until a release is published it prints that there is no release yet.
+
 ## Echo cancellation
 
 Use the Frame speakers with echo cancellation on in Frame Mic Tuner. Otherwise the microphone hears the speakers, and the speakers are already playing the mix, so the PC can hear the app audio twice. Headphones, or a microphone that does not hear the speakers, do not have that acoustic path. An external microphone is still the default source if you select it; this app follows that source and does not replace Frame Mic Tuner's switches.
@@ -98,30 +120,30 @@ cargo build --release
 ./scripts/package.sh
 ```
 
-`scripts/package.sh` writes `dist/frame-audio-mixer-<version>.tar.gz` and `dist/SHA256SUMS`.
+`scripts/package.sh` writes `dist/frame-audio-mixer-<version>.tar.gz`, the same bytes as `dist/frame-audio-mixer-aarch64.tar.gz`, and `dist/SHA256SUMS` listing both.
 
 On this headset on 2026-10-17, `cargo build --release` finished and `--self-test` printed `self-test ok`. `--dump-png` for `ja`, `en`, `sc`, `de`, `fr`, `es`, and `it` wrote 1200×788 images. In each image the rightmost footer pixel was x=1152, and no language footer crossed the 1200px panel.
 
 ## Credit
 
-The panel, the OpenVR overlay, and the updater are adapted from Frame Mic Tuner by sasaken1102r, which is MIT licensed: https://github.com/sasaken1102r/frame-mic-tuner
+The panel and the OpenVR overlay are adapted from Frame Mic Tuner by sasaken1102r, which is MIT licensed: https://github.com/sasaken1102r/frame-mic-tuner
 
-`vendor/frame-updater/frame-update.sh` is that project's updater.
+The Apps list is a Rust port of frame-apps 0.3.1 from that project. Those app icons are MIT, like the code they came with. The updater behavior follows that project's updater, rewritten in Rust. See `NOTICE`.
 
 ## Icons
 
-`scripts/make-icons.py` draws the dashboard icon. The panel glyphs are MIT-licensed icons from Iconify:
+`scripts/make-icons.py` draws the dashboard icon. Record, Stop and Play are drawn shapes. The other panel glyphs are embedded paths, not fetched at runtime:
 
-- https://icon-sets.iconify.design/heroicons/language-16-solid/
-- https://icon-sets.iconify.design/fontisto/mic/
-- https://icon-sets.iconify.design/famicons/mic-off/
-- https://icon-sets.iconify.design/f7/speaker-2-fill/
-- https://icon-sets.iconify.design/f7/speaker-slash-fill/
-- https://icon-sets.iconify.design/fluent/add-square-28-filled/
-- https://icon-sets.iconify.design/at-icons/headphones/ (@icons by Valentin Fossati)
-- https://icon-sets.iconify.design/fluent/record-24-filled/
-- https://icon-sets.iconify.design/fluent/stop-24-filled/
-- https://icon-sets.iconify.design/fluent/play-24-filled/
+| Icon | Set | Author | License |
+| --- | --- | --- | --- |
+| [fontisto:mic](https://icon-sets.iconify.design/fontisto/mic/) | fontisto | Kenan Gündoğan | MIT |
+| [famicons:mic-off](https://icon-sets.iconify.design/famicons/mic-off/) | famicons | Family | MIT |
+| [f7:speaker-2-fill](https://icon-sets.iconify.design/f7/speaker-2-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [f7:speaker-slash-fill](https://icon-sets.iconify.design/f7/speaker-slash-fill/) | Framework7 | Vladimir Kharlampidi | MIT |
+| [fluent:add-square-28-filled](https://icon-sets.iconify.design/fluent/add-square-28-filled/) | Fluent | Microsoft | MIT |
+| [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
+| [at-icons:headphones](https://icon-sets.iconify.design/at-icons/headphones/) | @icons | Valentin Fossati | MIT |
+| [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 
 ## Headset check (2026-10-17)
 

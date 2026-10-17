@@ -136,6 +136,37 @@ impl Graph {
             .collect()
     }
 
+    /// The Frame mic after Valve's noise suppression, echo cancel and EQ.
+    /// Frame Mic Tuner configures those filters. This is not the raw ALSA mic.
+    pub const BUILTIN_SOURCE: &'static str = "alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source";
+
+    /// Sources the mic picker may offer. The mixer's own nodes, the raw ALSA
+    /// mic, Valve's filter nodes, monitors and virtual nodes are left out.
+    /// The built-in loopback is offered separately as "builtin".
+    pub fn pickable_sources(&self) -> Vec<AudioNode> {
+        self.nodes.iter().filter(|node| Self::is_pickable_source(node)).cloned().collect()
+    }
+
+    pub fn is_pickable_source(node: &AudioNode) -> bool {
+        if node.media_class != "Audio/Source" || node.is_virtual {
+            return false;
+        }
+        let name = node.name.as_str();
+        if name.starts_with("frame_amix_") || name == Self::BUILTIN_SOURCE {
+            return false;
+        }
+        if name.starts_with("alsa_input.platform-sound.") {
+            return false;
+        }
+        if name.starts_with("ns_") || name.starts_with("echo_cancel_") || name.starts_with("eq_") {
+            return false;
+        }
+        if name.contains(".monitor") || name.contains("monitor") {
+            return false;
+        }
+        true
+    }
+
     pub fn is_vrlink(node: &AudioNode) -> bool {
         node.media_name == "Valve VRLink Microphone Input"
             || node.app_name == "vrlink"
@@ -160,6 +191,11 @@ pub fn self_test() -> Result<(), String> {
     {
         return Err("virtual node counted as vrlink".into());
     }
+    let extra = parse_dump(SOURCE_FIXTURE)?;
+    let names: Vec<_> = extra.pickable_sources().into_iter().map(|node| node.name).collect();
+    if names != vec!["bluez_input.headset".to_string()] {
+        return Err(format!("pickable {names:?}"));
+    }
     Ok(())
 }
 
@@ -182,5 +218,34 @@ const FIXTURE: &str = r#"[
   {"id": 10, "type": "PipeWire:Interface:Node", "info": {"props": {
     "node.name": "frame_amix_ch1_virtual_sink_playback", "object.serial": 91,
     "media.class": "Stream/Output/Audio", "node.virtual": "true", "application.name": "loopback"
+  }}}
+]"#;
+
+const SOURCE_FIXTURE: &str = r#"[
+  {"id": 1, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source",
+    "media.class": "Audio/Source", "node.description": "Built-in Audio"
+  }}},
+  {"id": 2, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "alsa_input.platform-sound.HiFi__Mic__source",
+    "media.class": "Audio/Source", "node.description": "Raw"
+  }}},
+  {"id": 3, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "ns_source", "media.class": "Audio/Source", "node.virtual": "true"
+  }}},
+  {"id": 4, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "echo_cancel_source", "media.class": "Audio/Source"
+  }}},
+  {"id": 5, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "eq_source", "media.class": "Audio/Source"
+  }}},
+  {"id": 6, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "frame_amix_source", "media.class": "Audio/Source"
+  }}},
+  {"id": 7, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "bluez_input.headset.monitor", "media.class": "Audio/Source"
+  }}},
+  {"id": 8, "type": "PipeWire:Interface:Node", "info": {"props": {
+    "node.name": "bluez_input.headset", "media.class": "Audio/Source", "node.description": "Headset"
   }}}
 ]"#;
