@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Frame Audio Mixer
+Comment=Mix app audio with the headset microphone for the PC wireless stream. Launch again while running to open the panel.
+Exec=@BINARY@
+Icon=frame-audio-mixer
+Terminal=false
+Categories=Utility;

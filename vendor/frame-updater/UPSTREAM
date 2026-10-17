@@ -1,0 +1,8 @@
+# frame-update.sh is the MIT updater shipped with Frame Mic Tuner
+# (https://github.com/sasaken1102r/frame-mic-tuner, vendor/frame-updater).
+# That copy came from the frame-updater repository:
+version 0.1.0
+commit 93a5f1b
+synced 2026-09-27
+# This app does not run frame-updater's verify.sh. Don't edit the script here
+# except to track a newer upstream copy.

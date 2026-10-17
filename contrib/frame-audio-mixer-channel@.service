@@ -1,0 +1,13 @@
+[Unit]
+Description=Frame Audio Mixer channel %i
+BindsTo=frame-audio-mixer-graph.service
+PartOf=frame-audio-mixer-graph.service
+After=frame-audio-mixer-graph.service
+
+[Service]
+ExecStart=%h/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh channel %i
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=frame-audio-mixer-graph.service

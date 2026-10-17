@@ -1,0 +1,15 @@
+[package]
+name = "frame-audio-mixer"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Mix app audio with the Steam Frame microphone for the PC wireless stream"
+publish = false
+
+[dependencies]
+cairo-rs = { version = "0.20", default-features = false, features = ["freetype", "png"] }
+freetype-rs = "0.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libloading = "0.8"
+libc = "0.2"

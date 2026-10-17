@@ -1,0 +1,12 @@
+[Unit]
+Description=Frame Audio Mixer graph
+BindsTo=pipewire.service
+After=pipewire.service
+
+[Service]
+ExecStart=%h/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh core
+Restart=on-failure
+RestartSec=1
+
+[Install]
+WantedBy=pipewire.service

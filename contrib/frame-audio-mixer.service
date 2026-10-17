@@ -1,0 +1,14 @@
+[Unit]
+Description=Frame Audio Mixer (dashboard panel)
+After=steamvr.service
+PartOf=steamvr.service
+
+[Service]
+ExecStart=%h/.local/bin/frame-audio-mixer
+Restart=always
+RestartSec=5
+RestartPreventExitStatus=3
+SuccessExitStatus=3
+
+[Install]
+WantedBy=steamvr.service
