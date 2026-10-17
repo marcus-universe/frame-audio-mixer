@@ -400,15 +400,16 @@ impl Vulkan {
             _pad2: u32,
             prios: *const f32,
         }
+        // Layout must match VkDeviceCreateInfo. flags is followed directly by
+        // queueCreateInfoCount; an extra pad makes pEnabledFeatures point at
+        // garbage and Turnip rejects the device with FEATURE_NOT_PRESENT.
         #[repr(C)]
         struct DevInfo {
             stype: u32,
             _pad: u32,
             next: *const c_void,
             flags: u32,
-            _pad2: u32,
             queue_count: u32,
-            _pad3: u32,
             queues: *const QueueInfo,
             layer_count: u32,
             _pad4: u32,
@@ -433,9 +434,7 @@ impl Vulkan {
             _pad: 0,
             next: ptr::null(),
             flags: 0,
-            _pad2: 0,
             queue_count: 1,
-            _pad3: 0,
             queues: &queue,
             layer_count: 0,
             _pad4: 0,
@@ -445,6 +444,9 @@ impl Vulkan {
             exts: dev_ptrs.as_ptr(),
             features: ptr::null(),
         };
+        assert_eq!(std::mem::size_of::<DevInfo>(), 72);
+        assert_eq!(std::mem::offset_of!(DevInfo, queue_count), 20);
+        assert_eq!(std::mem::offset_of!(DevInfo, features), 64);
         let mut device = ptr::null_mut();
         let rc = unsafe { create_device(physical, &dev as *const DevInfo as *const u8, ptr::null(), &mut device) };
         if rc != VK_SUCCESS {

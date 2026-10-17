@@ -112,7 +112,8 @@ impl Session {
         }
         let set_sdk: unsafe extern "C" fn(*mut c_void, u32, u32, u32) -> u32 = unsafe { vslot(system, SYSTEM_SDK) };
         let sdk = unsafe { set_sdk(system, 2, 15, 6) };
-        if sdk != 0 {
+        // 169 means this runtime already recorded the client version during init.
+        if sdk != 0 && sdk != 169 {
             eprintln!("frame-audio-mixer: SetSDKVersion returned {sdk}");
         }
         err = 0;
