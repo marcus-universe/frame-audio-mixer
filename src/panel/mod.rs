@@ -351,7 +351,10 @@ impl Panel {
             return if save { Action::Save } else { Action::None };
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
-            let delta = if y.abs() > 0.01 && y.abs() < 400.0 { y } else { x };
+            // List rows and dialogs move on the vertical stick. The channel row moves on the horizontal one.
+            let vertical = self.config.list || matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList);
+            let use_y = if vertical { y.abs() >= x.abs() } else { y.abs() > x.abs() };
+            let delta = if use_y { y } else { x };
             // A controller notch is about ±1, which used to move the row by one pixel.
             let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
             if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {

@@ -195,6 +195,7 @@ fn draw_list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peaks: &H
         panel.config.mic_muted,
         draw::FaderGlyph::Mic,
         panel.config.snap,
+        false,
     );
     panel.fader_hit("mic", mic.capsule_x, mic.capsule_y, mic.capsule_w, mic.capsule_h, true);
     panel.hot("mute:mic", mic.icon_x - 4.0, mic.icon_y - 4.0, mic.icon_s + 8.0, mic.icon_s + 8.0);
@@ -221,11 +222,13 @@ fn draw_list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peaks: &H
         ry += ROW_H + GAP;
     }
     let room = channels.len() < crate::config::MAX_CHANNELS;
-    fill_round(cr, row_x, ry, row_w, 56.0, 16.0, INSET);
-    stroke_round(cr, row_x, ry, row_w, 56.0, 16.0, if room { draw::accent() } else { BORDER }, 2.0);
-    draw::icon(cr, draw::ADD_PATH, 28.0, row_x + 16.0, ry + 8.0, 40.0, if room { draw::accent() } else { MUTED });
+    let add_s = 56.0;
+    let add_x = row_x + (row_w - add_s) / 2.0;
+    fill_round(cr, add_x, ry, add_s, add_s, 16.0, INSET);
+    stroke_round(cr, add_x, ry, add_s, add_s, 16.0, if room { draw::accent() } else { BORDER }, 2.0);
+    draw::icon(cr, draw::ADD_PATH, 28.0, add_x + 8.0, ry + 8.0, 40.0, if room { draw::accent() } else { MUTED });
     if room {
-        view.hot(panel, "add", row_x, ry, row_w, 56.0);
+        view.hot(panel, "add", add_x, ry, add_s, add_s);
     }
     let _ = cr.restore();
 
@@ -295,6 +298,7 @@ fn list_channel(
         channel.phones_muted,
         draw::FaderGlyph::Speaker,
         panel.config.snap,
+        true,
     );
     view.fader(panel, &format!("phones:{}", channel.id), left.capsule_x, left.capsule_y, left.capsule_w, left.capsule_h);
     view.hot(panel, &format!("mute:phones:{}", channel.id), left.icon_x - 4.0, left.icon_y - 4.0, left.icon_s + 8.0, left.icon_s + 8.0);
@@ -311,6 +315,7 @@ fn list_channel(
         channel.to_mic_muted,
         draw::FaderGlyph::Mic,
         panel.config.snap,
+        false,
     );
     view.fader(panel, &format!("tomic:{}", channel.id), right.capsule_x, right.capsule_y, right.capsule_w, right.capsule_h);
     view.hot(panel, &format!("mute:tomic:{}", channel.id), right.icon_x - 4.0, right.icon_y - 4.0, right.icon_s + 8.0, right.icon_s + 8.0);

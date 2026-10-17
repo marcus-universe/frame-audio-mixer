@@ -145,7 +145,7 @@ fn mic_rows(panel: &Panel, t: &Text, snap: &Snapshot) -> Vec<(String, String, St
 
 pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
-    let (x, y, w, h) = panel.dialog_rect(680.0, 548.0, 24.0);
+    let (x, y, w, h) = panel.dialog_rect(680.0, 520.0, 24.0);
     fill_round(cr, x, y, w, h, 18.0, CARD);
     stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
     panel.hot("noop", x, y, w, h);
@@ -159,19 +159,18 @@ pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text)
     panel.hot("dismiss", close.0, close.1, close.2, close.3);
 
     let seg_x = x + w - 208.0;
-    toggle(panel, cr, fonts, x, y + 84.0, seg_x, t.meters, panel.config.meters, "meters-on", "meters-off", t);
-    toggle(panel, cr, fonts, x, y + 156.0, seg_x, t.snap, panel.config.snap, "snap-on", "snap-off", t);
-    toggle(panel, cr, fonts, x, y + 228.0, seg_x, t.list_sliders, panel.config.list, "list-on", "list-off", t);
-    toggle(panel, cr, fonts, x, y + 300.0, seg_x, t.wide, panel.config.wide, "wide-on", "wide-off", t);
-
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 28.0, y + 404.0, seg_x - x - 40.0, t.color);
+    draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 28.0, y + 114.0, seg_x - x - 40.0, t.color);
     let current = if panel.config.accent == "pink" { t.color_pink } else { t.color_blue };
-    let drop = (seg_x, y + 376.0, 180.0, 48.0);
+    let drop = (seg_x, y + 84.0, 180.0, 48.0);
     fill_round(cr, drop.0, drop.1, drop.2, drop.3, 14.0, draw::CONTROL);
     stroke_round(cr, drop.0, drop.1, drop.2, drop.3, 14.0, if panel.color_open { draw::accent() } else { BORDER }, 2.0);
     draw::label_fit(cr, fonts, true, 16.0, TEXT, drop.0 + 16.0, drop.1 + 30.0, drop.2 - 44.0, current);
     draw::chevron(cr, drop.0 + drop.2 - 28.0, drop.1 + 18.0, 12.0, MUTED, false, panel.color_open);
     panel.hot("color-open", drop.0, drop.1, drop.2, drop.3);
+    toggle(panel, cr, fonts, x, y + 156.0, seg_x, t.meters, panel.config.meters, "meters-on", "meters-off", t);
+    toggle(panel, cr, fonts, x, y + 228.0, seg_x, t.snap, panel.config.snap, "snap-on", "snap-off", t);
+    toggle(panel, cr, fonts, x, y + 300.0, seg_x, t.list_sliders, panel.config.list, "list-on", "list-off", t);
+    toggle(panel, cr, fonts, x, y + 372.0, seg_x, t.wide, panel.config.wide, "wide-on", "wide-off", t);
     if panel.color_open {
         let menu_y = drop.1 + drop.3 + 6.0;
         fill_round(cr, drop.0, menu_y, drop.2, 92.0, 12.0, draw::INSET);

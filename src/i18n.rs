@@ -231,7 +231,7 @@ const EN: Text = Text {
     color: "Color",
     color_blue: "Blue",
     color_pink: "Pink",
-    snap: "Snap points",
+    snap: "Snap",
     list_sliders: "List sliders",
     wide: "Wide window",
     mix_hint: "Meters follow the faders. Mute a channel with the icon under its fader.",

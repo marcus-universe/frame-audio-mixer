@@ -329,7 +329,9 @@ fn decode(buf: &[u8], panel_h: f64) -> Pointer {
     let x = f32::from_ne_bytes(buf[12..16].try_into().unwrap()) as f64;
     let y = f32::from_ne_bytes(buf[16..20].try_into().unwrap()) as f64;
     let button = u32::from_ne_bytes(buf[20..24].try_into().unwrap());
-    Pointer { kind, x, y: panel_h - y, button }
+    // Scroll carries a delta. Mouse Y is measured from the bottom of the overlay.
+    let y = if kind == SCROLL_DISCRETE || kind == SCROLL_SMOOTH { y } else { panel_h - y };
+    Pointer { kind, x, y, button }
 }
 
 pub fn is_left(button: u32) -> bool {

@@ -337,20 +337,6 @@ pub fn icon(cr: &Context, path: &str, view: f64, x: f64, y: f64, size: f64, c: R
     let _ = cr.restore();
 }
 
-/// The slash that famicons' mic-off draws separately (view box 512, stroke 32).
-pub fn mic_off_slash(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
-    let _ = cr.save();
-    cr.translate(x, y);
-    cr.scale(size / 512.0, size / 512.0);
-    cr.set_source_rgb(c.r, c.g, c.b);
-    cr.set_line_width(32.0);
-    cr.set_line_cap(cairo::LineCap::Round);
-    cr.move_to(432.0, 400.0);
-    cr.line_to(96.0, 64.0);
-    let _ = cr.stroke();
-    let _ = cr.restore();
-}
-
 pub fn fill_circle(cr: &Context, cx: f64, cy: f64, r: f64, c: Rgb) {
     let _ = cr.arc(cx, cy, r, 0.0, 2.0 * PI);
     fill(cr, c, 1.0);
@@ -436,14 +422,57 @@ pub fn fill_meter(cr: &Context, x: f64, y: f64, full_w: f64, h: f64, radius: f64
     let _ = cr.restore();
 }
 
-/// Path, view box, and a size boost so a muted glyph fills the same square as the live one.
-pub fn fader_icon(glyph: FaderGlyph, muted: bool) -> (&'static str, f64, f64) {
+/// Path and view box. Mute and live glyphs are fitted into one square by `icon_fitted`.
+pub fn fader_icon(glyph: FaderGlyph, muted: bool) -> (&'static str, f64) {
     match (glyph, muted) {
-        (FaderGlyph::Mic, true) => (MIC_OFF_PATH, 512.0, 1.32),
-        (FaderGlyph::Mic, false) => (MIC_PATH, 24.0, 1.0),
-        (FaderGlyph::Speaker, true) => (SPEAKER_OFF_PATH, 56.0, 1.48),
-        (FaderGlyph::Speaker, false) => (SPEAKER_PATH, 56.0, 1.0),
+        (FaderGlyph::Mic, true) => (MIC_OFF_PATH, 512.0),
+        (FaderGlyph::Mic, false) => (MIC_PATH, 24.0),
+        (FaderGlyph::Speaker, true) => (SPEAKER_OFF_PATH, 56.0),
+        (FaderGlyph::Speaker, false) => (SPEAKER_PATH, 56.0),
     }
+}
+
+/// Draw a glyph so its ink fills `size` and stays centered in that square.
+/// Mute and unmute then occupy the same place.
+pub fn icon_fitted(cr: &Context, path: &str, slash: bool, x: f64, y: f64, size: f64, c: Rgb) {
+    let _ = cr.save();
+    append_svg(cr, path);
+    if slash {
+        cr.move_to(96.0, 64.0);
+        cr.line_to(432.0, 400.0);
+    }
+    let Ok((mut x1, mut y1, mut x2, mut y2)) = cr.path_extents() else {
+        let _ = cr.restore();
+        return;
+    };
+    let _ = cr.new_path();
+    if slash {
+        x1 -= 16.0;
+        y1 -= 16.0;
+        x2 += 16.0;
+        y2 += 16.0;
+    }
+    let bw = (x2 - x1).max(0.01);
+    let bh = (y2 - y1).max(0.01);
+    let scale = size / bw.max(bh);
+    cr.translate(x + (size - bw * scale) / 2.0 - x1 * scale, y + (size - bh * scale) / 2.0 - y1 * scale);
+    cr.scale(scale, scale);
+    append_svg(cr, path);
+    fill(cr, c, 1.0);
+    if slash {
+        cr.set_source_rgb(c.r, c.g, c.b);
+        cr.set_line_width(32.0);
+        cr.set_line_cap(cairo::LineCap::Round);
+        cr.move_to(96.0, 64.0);
+        cr.line_to(432.0, 400.0);
+        let _ = cr.stroke();
+    }
+    let _ = cr.restore();
+}
+
+fn paint_fader_glyph(cr: &Context, glyph: FaderGlyph, muted: bool, x: f64, y: f64, size: f64) {
+    let (path, _) = fader_icon(glyph, muted);
+    icon_fitted(cr, path, muted && glyph == FaderGlyph::Mic, x, y, size, TEXT);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -536,15 +565,10 @@ pub fn paint_fader(
     let tw = text_width(cr, fonts, true, 13.0, &pct);
     label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + 13.0, &pct);
 
-    let icon_s = 20.0;
-    let (path, view, boost) = fader_icon(glyph, muted);
-    let draw_s = icon_s * boost;
-    let icon_x = cx - draw_s / 2.0;
-    let icon_y = top + cap_h + 30.0 - draw_s / 2.0;
-    icon(cr, path, view, icon_x, icon_y, draw_s, TEXT);
-    if muted && glyph == FaderGlyph::Mic {
-        mic_off_slash(cr, icon_x, icon_y, draw_s, TEXT);
-    }
+    let icon_s = 22.0;
+    let icon_x = cx - icon_s / 2.0;
+    let icon_y = top + cap_h + 30.0 - icon_s / 2.0;
+    paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
     if meters {
         if db > -47.5 {
             let shown = if db > -0.5 { 0.0 } else { db };
@@ -561,7 +585,7 @@ pub fn paint_fader(
         meter_right,
         icon_x,
         icon_y,
-        icon_s: draw_s,
+        icon_s,
     }
 }
 
@@ -579,12 +603,14 @@ pub fn paint_side_fader(
     muted: bool,
     glyph: FaderGlyph,
     snaps: bool,
+    icon_at_start: bool,
 ) -> FaderGeom {
     let track_h = 26.0;
-    let icon_box = 36.0;
+    let icon_box = 28.0;
+    let icon_s = 22.0;
     let pct_w = 46.0;
     let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
-    let track_x = x;
+    let track_x = if icon_at_start { x + icon_box + 6.0 } else { x };
     let track_y = y + (h - track_h) / 2.0;
     let radius = track_h / 2.0;
     let fraction = (percent / 150.0).clamp(0.0, 1.0);
@@ -635,14 +661,9 @@ pub fn paint_side_fader(
     let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
     label(cr, fonts, true, 13.0, pct_color, track_x + track_w + 6.0, track_y + track_h / 2.0 + 4.0, &pct);
 
-    let (path, view, boost) = fader_icon(glyph, muted);
-    let draw_s = (22.0 * boost).min(icon_box);
-    let icon_x = x + w - draw_s;
-    let icon_y = y + (h - draw_s) / 2.0;
-    icon(cr, path, view, icon_x, icon_y, draw_s, TEXT);
-    if muted && glyph == FaderGlyph::Mic {
-        mic_off_slash(cr, icon_x, icon_y, draw_s, TEXT);
-    }
+    let icon_x = if icon_at_start { x + (icon_box - icon_s) / 2.0 } else { x + w - icon_box + (icon_box - icon_s) / 2.0 };
+    let icon_y = y + (h - icon_s) / 2.0;
+    paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
     FaderGeom {
         capsule_x: track_x,
         capsule_y: track_y,
@@ -651,7 +672,7 @@ pub fn paint_side_fader(
         meter_right: track_x + track_w,
         icon_x,
         icon_y,
-        icon_s: draw_s,
+        icon_s,
     }
 }
 
