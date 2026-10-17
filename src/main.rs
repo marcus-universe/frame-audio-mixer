@@ -126,15 +126,21 @@ fn main() {
         }
         let events = session.poll(panel_h as f64);
         let mut dirty = false;
+        if ui.keyboard_live() {
+            let text = session.keyboard_text();
+            if ui.apply_keyboard_text(&text, "", false) {
+                dirty = true;
+            }
+        }
         for event in events {
             if event.kind == overlay::QUIT || event.kind == overlay::OVERLAY_CLOSED {
                 std::process::exit(3);
             }
-            if event.kind == overlay::KEYBOARD_DONE || event.kind == overlay::KEYBOARD_CLOSED {
-                if event.kind == overlay::KEYBOARD_DONE {
-                    let text = session.keyboard_text();
-                    let action = ui.on_keyboard(&text);
-                    apply(&worker, &mut ui, action);
+            if event.kind == overlay::KEYBOARD_CHAR || event.kind == overlay::KEYBOARD_DONE || event.kind == overlay::KEYBOARD_CLOSED {
+                let text = session.keyboard_text();
+                let finished = event.kind != overlay::KEYBOARD_CHAR;
+                if ui.apply_keyboard_text(&text, &event.text, finished) {
+                    dirty = true;
                 }
                 dirty = true;
                 continue;
@@ -214,6 +220,7 @@ fn self_test() -> Result<(), String> {
     graph::self_test()?;
     i18n::self_test()?;
     draw::self_test_paths()?;
+    panel::self_test()?;
     icons::self_test()?;
     meter::self_test()?;
     worker::self_test()?;

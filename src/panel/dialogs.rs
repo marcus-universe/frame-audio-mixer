@@ -223,3 +223,54 @@ fn icon_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f
 fn _builtin() -> &'static str {
     Graph::BUILTIN_SOURCE
 }
+
+/// Channel name. The field shows what the headset keyboard types. Nothing is added until Add or Save.
+pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
+    backdrop(panel, cr);
+    let (x, y, w, h) = panel.dialog_rect(680.0, 300.0, 28.0);
+    fill_round(cr, x, y, w, h, 18.0, CARD);
+    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    panel.hot("noop", x, y, w, h);
+    draw::label_fit(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 48.0, w - 96.0, t.channel_name);
+    let close = (x + w - 56.0, y + 16.0, 40.0, 40.0);
+    let close_look = panel.look(close.0, close.1, close.2, close.3);
+    if close_look != draw::Look::Rest {
+        fill_round(cr, close.0, close.1, close.2, close.3, 12.0, if close_look == draw::Look::Down { draw::CONTROL_DOWN } else { draw::CONTROL_HOVER });
+    }
+    draw::icon(cr, draw::CLOSE_PATH, 1024.0, close.0 + 6.0, close.1 + 6.0, 28.0, TEXT);
+    panel.hot("dismiss", close.0, close.1, close.2, close.3);
+
+    let field = (x + 28.0, y + 80.0, w - 56.0, 56.0);
+    fill_round(cr, field.0, field.1, field.2, field.3, 14.0, INSET);
+    stroke_round(cr, field.0, field.1, field.2, field.3, 14.0, draw::accent(), 2.0);
+    let draft = panel.name_draft.clone();
+    let text_x = field.0 + 16.0;
+    let baseline = field.1 + 36.0;
+    let room = field.2 - 36.0;
+    if draft.is_empty() {
+        draw::label_fit(cr, fonts, false, 18.0, MUTED, text_x, baseline, room, t.channel_name);
+    } else {
+        draw::label_tail(cr, fonts, true, 18.0, TEXT, text_x, baseline, room, &draft);
+    }
+    let shown = if draft.is_empty() { String::new() } else { draw::fit_tail(cr, fonts, true, 18.0, room, &draft) };
+    let caret_x = text_x + draw::text_width(cr, fonts, true, 18.0, &shown).min(room);
+    if panel.name_keyboard && caret_x < field.0 + field.2 - 12.0 {
+        cr.set_source_rgb(draw::accent().r, draw::accent().g, draw::accent().b);
+        cr.set_line_width(2.0);
+        cr.move_to(caret_x + 2.0, field.1 + 16.0);
+        cr.line_to(caret_x + 2.0, field.1 + 40.0);
+        let _ = cr.stroke();
+    }
+    panel.hot("name-field", field.0, field.1, field.2, field.3);
+    if panel.name_rejected {
+        draw::label_fit(cr, fonts, false, 13.0, draw::DANGER_TEXT, x + 28.0, y + 164.0, w - 56.0, t.name_rejected);
+    }
+
+    let renaming = matches!(panel.overlay, super::Overlay::Name(super::NameEdit::Rename(_)));
+    let by = y + h - 76.0;
+    panel.button(cr, fonts, x + 28.0, by, 180.0, 48.0, t.cancel, ButtonKind::Plain);
+    panel.hot("dismiss", x + 28.0, by, 180.0, 48.0);
+    let ok = if renaming { t.save } else { t.add };
+    panel.button(cr, fonts, x + w - 208.0, by, 180.0, 48.0, ok, ButtonKind::Accent);
+    panel.hot("name-ok", x + w - 208.0, by, 180.0, 48.0);
+}

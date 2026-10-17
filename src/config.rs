@@ -89,7 +89,7 @@ pub struct Config {
     /// Channels are a vertical list of sideways sliders. Off keeps upright faders.
     #[serde(default)]
     pub list: bool,
-    /// Extended dashboard: 21:9, or 16:12 while `list` is on.
+    /// Extended dashboard: 21:9, or 9:10 while `list` is on.
     #[serde(default)]
     pub wide: bool,
 }

@@ -2,7 +2,7 @@
 //! libopenvr_api.so (the vtable address point is the first virtual method).
 
 use crate::vulkan::{SharedImage, Texture, Vulkan};
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CString, c_void};
 use std::ptr;
 
 const KEY: &str = "marcus-universe.frame-audio-mixer";
@@ -46,6 +46,7 @@ pub const SCROLL_SMOOTH: u32 = 309;
 pub const OVERLAY_CLOSED: u32 = 534;
 pub const QUIT: u32 = 700;
 pub const KEYBOARD_CLOSED: u32 = 1200;
+pub const KEYBOARD_CHAR: u32 = 1201;
 pub const KEYBOARD_DONE: u32 = 1202;
 
 pub struct Session {
@@ -69,6 +70,8 @@ pub struct Pointer {
     pub x: f64,
     pub y: f64,
     pub button: u32,
+    /// New characters from a keyboard event. Empty for pointer events.
+    pub text: String,
 }
 
 #[repr(C)]
@@ -279,7 +282,12 @@ impl Session {
             if kind == QUIT {
                 let ack: unsafe extern "C" fn(*mut c_void) = unsafe { vslot(self.system, SYSTEM_ACK_QUIT) };
                 unsafe { ack(self.system) };
-                out.push(Pointer { kind, x: 0.0, y: 0.0, button: 0 });
+                out.push(Pointer { kind, x: 0.0, y: 0.0, button: 0, text: String::new() });
+            } else if kind == KEYBOARD_CLOSED || kind == KEYBOARD_CHAR || kind == KEYBOARD_DONE {
+                // The dashboard keyboard reports through the system queue, not the overlay queue.
+                // cNewInput is the new key only, not the whole line.
+                let text = c_to_string(&buf[12..20]);
+                out.push(Pointer { kind, x: 0.0, y: 0.0, button: 0, text });
             }
         }
         out
@@ -298,7 +306,7 @@ impl Session {
         let get: unsafe extern "C" fn(*mut c_void, *mut u8, u32) -> u32 = unsafe { vslot(self.overlay, GET_KEYBOARD_TEXT) };
         let mut buf = [0u8; 128];
         unsafe { get(self.overlay, buf.as_mut_ptr(), buf.len() as u32) };
-        c_to_string(&buf)
+        decode_keyboard_bytes(&buf)
     }
 }
 
@@ -330,7 +338,7 @@ fn decode(buf: &[u8], panel_h: f64) -> Pointer {
     let button = u32::from_ne_bytes(buf[20..24].try_into().unwrap());
     // Scroll carries a delta. Mouse Y is measured from the bottom of the overlay.
     let y = if kind == SCROLL_DISCRETE || kind == SCROLL_SMOOTH { y } else { panel_h - y };
-    Pointer { kind, x, y, button }
+    Pointer { kind, x, y, button, text: String::new() }
 }
 
 pub fn is_left(button: u32) -> bool {
@@ -355,7 +363,28 @@ fn c_str(text: &str) -> CString {
 }
 
 fn c_to_string(buf: &[u8]) -> String {
-    CStr::from_bytes_until_nul(buf).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8_lossy(&buf[..end]).into_owned()
+}
+
+/// `GetKeyboardText` is UTF-8. A buffer that is ASCII stored as UTF-16 LE would
+/// otherwise stop at the first character, because each letter is followed by a zero byte.
+fn decode_keyboard_bytes(buf: &[u8]) -> String {
+    let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    if end == 1 && buf.len() > 3 && buf[1] == 0 && buf[2] != 0 {
+        let mut units = Vec::new();
+        let mut i = 0;
+        while i + 1 < buf.len() {
+            let unit = u16::from_le_bytes([buf[i], buf[i + 1]]);
+            if unit == 0 {
+                break;
+            }
+            units.push(unit);
+            i += 2;
+        }
+        return String::from_utf16_lossy(&units);
+    }
+    String::from_utf8_lossy(&buf[..end]).into_owned()
 }
 
 /// Confirms the overlay key still belongs to this process.

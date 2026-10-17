@@ -25,7 +25,8 @@ enum Page {
     Apps,
 }
 
-enum Keyboard {
+#[derive(Clone)]
+enum NameEdit {
     Add,
     Rename(String),
 }
@@ -37,6 +38,7 @@ enum Overlay {
     Settings,
     AppsList,
     Confirm(String),
+    Name(NameEdit),
 }
 
 struct Hot {
@@ -98,7 +100,11 @@ pub struct Panel {
     pointer: Option<(f64, f64)>,
     pressed: bool,
     notice: String,
-    keyboard: Option<Keyboard>,
+    /// Draft shown in the channel-name dialog.
+    name_draft: String,
+    name_rejected: bool,
+    /// The dashboard keyboard is open for the name field.
+    name_keyboard: bool,
     hots: Vec<Hot>,
     faders: Vec<FaderHit>,
     pub(crate) hbar: Option<HBar>,
@@ -155,7 +161,9 @@ impl Panel {
             pointer: None,
             pressed: false,
             notice: String::new(),
-            keyboard: None,
+            name_draft: String::new(),
+            name_rejected: false,
+            name_keyboard: false,
             hots: Vec::new(),
             faders: Vec::new(),
             hbar: None,
@@ -248,32 +256,82 @@ impl Panel {
         targets
     }
 
-    pub fn on_keyboard(&mut self, text: &str) -> Action {
-        let Some(which) = self.keyboard.take() else { return Action::None };
-        let name = match config::normalize_name(text) {
+    /// True while the name dialog is waiting on the dashboard keyboard.
+    pub fn keyboard_live(&self) -> bool {
+        self.name_keyboard && matches!(self.overlay, Overlay::Name(_))
+    }
+
+    /// Copy headset-keyboard text into the name field.
+    /// `full` is GetKeyboardText. `key` is the new key from a char event, which is not the whole line.
+    pub fn apply_keyboard_text(&mut self, full: &str, key: &str, finished: bool) -> bool {
+        if !matches!(self.overlay, Overlay::Name(_)) {
+            self.name_keyboard = false;
+            return false;
+        }
+        let next = if finished {
+            self.name_keyboard = false;
+            let full_n = full.chars().count();
+            let draft_n = self.name_draft.chars().count();
+            if !full.is_empty() && full_n >= draft_n {
+                truncate_name(full)
+            } else {
+                self.name_draft.clone()
+            }
+        } else {
+            merge_keyboard(&self.name_draft, full, key)
+        };
+        if next == self.name_draft {
+            return false;
+        }
+        self.name_draft = next;
+        self.name_rejected = false;
+        true
+    }
+
+    fn begin_name(&mut self, mode: NameEdit, draft: String) -> Action {
+        self.name_draft = draft;
+        self.name_rejected = false;
+        self.name_keyboard = false;
+        self.overlay = Overlay::Name(mode);
+        Action::None
+    }
+
+    fn commit_name(&mut self) -> Action {
+        let Some(mode) = self.name_mode() else { return Action::None };
+        let name = match config::normalize_name(&self.name_draft) {
             Ok(name) => name,
             Err(_) => {
-                self.notice = i18n::text(self.lang).name_rejected.to_string();
+                self.name_rejected = true;
                 return Action::None;
             }
         };
-        let except = match &which {
-            Keyboard::Rename(id) => Some(id.as_str()),
-            Keyboard::Add => None,
+        let except = match &mode {
+            NameEdit::Rename(id) => Some(id.as_str()),
+            NameEdit::Add => None,
         };
         if config::name_taken(&self.config.channels, &name, except) {
-            self.notice = i18n::text(self.lang).name_rejected.to_string();
+            self.name_rejected = true;
             return Action::None;
         }
-        match which {
-            Keyboard::Add => return self.add_channel(name, None),
-            Keyboard::Rename(id) => {
+        self.name_keyboard = false;
+        match mode {
+            NameEdit::Add => self.add_channel(name, None),
+            NameEdit::Rename(id) => {
                 if let Some(channel) = self.config.channels.iter_mut().find(|c| c.id == id) {
                     channel.name = name;
                 }
+                self.overlay = Overlay::None;
+                self.name_draft.clear();
+                Action::Save
             }
         }
-        Action::Save
+    }
+
+    fn name_mode(&self) -> Option<NameEdit> {
+        match &self.overlay {
+            Overlay::Name(mode) => Some(mode.clone()),
+            _ => None,
+        }
     }
 
     fn add_channel(&mut self, name: String, pin_app: Option<String>) -> Action {
@@ -418,6 +476,9 @@ impl Panel {
             self.pin_app = None;
             self.color_open = false;
             self.dialog_scroll = 0.0;
+            self.name_draft.clear();
+            self.name_rejected = false;
+            self.name_keyboard = false;
             return Action::None;
         }
         if id == "quit" {
@@ -522,9 +583,7 @@ impl Panel {
             return Action::None;
         }
         if id == "custom" {
-            self.keyboard = Some(Keyboard::Add);
-            self.overlay = Overlay::None;
-            return Action::ShowKeyboard { description: t.channel_name.to_string(), existing: String::new() };
+            return self.begin_name(NameEdit::Add, String::new());
         }
         if let Some(app) = id.strip_prefix("use:") {
             if self.config.channels.is_empty() {
@@ -558,8 +617,17 @@ impl Panel {
         }
         if let Some(channel) = id.strip_prefix("name:") {
             let existing = self.config.channels.iter().find(|c| c.id == channel).map(|c| c.name.clone()).unwrap_or_default();
-            self.keyboard = Some(Keyboard::Rename(channel.to_string()));
-            return Action::ShowKeyboard { description: t.channel_name.to_string(), existing };
+            return self.begin_name(NameEdit::Rename(channel.to_string()), existing);
+        }
+        if id == "name-field" {
+            if !matches!(self.overlay, Overlay::Name(_)) {
+                return Action::None;
+            }
+            self.name_keyboard = true;
+            return Action::ShowKeyboard { description: t.channel_name.to_string(), existing: self.name_draft.clone() };
+        }
+        if id == "name-ok" {
+            return self.commit_name();
         }
         if let Some(channel) = id.strip_prefix("rm:") {
             let armed = self.delete_until.as_ref().is_some_and(|(id, until)| id == channel && Instant::now() <= *until);
@@ -712,8 +780,9 @@ impl Panel {
 
     pub(crate) fn stage(&self) -> Stage {
         let (w, h) = self.size_f();
-        let portrait = h > w;
         let footer = (28.0, h - 114.0, w - 56.0, 88.0);
+        // The 9:10 list window is taller than it is wide. Mix Check still sits beside the sliders.
+        let portrait = h > w && !self.config.list;
         if portrait {
             let check_h = 520.0_f64.min((h - 280.0) * 0.42).max(280.0);
             let check = (28.0, footer.1 - 14.0 - check_h, w - 56.0, check_h);
@@ -776,6 +845,7 @@ impl Panel {
             Overlay::Settings => 3,
             Overlay::AppsList => 4,
             Overlay::Confirm(_) => 5,
+            Overlay::Name(_) => 6,
         };
         let confirm_key = if let Overlay::Confirm(key) = &self.overlay { key.clone() } else { String::new() };
         match overlay {
@@ -784,6 +854,7 @@ impl Panel {
             3 => dialogs::settings(self, cr, fonts, t),
             4 => apps::list(self, cr, fonts, t, snap),
             5 => apps::confirm(self, cr, fonts, t, snap, &confirm_key),
+            6 => dialogs::name(self, cr, fonts, t),
             _ => {}
         }
     }
@@ -1066,4 +1137,62 @@ pub(crate) fn paint_desktop_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts,
     let font = size * 0.5;
     let width = draw::text_width(cr, fonts, true, font, &letter);
     draw::label(cr, fonts, true, font, TEXT, x + (size - width) / 2.0, y + size * 0.68, &letter);
+}
+
+fn truncate_name(text: &str) -> String {
+    text.chars().take(config::NAME_MAX_CHARS).collect()
+}
+
+/// The headset keyboard reports either the whole line (`full`) or only the new key (`key`).
+fn merge_keyboard(draft: &str, full: &str, key: &str) -> String {
+    if key == "\u{8}" || key == "\u{7f}" {
+        let mut chars: Vec<char> = draft.chars().collect();
+        chars.pop();
+        return chars.into_iter().collect();
+    }
+    let full_n = full.chars().count();
+    let draft_n = draft.chars().count();
+    if !full.is_empty() && full.starts_with(draft) && full_n > draft_n {
+        return truncate_name(full);
+    }
+    // A one-character read is the newest key, not the line, so it must not wipe the name.
+    if key.is_empty() && full_n > 1 && draft.starts_with(full) && draft_n > full_n && draft_n - full_n <= 2 {
+        return truncate_name(full);
+    }
+    if !key.is_empty() {
+        if !full.is_empty() && full.starts_with(draft) && full.ends_with(key) && full_n >= draft_n {
+            return truncate_name(full);
+        }
+        if key.starts_with(draft) && key.chars().count() >= draft_n {
+            return truncate_name(key);
+        }
+        return truncate_name(&format!("{draft}{key}"));
+    }
+    draft.to_string()
+}
+
+pub fn self_test() -> Result<(), String> {
+    if merge_keyboard("Mu", "Music", "s") != "Music" {
+        return Err("keyboard full line".into());
+    }
+    if merge_keyboard("Musi", "c", "c") != "Music" {
+        return Err("keyboard one key".into());
+    }
+    if merge_keyboard("Music", "M", "c") != "Musicc" {
+        return Err("keyboard keeps earlier letters".into());
+    }
+    if merge_keyboard("Music", "Music", "c") != "Music" {
+        return Err("keyboard repeats the last key".into());
+    }
+    if merge_keyboard("Music", "", "\u{8}") != "Musi" {
+        return Err("keyboard backspace".into());
+    }
+    let mut config = crate::config::Config::default();
+    config.list = true;
+    config.wide = true;
+    let stage = Panel::new(config).stage();
+    if stage.portrait || stage.check.0 <= stage.mix.0 + stage.mix.2 {
+        return Err("list extend check on the right".into());
+    }
+    Ok(())
 }

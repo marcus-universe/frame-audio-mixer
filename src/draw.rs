@@ -8,18 +8,18 @@ use std::f64::consts::PI;
 pub const WIDTH: i32 = 1200;
 pub const HEIGHT: i32 = 788;
 
-/// Dashboard pixels. Extend is 21:9. With the channel list it is 16:12, as wide
-/// as that 21:9 dashboard so the sliders stay full size.
+/// Dashboard pixels. Extend is 21:9. With the channel list it is 9:10,
+/// about as wide as the normal panel so Mix Check fits beside the sliders.
 pub fn panel_pixels(wide: bool, list: bool) -> (i32, i32) {
     if !wide {
         return (WIDTH, HEIGHT);
     }
-    let long = (HEIGHT as f64 * 21.0 / 9.0).round() as i32;
     if !list {
+        let long = (HEIGHT as f64 * 21.0 / 9.0).round() as i32;
         return (long, HEIGHT);
     }
-    let unit = (long as f64 / 16.0).round() as i32;
-    (unit * 16, unit * 12)
+    let unit = (WIDTH as f64 / 9.0).round().max(1.0) as i32;
+    (unit * 9, unit * 10)
 }
 
 #[derive(Clone, Copy)]
@@ -212,6 +212,28 @@ pub fn label_fit(
         kept.pop();
     }
     label(cr, fonts, bold, size, c, x, baseline, &format!("{kept}…"));
+}
+
+/// Draw the end of `text` inside `max_w`. A long name keeps the characters being typed.
+pub fn label_tail(cr: &Context, fonts: &Fonts, bold: bool, size: f64, c: Rgb, x: f64, baseline: f64, max_w: f64, text: &str) {
+    let shown = fit_tail(cr, fonts, bold, size, max_w, text);
+    label(cr, fonts, bold, size, c, x, baseline, &shown);
+}
+
+/// The end of `text` that fits in `max_w`, with a leading ellipsis when the start is cut.
+pub fn fit_tail(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, text: &str) -> String {
+    if text.is_empty() || max_w <= 0.0 || text_width(cr, fonts, bold, size, text) <= max_w {
+        return text.to_string();
+    }
+    let mut kept: Vec<char> = text.chars().collect();
+    while kept.len() > 1 {
+        let shown: String = std::iter::once('…').chain(kept.iter().copied()).collect();
+        if text_width(cr, fonts, bold, size, &shown) <= max_w {
+            break;
+        }
+        kept.remove(0);
+    }
+    std::iter::once('…').chain(kept.iter().copied()).collect()
 }
 
 /// Break `text` into lines no wider than `max_w`. Text without spaces (Japanese,
@@ -1011,7 +1033,7 @@ pub fn self_test_paths() -> Result<(), String> {
         return Err("live icons".into());
     }
     let (list_w, list_h) = panel_pixels(true, true);
-    if list_w * 12 != list_h * 16 || list_w <= WIDTH {
+    if list_w * 10 != list_h * 9 || list_h <= list_w || list_w + 8 < WIDTH {
         return Err(format!("list extend {list_w}x{list_h}"));
     }
     let (wide_w, wide_h) = panel_pixels(true, false);
