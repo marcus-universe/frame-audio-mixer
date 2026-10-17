@@ -19,13 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-Parts of the panel, the OpenVR overlay, and the updater are adapted from
-Frame Mic Tuner by sasaken1102r, which is also MIT licensed:
-https://github.com/sasaken1102r/frame-mic-tuner
-
-vendor/frame-updater/frame-update.sh is the MIT-licensed updater from that
-project (see vendor/frame-updater/UPSTREAM). Icons listed in the README are
-from Iconify icon sets, each under the MIT license.

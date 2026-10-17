@@ -1,0 +1,41 @@
+Frame Audio Mixer
+Copyright (c) 2026 marcus-universe
+
+The panel, the OpenVR overlay, and the idea of the in-app updater are adapted
+from Frame Mic Tuner by sasaken1102r, which is MIT licensed:
+https://github.com/sasaken1102r/frame-mic-tuner
+
+The "Frame apps by sasaken@" list (src/apps/) is a Rust port of that project's
+frame-apps 0.3.1 catalog, including the other apps' icons. Those icons are MIT,
+the same as Frame Mic Tuner.
+
+The panel glyphs are embedded copies of Iconify icons. Nothing is downloaded
+at runtime. Licenses below are the ones published with each Iconify collection
+(@iconify-json/*/info.json, the same metadata as
+https://api.iconify.design/collection?prefix=<set>&info=1):
+
+- fontisto:mic — Fontisto, Kenan Gündoğan, MIT
+  https://icon-sets.iconify.design/fontisto/mic/
+  https://github.com/kenangundogan/fontisto/blob/master/LICENSE
+- famicons:mic-off — Famicons, Family, MIT
+  https://icon-sets.iconify.design/famicons/mic-off/
+  https://github.com/familyjs/famicons/blob/main/LICENSE
+- f7:speaker-2-fill and f7:speaker-slash-fill — Framework7 Icons,
+  Vladimir Kharlampidi, MIT
+  https://icon-sets.iconify.design/f7/speaker-2-fill/
+  https://github.com/framework7io/framework7-icons/blob/master/LICENSE
+- fluent:add-square-28-filled — Fluent UI System Icons, Microsoft Corporation, MIT
+  https://icon-sets.iconify.design/fluent/add-square-28-filled/
+  https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE
+- heroicons:language-16-solid — Heroicons, Refactoring UI Inc, MIT
+  https://icon-sets.iconify.design/heroicons/language-16-solid/
+  https://github.com/tailwindlabs/heroicons/blob/master/LICENSE
+- at-icons:headphones — @icons, Valentin Fossati, MIT
+  https://icon-sets.iconify.design/at-icons/headphones/
+  https://github.com/Voxybuns/at-icons/blob/main/LICENSE
+- material-symbols:settings-rounded — Material Symbols, Google, Apache-2.0
+  https://icon-sets.iconify.design/material-symbols/settings-rounded/
+  https://github.com/google/material-design-icons/blob/master/LICENSE
+
+Record, Stop, Play, the chevrons and the back arrow are drawn as shapes in
+this repository. They are not Iconify icons.
