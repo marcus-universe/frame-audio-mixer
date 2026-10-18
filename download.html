@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Downloads · Frame Audio Mixer</title>
+  <meta name="description" content="Install Frame Audio Mixer on a Steam Frame, or download the latest release.">
+  <link rel="icon" href="assets/logo/logo_icon_blue.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+Mono:wght@400&family=Noto+Sans+SC:wght@400;500&family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body data-page="download">
+  <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="wrap top">
+    <a class="brand" href="./">
+      <img data-logo="icon" src="assets/logo/logo_icon_blue.svg" alt="">
+      <span>Frame Audio Mixer</span>
+    </a>
+    <nav class="nav">
+      <a class="quiet" href="download.html" data-i18n="nav_downloads">Downloads</a>
+      <a class="quiet" href="https://github.com/marcus-universe/frame-audio-mixer" data-i18n="nav_github">GitHub</a>
+      <div class="themes">
+        <button type="button" data-theme-set="blue" aria-pressed="true" data-i18n-aria="theme_blue" aria-label="Blue theme"><span class="swatch"></span></button>
+        <button type="button" data-theme-set="pink" aria-pressed="false" data-i18n-aria="theme_pink" aria-label="Pink theme"><span class="swatch pink"></span></button>
+      </div>
+      <label>
+        <span class="visually-hidden" data-i18n="language">Language</span>
+        <select id="lang"></select>
+      </label>
+    </nav>
+  </header>
+  <main id="main" class="wrap download">
+    <h1 data-i18n="dl_title">Downloads</h1>
+    <p class="lead" data-i18n="dl_lead"></p>
+    <div class="stack">
+      <div>
+        <div class="command">
+          <code data-install="plain">curl -fsSL https://marcus-universe.github.io/frame-audio-mixer/i | sh</code>
+          <button type="button" data-copy data-i18n="copy">Copy</button>
+        </div>
+        <p class="note" data-i18n="install_note"></p>
+      </div>
+      <div>
+        <p class="note" data-i18n="dl_autostart_label"></p>
+        <div class="command">
+          <code data-install="autostart">curl -fsSL https://marcus-universe.github.io/frame-audio-mixer/i | sh -s -- --autostart</code>
+          <button type="button" data-copy data-i18n="copy">Copy</button>
+        </div>
+      </div>
+      <div>
+        <p class="note" data-i18n="dl_uninstall_label"></p>
+        <div class="command">
+          <code data-install="uninstall">curl -fsSL https://marcus-universe.github.io/frame-audio-mixer/i | sh -s -- --uninstall</code>
+          <button type="button" data-copy data-i18n="copy">Copy</button>
+        </div>
+      </div>
+    </div>
+    <ul class="files">
+      <li>
+        <div>
+          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-mixer-aarch64.tar.gz">frame-audio-mixer-aarch64.tar.gz</a>
+          <p data-i18n="dl_archive_note"></p>
+        </div>
+        <span data-i18n="dl_archive"></span>
+      </li>
+      <li>
+        <div>
+          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/SHA256SUMS">SHA256SUMS</a>
+          <p data-i18n="dl_sums_note"></p>
+        </div>
+        <span data-i18n="dl_sums"></span>
+      </li>
+      <li>
+        <div>
+          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest" data-i18n="dl_releases">All releases on GitHub</a>
+        </div>
+      </li>
+    </ul>
+    <p class="note" data-i18n="dl_host"></p>
+    <section class="more">
+      <p>
+        <span data-i18n="more"></span>
+        <a href="https://frame.sasaken1102s.net/" data-i18n="more_link">Steam Frame apps by sasaken@</a>
+      </p>
+    </section>
+  </main>
+  <footer class="wrap foot">
+    <span data-i18n="foot"></span>
+    <a href="https://github.com/marcus-universe/frame-audio-mixer/blob/main/LICENSE">MIT</a>
+  </footer>
+  <script src="js/i18n.js"></script>
+  <script src="js/site.js"></script>
+</body>
+</html>

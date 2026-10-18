@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Frame Audio Mixer</title>
+  <meta name="description" content="Mix app audio with the Steam Frame microphone and send it to the PC as Steam Streaming Microphone.">
+  <link rel="icon" href="assets/logo/logo_icon_blue.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+Mono:wght@400&family=Noto+Sans+SC:wght@400;500&family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css">
+</head>
+<body data-page="home">
+  <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
+  <header class="wrap top">
+    <a class="brand" href="./">
+      <img data-logo="icon" src="assets/logo/logo_icon_blue.svg" alt="">
+      <span>Frame Audio Mixer</span>
+    </a>
+    <nav class="nav">
+      <a class="quiet" href="download.html" data-i18n="nav_downloads">Downloads</a>
+      <a class="quiet" href="https://github.com/marcus-universe/frame-audio-mixer" data-i18n="nav_github">GitHub</a>
+      <div class="themes">
+        <button type="button" data-theme-set="blue" aria-pressed="true" data-i18n-aria="theme_blue" aria-label="Blue theme"><span class="swatch"></span></button>
+        <button type="button" data-theme-set="pink" aria-pressed="false" data-i18n-aria="theme_pink" aria-label="Pink theme"><span class="swatch pink"></span></button>
+      </div>
+      <label>
+        <span class="visually-hidden" data-i18n="language">Language</span>
+        <select id="lang"></select>
+      </label>
+    </nav>
+  </header>
+  <main id="main" class="wrap">
+    <section class="hero">
+      <h1>
+        <img class="banner" data-logo="banner" src="assets/logo/logo_banner_blue.svg" alt="Frame Audio Mixer">
+      </h1>
+      <p class="lead" data-i18n="lead"></p>
+      <div class="command">
+        <code data-install="plain">curl -fsSL https://marcus-universe.github.io/frame-audio-mixer/i | sh</code>
+        <button type="button" data-copy data-i18n="copy">Copy</button>
+      </div>
+      <p class="note" data-i18n="install_note"></p>
+    </section>
+    <section class="gallery" aria-label="Frame Audio Mixer">
+      <img src="assets/preview/Preview-Frame-Audio-Mixer-1.png" alt="Column view, blue theme" data-i18n-alt="alt1">
+      <img src="assets/preview/Preview-Frame-Audio-Mixer-2.png" alt="List view, blue theme" data-i18n-alt="alt2">
+      <img src="assets/preview/Preview-Frame-Audio-Mixer-3.png" alt="Column view, pink theme" data-i18n-alt="alt3">
+      <img src="assets/preview/Preview-Frame-Audio-Mixer-4.png" alt="List view, pink theme" data-i18n-alt="alt4">
+    </section>
+    <section class="features">
+      <h2 class="section" data-i18n="features">Features</h2>
+      <ul class="feature-list">
+        <li><h3 data-i18n="f1"></h3><p data-i18n="f1b"></p></li>
+        <li><h3 data-i18n="f2"></h3><p data-i18n="f2b"></p></li>
+        <li><h3 data-i18n="f3"></h3><p data-i18n="f3b"></p></li>
+        <li><h3 data-i18n="f4"></h3><p data-i18n="f4b"></p></li>
+        <li><h3 data-i18n="f5"></h3><p data-i18n="f5b"></p></li>
+        <li><h3 data-i18n="f6"></h3><p data-i18n="f6b"></p></li>
+      </ul>
+    </section>
+    <section class="more">
+      <p>
+        <span data-i18n="more"></span>
+        <a href="https://frame.sasaken1102s.net/" data-i18n="more_link">Steam Frame apps by sasaken@</a>
+      </p>
+    </section>
+  </main>
+  <footer class="wrap foot">
+    <span data-i18n="foot"></span>
+    <a href="https://github.com/marcus-universe/frame-audio-mixer/blob/main/LICENSE">MIT</a>
+  </footer>
+  <script src="js/i18n.js"></script>
+  <script src="js/site.js"></script>
+</body>
+</html>
