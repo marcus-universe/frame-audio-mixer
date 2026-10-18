@@ -1,18 +1,19 @@
 (function () {
-  var FALLBACK = "https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install";
+  var FALLBACK = "https://frame-audio-mixer.marcus-universe.com/i";
   var LANGS = ["en", "ja", "sc", "de", "fr", "es", "it"];
   var root = document.documentElement;
 
   function installUrl() {
     if (location.protocol !== "http:" && location.protocol !== "https:") return FALLBACK;
-    return new URL("frame-audio-mixer-install", location.href).href;
+    return new URL("i", location.href).href;
   }
 
   function command(kind) {
     var url = installUrl();
-    if (kind === "autostart") return "curl -fsSL " + url + " | sh -s -- --autostart";
-    if (kind === "uninstall") return "curl -fsSL " + url + " | sh -s -- --uninstall";
-    return "curl -fsSL " + url + " | sh";
+    var line = "curl -fsSL " + url + " -o frame-audio-mixer-install && sh frame-audio-mixer-install";
+    if (kind === "autostart") return line + " --autostart";
+    if (kind === "uninstall") return line + " --uninstall";
+    return line;
   }
 
   function fillCommands() {

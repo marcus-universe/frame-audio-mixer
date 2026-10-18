@@ -53,7 +53,7 @@ window.FAM_I18N = {
     dl_releases: "All releases on GitHub",
     dl_autostart_label: "Also start the panel with SteamVR",
     dl_uninstall_label: "Uninstall",
-    dl_host: "The installer script is frame-audio-mixer-install on this site. The archive always comes from GitHub Releases, so the download stays the same on a custom domain."
+    dl_host: "The address is /i. The command saves that script as frame-audio-mixer-install. The release archive still comes from GitHub Releases."
   },
   ja: {
     lang_name: "日本語",
@@ -109,7 +109,7 @@ window.FAM_I18N = {
     dl_releases: "GitHub のすべてのリリース",
     dl_autostart_label: "パネルを SteamVR と一緒に起動する",
     dl_uninstall_label: "アンインストール",
-    dl_host: "インストーラーは、このサイトの frame-audio-mixer-install です。アーカイブは常に GitHub Releases から届くので、独自ドメインでもダウンロード先は変わりません。"
+    dl_host: "アドレスは /i です。コマンドはそのスクリプトを frame-audio-mixer-install として保存します。リリースのアーカイブは引き続き GitHub Releases から届きます。"
   },
   sc: {
     lang_name: "简体中文",
@@ -165,7 +165,7 @@ window.FAM_I18N = {
     dl_releases: "GitHub 上的所有版本",
     dl_autostart_label: "让面板随 SteamVR 启动",
     dl_uninstall_label: "卸载",
-    dl_host: "安装脚本是本站上的 frame-audio-mixer-install。压缩包始终来自 GitHub Releases，所以换成自己的域名也不会改变下载来源。"
+    dl_host: "地址是 /i。命令会把这个脚本保存为 frame-audio-mixer-install。发布压缩包仍然来自 GitHub Releases。"
   },
   de: {
     lang_name: "Deutsch",
@@ -221,7 +221,7 @@ window.FAM_I18N = {
     dl_releases: "Alle Releases auf GitHub",
     dl_autostart_label: "Das Panel auch mit SteamVR starten",
     dl_uninstall_label: "Deinstallieren",
-    dl_host: "Das Installationsskript ist frame-audio-mixer-install auf dieser Website. Das Archiv kommt immer von GitHub Releases, eine eigene Domain ändert den Download also nicht."
+    dl_host: "Die Adresse ist /i. Der Befehl speichert das Skript als frame-audio-mixer-install. Das Release-Archiv kommt weiter von GitHub Releases."
   },
   fr: {
     lang_name: "Français",
@@ -277,7 +277,7 @@ window.FAM_I18N = {
     dl_releases: "Toutes les versions sur GitHub",
     dl_autostart_label: "Démarrer aussi le panneau avec SteamVR",
     dl_uninstall_label: "Désinstaller",
-    dl_host: "Le script d'installation est frame-audio-mixer-install sur ce site. L'archive vient toujours des GitHub Releases, donc un domaine personnel ne change pas le téléchargement."
+    dl_host: "L'adresse est /i. La commande enregistre le script sous le nom frame-audio-mixer-install. L'archive de la version vient toujours des GitHub Releases."
   },
   es: {
     lang_name: "Español",
@@ -333,7 +333,7 @@ window.FAM_I18N = {
     dl_releases: "Todas las versiones en GitHub",
     dl_autostart_label: "Arrancar también el panel con SteamVR",
     dl_uninstall_label: "Desinstalar",
-    dl_host: "El script de instalación es frame-audio-mixer-install en este sitio. El archivo comprimido siempre viene de GitHub Releases, así que un dominio propio no cambia la descarga."
+    dl_host: "La dirección es /i. El comando guarda el script como frame-audio-mixer-install. El archivo de la versión sigue viniendo de GitHub Releases."
   },
   it: {
     lang_name: "Italiano",
@@ -389,6 +389,6 @@ window.FAM_I18N = {
     dl_releases: "Tutte le versioni su GitHub",
     dl_autostart_label: "Avviare anche il pannello con SteamVR",
     dl_uninstall_label: "Disinstalla",
-    dl_host: "Lo script di installazione è frame-audio-mixer-install su questo sito. L'archivio arriva sempre da GitHub Releases, quindi un dominio proprio non cambia il download."
+    dl_host: "L'indirizzo è /i. Il comando salva lo script come frame-audio-mixer-install. L'archivio della versione arriva sempre da GitHub Releases."
   }
 };

@@ -1,4 +1,4 @@
-frame-audio-mixer-install text eol=lf
+i text eol=lf
 *.js text eol=lf
 *.css text eol=lf
 *.html text eol=lf
