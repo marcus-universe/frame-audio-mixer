@@ -29,7 +29,7 @@ Replace `<headset-ip>` with the address from the step above. The first time, con
 In that session, run:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
 ```
 
 - To also start the panel with SteamVR, end the command with `| sh -s -- --autostart`.
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 You can also send the command in one line and skip the interactive session. On macOS, Linux, or Windows Terminal:
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
 ```
 
 The installer only runs on the Steam Frame. An SSH session is already on the headset, so that check passes.

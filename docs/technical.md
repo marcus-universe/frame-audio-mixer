@@ -64,7 +64,7 @@ The updater is written in Rust (`ureq` with rustls, `sha2`, `flate2` and `tar`):
 With the one-line command:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh -s -- --uninstall
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --uninstall
 ```
 
 From a checkout or release folder:

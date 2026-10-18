@@ -1,9 +1,9 @@
 #!/bin/sh
 # Install or update Frame Audio Mixer on a Steam Frame with one command:
-#   curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
 # Options go to install.sh, for example:
-#   curl -fsSL .../get.sh | sh -s -- --autostart
-#   curl -fsSL .../get.sh | sh -s -- --uninstall
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --autostart
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --uninstall
 # It uses the latest release and checks SHA256SUMS. Without a release it builds
 # the main branch, which needs Rust (cargo) on the headset. Needs curl,
 # sha256sum and tar. Nothing is written outside the home directory.

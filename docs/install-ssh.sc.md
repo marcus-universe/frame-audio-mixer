@@ -29,7 +29,7 @@ ssh steamos@<headset-ip>
 在这个会话里运行：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
 ```
 
 - 如果还想让面板随 SteamVR 启动，把命令结尾改成 `| sh -s -- --autostart`。
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 也可以不留在会话里，用一行命令发送。在 macOS、Linux 或 Windows Terminal 里：
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
 ```
 
 安装程序只在 Steam Frame 上运行。SSH 会话已经在头显上，所以这项检查会通过。

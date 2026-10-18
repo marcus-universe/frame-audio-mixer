@@ -29,7 +29,7 @@ ssh steamos@<headset-ip>
 そのセッションで次を実行します。
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
 ```
 
 - パネルを SteamVR と一緒に起動するには、コマンドの最後を `| sh -s -- --autostart` にします。
@@ -39,7 +39,7 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 対話セッションに残らず、1 行で送ることもできます。macOS、Linux、または Windows Terminal で次を実行します。
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/main/scripts/get.sh | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
 ```
 
 インストーラーは Steam Frame 上でだけ動きます。SSH セッションはすでにヘッドセット上なので、この確認は通ります。
