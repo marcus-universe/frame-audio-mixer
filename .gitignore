@@ -1,5 +1,6 @@
 /target
 /dist
+/site
 **/*.rs.bk
 .DS_Store
 .env
