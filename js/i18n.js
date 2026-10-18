@@ -37,6 +37,13 @@ window.FAM_I18N = {
     cta_body: "Install it on the Frame with one command, or take the release files.",
     cta_button: "Open downloads",
     foot: "MIT License. Unofficial, and not affiliated with Valve.",
+    imprint: "Imprint",
+    imprint_title: "Imprint",
+    imprint_maintainer: "Maintainer",
+    imprint_contact: "Contact",
+    imprint_email: "Email",
+    imprint_license: "License",
+    imprint_license_body: "Frame Audio Mixer is released under the MIT License.",
     dl_title: "Downloads",
     dl_lead: "The command installs the latest release on the headset and checks the checksum. The files below are that same release.",
     dl_archive: "Headset build",
@@ -46,7 +53,7 @@ window.FAM_I18N = {
     dl_releases: "All releases on GitHub",
     dl_autostart_label: "Also start the panel with SteamVR",
     dl_uninstall_label: "Uninstall",
-    dl_host: "The script is the file /i on this site. The archive always comes from GitHub Releases, so pointing a subdomain at this site does not change the download."
+    dl_host: "The installer script is frame-audio-mixer-install on this site. The archive always comes from GitHub Releases, so the download stays the same on a custom domain."
   },
   ja: {
     lang_name: "日本語",
@@ -86,6 +93,13 @@ window.FAM_I18N = {
     cta_body: "Frame には 1 つのコマンドで入ります。リリースのファイルもここから取れます。",
     cta_button: "ダウンロードを開く",
     foot: "MIT License。非公式で、Valve とは関係ありません。",
+    imprint: "法的表示",
+    imprint_title: "法的表示",
+    imprint_maintainer: "管理者",
+    imprint_contact: "連絡先",
+    imprint_email: "メール",
+    imprint_license: "ライセンス",
+    imprint_license_body: "Frame Audio Mixer は MIT ライセンスで公開しています。",
     dl_title: "ダウンロード",
     dl_lead: "このコマンドは、ヘッドセットに最新リリースを入れ、チェックサムを確かめます。下のファイルは、その同じリリースです。",
     dl_archive: "ヘッドセット用ビルド",
@@ -95,7 +109,7 @@ window.FAM_I18N = {
     dl_releases: "GitHub のすべてのリリース",
     dl_autostart_label: "パネルを SteamVR と一緒に起動する",
     dl_uninstall_label: "アンインストール",
-    dl_host: "スクリプトはこのサイトの /i です。アーカイブは常に GitHub Releases から届くので、このサイトにサブドメインを向けてもダウンロード先は変わりません。"
+    dl_host: "インストーラーは、このサイトの frame-audio-mixer-install です。アーカイブは常に GitHub Releases から届くので、独自ドメインでもダウンロード先は変わりません。"
   },
   sc: {
     lang_name: "简体中文",
@@ -135,6 +149,13 @@ window.FAM_I18N = {
     cta_body: "用一条命令在 Frame 上安装，或在这里获取发布文件。",
     cta_button: "打开下载",
     foot: "MIT 许可。非官方，与 Valve 无关。",
+    imprint: "法律信息",
+    imprint_title: "法律信息",
+    imprint_maintainer: "维护者",
+    imprint_contact: "联系",
+    imprint_email: "邮箱",
+    imprint_license: "许可",
+    imprint_license_body: "Frame Audio Mixer 以 MIT 许可发布。",
     dl_title: "下载",
     dl_lead: "这条命令会在头显上安装最新版本，并核对校验和。下面的文件就是同一个版本。",
     dl_archive: "头显构建",
@@ -144,7 +165,7 @@ window.FAM_I18N = {
     dl_releases: "GitHub 上的所有版本",
     dl_autostart_label: "让面板随 SteamVR 启动",
     dl_uninstall_label: "卸载",
-    dl_host: "脚本是本站上的 /i。压缩包始终来自 GitHub Releases，所以把子域名指到本站不会改变下载来源。"
+    dl_host: "安装脚本是本站上的 frame-audio-mixer-install。压缩包始终来自 GitHub Releases，所以换成自己的域名也不会改变下载来源。"
   },
   de: {
     lang_name: "Deutsch",
@@ -184,6 +205,13 @@ window.FAM_I18N = {
     cta_body: "Mit einem Befehl auf der Frame installieren, oder die Release-Dateien holen.",
     cta_button: "Downloads öffnen",
     foot: "MIT-Lizenz. Inoffiziell und nicht mit Valve verbunden.",
+    imprint: "Impressum",
+    imprint_title: "Impressum",
+    imprint_maintainer: "Betreiber",
+    imprint_contact: "Kontakt",
+    imprint_email: "E-Mail",
+    imprint_license: "Lizenz",
+    imprint_license_body: "Frame Audio Mixer steht unter der MIT-Lizenz.",
     dl_title: "Downloads",
     dl_lead: "Der Befehl installiert das neueste Release auf dem Headset und prüft die Prüfsumme. Die Dateien unten sind dasselbe Release.",
     dl_archive: "Build für das Headset",
@@ -193,7 +221,7 @@ window.FAM_I18N = {
     dl_releases: "Alle Releases auf GitHub",
     dl_autostart_label: "Das Panel auch mit SteamVR starten",
     dl_uninstall_label: "Deinstallieren",
-    dl_host: "Das Skript ist die Datei /i auf dieser Website. Das Archiv kommt immer von GitHub Releases. Eine Subdomain auf diese Website ändert den Download nicht."
+    dl_host: "Das Installationsskript ist frame-audio-mixer-install auf dieser Website. Das Archiv kommt immer von GitHub Releases, eine eigene Domain ändert den Download also nicht."
   },
   fr: {
     lang_name: "Français",
@@ -233,6 +261,13 @@ window.FAM_I18N = {
     cta_body: "Installez-la sur le Frame avec une commande, ou prenez les fichiers de la version.",
     cta_button: "Ouvrir les téléchargements",
     foot: "Licence MIT. Non officiel, sans lien avec Valve.",
+    imprint: "Mentions légales",
+    imprint_title: "Mentions légales",
+    imprint_maintainer: "Responsable",
+    imprint_contact: "Contact",
+    imprint_email: "E-mail",
+    imprint_license: "Licence",
+    imprint_license_body: "Frame Audio Mixer est publié sous la licence MIT.",
     dl_title: "Téléchargements",
     dl_lead: "La commande installe la dernière version sur le casque et vérifie l'empreinte. Les fichiers ci-dessous sont cette même version.",
     dl_archive: "Build pour le casque",
@@ -242,7 +277,7 @@ window.FAM_I18N = {
     dl_releases: "Toutes les versions sur GitHub",
     dl_autostart_label: "Démarrer aussi le panneau avec SteamVR",
     dl_uninstall_label: "Désinstaller",
-    dl_host: "Le script est le fichier /i de ce site. L'archive vient toujours des GitHub Releases, donc un sous-domaine vers ce site ne change pas le téléchargement."
+    dl_host: "Le script d'installation est frame-audio-mixer-install sur ce site. L'archive vient toujours des GitHub Releases, donc un domaine personnel ne change pas le téléchargement."
   },
   es: {
     lang_name: "Español",
@@ -282,6 +317,13 @@ window.FAM_I18N = {
     cta_body: "Instálala en el Frame con un comando, o descarga los archivos de la versión.",
     cta_button: "Abrir descargas",
     foot: "Licencia MIT. No oficial, sin relación con Valve.",
+    imprint: "Aviso legal",
+    imprint_title: "Aviso legal",
+    imprint_maintainer: "Responsable",
+    imprint_contact: "Contacto",
+    imprint_email: "Correo",
+    imprint_license: "Licencia",
+    imprint_license_body: "Frame Audio Mixer se publica bajo la licencia MIT.",
     dl_title: "Descargas",
     dl_lead: "El comando instala la última versión en el visor y comprueba la suma. Los archivos de abajo son esa misma versión.",
     dl_archive: "Build para el visor",
@@ -291,7 +333,7 @@ window.FAM_I18N = {
     dl_releases: "Todas las versiones en GitHub",
     dl_autostart_label: "Arrancar también el panel con SteamVR",
     dl_uninstall_label: "Desinstalar",
-    dl_host: "El script es el archivo /i de este sitio. El archivo comprimido siempre viene de GitHub Releases, así que un subdominio hacia este sitio no cambia la descarga."
+    dl_host: "El script de instalación es frame-audio-mixer-install en este sitio. El archivo comprimido siempre viene de GitHub Releases, así que un dominio propio no cambia la descarga."
   },
   it: {
     lang_name: "Italiano",
@@ -331,6 +373,13 @@ window.FAM_I18N = {
     cta_body: "Installala sul Frame con un comando, oppure prendi i file della versione.",
     cta_button: "Apri i download",
     foot: "Licenza MIT. Non ufficiale, senza legami con Valve.",
+    imprint: "Note legali",
+    imprint_title: "Note legali",
+    imprint_maintainer: "Responsabile",
+    imprint_contact: "Contatto",
+    imprint_email: "Email",
+    imprint_license: "Licenza",
+    imprint_license_body: "Frame Audio Mixer è pubblicato sotto la licenza MIT.",
     dl_title: "Download",
     dl_lead: "Il comando installa l'ultima versione sul visore e controlla il checksum. I file qui sotto sono quella stessa versione.",
     dl_archive: "Build per il visore",
@@ -340,6 +389,6 @@ window.FAM_I18N = {
     dl_releases: "Tutte le versioni su GitHub",
     dl_autostart_label: "Avviare anche il pannello con SteamVR",
     dl_uninstall_label: "Disinstalla",
-    dl_host: "Lo script è il file /i di questo sito. L'archivio arriva sempre da GitHub Releases, quindi un sottodominio verso questo sito non cambia il download."
+    dl_host: "Lo script di installazione è frame-audio-mixer-install su questo sito. L'archivio arriva sempre da GitHub Releases, quindi un dominio proprio non cambia il download."
   }
 };

@@ -1,11 +1,11 @@
 (function () {
-  var FALLBACK = "https://marcus-universe.github.io/frame-audio-mixer/i";
+  var FALLBACK = "https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install";
   var LANGS = ["en", "ja", "sc", "de", "fr", "es", "it"];
   var root = document.documentElement;
 
   function installUrl() {
     if (location.protocol !== "http:" && location.protocol !== "https:") return FALLBACK;
-    return new URL("i", location.href).href;
+    return new URL("frame-audio-mixer-install", location.href).href;
   }
 
   function command(kind) {
@@ -42,7 +42,8 @@
       if (pack[key]) el.setAttribute("aria-label", pack[key]);
     });
     var page = document.body.getAttribute("data-page");
-    document.title = page === "download" ? pack.dl_title + " · Frame Audio Mixer" : pack.title;
+    var pageTitle = page === "download" ? pack.dl_title : page === "imprint" ? pack.imprint_title : "";
+    document.title = pageTitle ? pageTitle + " · Frame Audio Mixer" : pack.title;
     var select = document.getElementById("lang");
     if (select && select.value !== code) select.value = code;
     try { localStorage.setItem("fam-lang", code); } catch (e) {}

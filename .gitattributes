@@ -1,4 +1,4 @@
-i text eol=lf
+frame-audio-mixer-install text eol=lf
 *.js text eol=lf
 *.css text eol=lf
 *.html text eol=lf

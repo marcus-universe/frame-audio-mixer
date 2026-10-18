@@ -350,11 +350,18 @@ h1 { margin: 0; font-weight: 500; }
   display: flex;
   gap: 16px;
   align-items: center;
+  justify-content: center;
   padding: 20px 0 32px;
   color: var(--muted);
   font-size: 14px;
   border-top: 1px solid var(--divider);
+  text-align: center;
 }
+
+.imprint { margin: 12px auto 72px; max-width: 40rem; }
+.imprint h1 { font-size: 32px; margin-bottom: 8px; }
+.imprint h2 { margin: 28px 0 4px; font-size: 16px; font-weight: 500; color: var(--muted); }
+.imprint p { margin: 0; }
 
 .foot a { color: var(--muted); }
 

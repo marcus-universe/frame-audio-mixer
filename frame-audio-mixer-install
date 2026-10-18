@@ -1,10 +1,10 @@
 #!/bin/sh
 # Install or update Frame Audio Mixer on a Steam Frame.
-# Served as /i from the GitHub Pages site. A custom domain serves this same file.
+# Served as /frame-audio-mixer-install. A custom domain serves this same file.
 # The archive always comes from GitHub Releases, not from the Pages host.
-#   curl -fsSL <this-site>/i | sh
-#   curl -fsSL <this-site>/i | sh -s -- --autostart
-#   curl -fsSL <this-site>/i | sh -s -- --uninstall
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --autostart
+#   curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --uninstall
 # Without a release it builds the main branch, which needs Rust (cargo) on the headset.
 # Needs curl, sha256sum and tar. Nothing is written outside the home directory.
 set -eu
