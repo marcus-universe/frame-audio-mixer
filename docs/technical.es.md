@@ -64,7 +64,7 @@ El actualizador está escrito en Rust (`ureq` con rustls, `sha2`, `flate2` y `ta
 Con el comando de una línea:
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --uninstall
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install --uninstall
 ```
 
 Desde un checkout o una carpeta de versión:

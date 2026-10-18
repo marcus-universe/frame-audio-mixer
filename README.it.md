@@ -21,12 +21,12 @@ Sta dopo [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), che
 In Konsole sul Frame (**+** nella barra in basso, poi l'elenco dei programmi, poi **Konsole**), esegui:
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install
 ```
 
 - Prima attiva la modalità sviluppatore: Impostazioni di Steam, poi Sistema, poi **Abilita modalità sviluppatore**. Finché non lo fai, Konsole non è nell'elenco.
-- Per avviare anche il pannello con SteamVR, termina il comando con `| sh -s -- --autostart`.
-- Per aggiornare, esegui di nuovo lo stesso comando. Per disinstallare, terminalo con `| sh -s -- --uninstall`.
+- Per avviare anche il pannello con SteamVR, aggiungi `--autostart` alla fine.
+- Per aggiornare, esegui di nuovo lo stesso comando. Per disinstallare, aggiungi `--uninstall` alla fine.
 - Non usa `sudo` e scrive solo nella tua home. Non riavvia mai PipeWire né WirePlumber, quindi una sessione VR in corso mantiene l'audio.
 - Da un PC: [Installazione via SSH](docs/install-ssh.it.md).
 

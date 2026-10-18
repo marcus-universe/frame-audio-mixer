@@ -29,17 +29,17 @@ ssh steamos@<headset-ip>
 そのセッションで次を実行します。
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install
 ```
 
-- パネルを SteamVR と一緒に起動するには、コマンドの最後を `| sh -s -- --autostart` にします。
-- 更新するには、同じコマンドをもう一度実行します。アンインストールするには、最後を `| sh -s -- --uninstall` にします。
+- パネルを SteamVR と一緒に起動するには、最後に `--autostart` を付けます。
+- 更新するには、同じコマンドをもう一度実行します。アンインストールするには、最後に `--uninstall` を付けます。
 - `sudo` は使わず、書き込むのはヘッドセットのホームディレクトリだけです。PipeWire や WirePlumber を再起動しないので、実行中の VR セッションの音は途切れません。
 
 対話セッションに残らず、1 行で送ることもできます。macOS、Linux、または Windows Terminal で次を実行します。
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install"
 ```
 
 インストーラーは Steam Frame 上でだけ動きます。SSH セッションはすでにヘッドセット上なので、この確認は通ります。

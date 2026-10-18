@@ -64,7 +64,7 @@ git のチェックアウトからは、`./install.sh` が `cargo` でビルド�
 1 行のコマンドでは:
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh -s -- --uninstall
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install --uninstall
 ```
 
 チェックアウトまたはリリースのフォルダからは:

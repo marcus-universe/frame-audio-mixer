@@ -29,17 +29,17 @@ ssh steamos@<headset-ip>
 在这个会话里运行：
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install
 ```
 
-- 如果还想让面板随 SteamVR 启动，把命令结尾改成 `| sh -s -- --autostart`。
-- 更新时，再运行一次同一条命令。卸载时，把结尾改成 `| sh -s -- --uninstall`。
+- 如果还想让面板随 SteamVR 启动，在命令最后加上 `--autostart`。
+- 更新时，再运行一次同一条命令。卸载时，在最后加上 `--uninstall`。
 - 它不使用 `sudo`，只写入头显上的主目录。它从不重启 PipeWire 或 WirePlumber，所以正在进行的 VR 会话不会失去声音。
 
 也可以不留在会话里，用一行命令发送。在 macOS、Linux 或 Windows Terminal 里：
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install"
 ```
 
 安装程序只在 Steam Frame 上运行。SSH 会话已经在头显上，所以这项检查会通过。

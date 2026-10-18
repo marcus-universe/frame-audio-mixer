@@ -29,17 +29,17 @@ ssh steamos@<headset-ip>
 In dieser Sitzung ausführen:
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install
 ```
 
-- Um das Panel auch mit SteamVR zu starten, den Befehl mit `| sh -s -- --autostart` beenden.
-- Zum Aktualisieren denselben Befehl noch einmal ausführen. Zum Deinstallieren den Befehl mit `| sh -s -- --uninstall` beenden.
+- Um das Panel auch mit SteamVR zu starten, `--autostart` an das Ende setzen.
+- Zum Aktualisieren denselben Befehl noch einmal ausführen. Zum Deinstallieren `--uninstall` an das Ende setzen.
 - Der Befehl nutzt kein `sudo` und schreibt nur ins Home-Verzeichnis auf dem Headset. Er startet PipeWire und WirePlumber nie neu, eine laufende VR-Sitzung behält also ihren Ton.
 
 Den Befehl kannst du auch in einer Zeile schicken, ohne in der Sitzung zu bleiben. Unter macOS, Linux oder Windows Terminal:
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/frame-audio-mixer-install | sh"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install"
 ```
 
 Das Installationsprogramm läuft nur auf der Steam Frame. Eine SSH-Sitzung ist schon auf dem Headset, die Prüfung ist damit erfüllt.
