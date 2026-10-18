@@ -1,7 +1,10 @@
 //! Add-a-channel, the microphone picker, and App Settings.
 
-use super::{backdrop, fill_round, fmt_token, paint_desktop_icon, source_label, stroke_round, Panel, SUGGESTIONS};
-use crate::draw::{self, ButtonKind, Fonts, BORDER, CARD, INSET, MUTED, TEXT};
+use super::{backdrop, close_button, fill_round, fmt_token, paint_desktop_icon, pill_toggle, sheet_surface, source_label, stroke_round, Panel, SUGGESTIONS};
+use crate::draw::{self, ButtonKind, Fonts, CONTROL, MUTED, R_CONTROL, TEXT};
+
+/// Row in a dialog list.
+const ROW_H: f64 = 52.0;
 use crate::graph::Graph;
 use crate::i18n::Text;
 use crate::worker::Snapshot;
@@ -10,8 +13,7 @@ use cairo::Context;
 pub(crate) fn add(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
     backdrop(panel, cr);
     let (x, y, w, h) = panel.sheet(28.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
     let mid = x + w / 2.0;
     cr.set_source_rgb(draw::DIVIDER.r, draw::DIVIDER.g, draw::DIVIDER.b);
@@ -79,13 +81,13 @@ pub(crate) fn add(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
             ry += 58.0;
             continue;
         }
-        fill_round(cr, mid + 24.0, ry, row_w, 52.0, 14.0, INSET);
+        row_fill(panel, cr, mid + 24.0, ry, row_w);
         paint_desktop_icon(panel, cr, fonts, &name, &app.binary, mid + 36.0, ry + 10.0, 32.0);
         let pinned = panel.config.pins.iter().any(|pin| pin.app == name);
         let badge = if pinned { draw::text_width(cr, fonts, false, 13.0, t.pinned) + 12.0 } else { 0.0 };
-        draw::label_fit(cr, fonts, true, 16.0, TEXT, mid + 80.0, ry + 32.0, row_w - 96.0 - badge, &name);
+        draw::label_fit(cr, fonts, false, 15.0, TEXT, mid + 80.0, ry + 31.0, row_w - 96.0 - badge, &name);
         if pinned {
-            draw::label(cr, fonts, false, 13.0, MUTED, mid + 24.0 + row_w - badge, ry + 32.0, t.pinned);
+            draw::label(cr, fonts, false, 13.0, MUTED, mid + 24.0 + row_w - badge - 4.0, ry + 31.0, t.pinned);
         }
         panel.hot(&format!("use:{name}"), mid + 24.0, ry, row_w, 52.0);
         ry += 58.0;
@@ -96,10 +98,9 @@ pub(crate) fn add(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
 pub(crate) fn mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
     backdrop(panel, cr);
     let (x, y, w, h) = panel.dialog_rect(880.0, 440.0, 28.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
-    draw::label(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 44.0, t.mic_picker);
+    draw::label(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.mic_picker);
     let current = source_label(&panel.config.mic_source, &snap.graph, t);
     draw::label_fit(cr, fonts, false, 14.0, MUTED, x + 28.0, y + 68.0, w - 56.0, &current);
     let mut row = y + 96.0;
@@ -115,11 +116,12 @@ pub(crate) fn mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
             let selected = (id == "mic:system" && panel.config.mic_source.is_empty())
                 || (id == "mic:builtin" && panel.config.mic_source == "builtin")
                 || id.strip_prefix("mic:") == Some(panel.config.mic_source.as_str());
-            fill_round(cr, x + 24.0, row, w - 48.0, 52.0, 14.0, if selected { draw::CONTROL } else { INSET });
             if selected {
-                stroke_round(cr, x + 24.0, row, w - 48.0, 52.0, 14.0, draw::accent(), 2.0);
+                fill_round(cr, x + 24.0, row, w - 48.0, ROW_H, R_CONTROL, draw::accent_tint());
+            } else {
+                row_fill(panel, cr, x + 24.0, row, w - 48.0);
             }
-            draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 40.0, row + 22.0, w - 80.0, &label);
+            draw::label_fit(cr, fonts, true, 16.0, if selected { draw::accent() } else { TEXT }, x + 40.0, row + 22.0, w - 80.0, &label);
             if !hint.is_empty() {
                 draw::label_fit(cr, fonts, false, 12.0, MUTED, x + 40.0, row + 42.0, w - 80.0, &hint);
             }
@@ -145,76 +147,71 @@ fn mic_rows(panel: &Panel, t: &Text, snap: &Snapshot) -> Vec<(String, String, St
 
 pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
-    let (x, y, w, h) = panel.dialog_rect(680.0, 520.0, 24.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    let (x, y, w, h) = panel.dialog_rect(640.0, 260.0, 24.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
-    draw::label_fit(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 48.0, w - 96.0, t.settings);
-    let close = (x + w - 56.0, y + 16.0, 40.0, 40.0);
-    let close_look = panel.look(close.0, close.1, close.2, close.3);
-    if close_look != draw::Look::Rest {
-        fill_round(cr, close.0, close.1, close.2, close.3, 12.0, if close_look == draw::Look::Down { draw::CONTROL_DOWN } else { draw::CONTROL_HOVER });
-    }
-    draw::icon(cr, draw::CLOSE_PATH, 1024.0, close.0 + 6.0, close.1 + 6.0, 28.0, TEXT);
-    panel.hot("dismiss", close.0, close.1, close.2, close.3);
+    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.settings);
+    close_button(panel, cr, x + w - 60.0, y + 24.0);
 
-    let seg_x = x + w - 208.0;
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 28.0, y + 114.0, seg_x - x - 40.0, t.color);
+    let seg_x = x + w - 28.0 - 168.0;
+    let color_y = y + 96.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, color_y + 24.0, t.color);
     let current = if panel.config.accent == "pink" { t.color_pink } else { t.color_blue };
-    let drop = (seg_x, y + 84.0, 180.0, 48.0);
-    fill_round(cr, drop.0, drop.1, drop.2, drop.3, 14.0, draw::CONTROL);
-    stroke_round(cr, drop.0, drop.1, drop.2, drop.3, 14.0, if panel.color_open { draw::accent() } else { BORDER }, 2.0);
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, drop.0 + 16.0, drop.1 + 30.0, drop.2 - 44.0, current);
-    draw::chevron(cr, drop.0 + drop.2 - 28.0, drop.1 + 18.0, 12.0, MUTED, false, panel.color_open);
+    let drop = (seg_x, color_y, 168.0, 48.0);
+    let look = panel.look(drop.0, drop.1, drop.2, drop.3);
+    fill_round(cr, drop.0, drop.1, drop.2, drop.3, R_CONTROL, if look == draw::Look::Rest { CONTROL } else { draw::CONTROL_HOVER });
+    if panel.color_open {
+        stroke_round(cr, drop.0 + 1.0, drop.1 + 1.0, drop.2 - 2.0, drop.3 - 2.0, R_CONTROL - 1.0, draw::accent(), 2.0);
+    }
+    fill_round(cr, drop.0 + 16.0, drop.1 + 18.0, 12.0, 12.0, 6.0, draw::accent());
+    draw::label_fit(cr, fonts, true, 15.0, TEXT, drop.0 + 38.0, drop.1 + 29.0, drop.2 - 72.0, current);
+    draw::chevron(cr, drop.0 + drop.2 - 28.0, drop.1 + 22.0, 12.0, MUTED, false, panel.color_open);
     panel.hot("color-open", drop.0, drop.1, drop.2, drop.3);
-    toggle(panel, cr, fonts, x, y + 156.0, seg_x, t.meters, panel.config.meters, "meters-on", "meters-off", t);
-    toggle(panel, cr, fonts, x, y + 228.0, seg_x, t.snap, panel.config.snap, "snap-on", "snap-off", t);
-    toggle(panel, cr, fonts, x, y + 300.0, seg_x, t.list_sliders, panel.config.list, "list-on", "list-off", t);
-    toggle(panel, cr, fonts, x, y + 372.0, seg_x, t.wide, panel.config.wide, "wide-on", "wide-off", t);
+
+    let meters_y = color_y + 64.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, meters_y + 24.0, t.meters);
+    pill_toggle(panel, cr, fonts, seg_x, meters_y, 168.0, 48.0, panel.config.meters, (t.on, t.off), ("meters-on", "meters-off"));
     if panel.color_open {
         let menu_y = drop.1 + drop.3 + 6.0;
-        fill_round(cr, drop.0, menu_y, drop.2, 92.0, 12.0, draw::INSET);
-        stroke_round(cr, drop.0, menu_y, drop.2, 92.0, 12.0, BORDER, 2.0);
+        fill_round(cr, drop.0, menu_y, drop.2, 96.0, R_CONTROL + 4.0, CONTROL);
         for (index, (id, label)) in [("color:blue", t.color_blue), ("color:pink", t.color_pink)].into_iter().enumerate() {
-            let row = menu_y + 6.0 + index as f64 * 40.0;
+            let row = menu_y + 8.0 + index as f64 * 40.0;
             let selected = (id == "color:pink") == (panel.config.accent == "pink");
             if selected {
-                fill_round(cr, drop.0 + 6.0, row, drop.2 - 12.0, 36.0, 8.0, draw::CONTROL);
+                fill_round(cr, drop.0 + 6.0, row + 2.0, drop.2 - 12.0, 36.0, 10.0, draw::accent_tint());
             }
-            draw::label(cr, fonts, selected, 16.0, TEXT, drop.0 + 16.0, row + 24.0, label);
+            draw::label_mid(cr, fonts, selected, 15.0, if selected { draw::accent() } else { TEXT }, drop.0 + 16.0, row + 20.0, label);
             panel.hot(id, drop.0, row, drop.2, 40.0);
         }
     }
 }
 
-fn toggle(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, seg_x: f64, label: &str, on: bool, on_id: &str, off_id: &str, t: &Text) {
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 28.0, y + 30.0, seg_x - x - 40.0, label);
-    fill_round(cr, seg_x, y, 180.0, 48.0, 14.0, draw::CONTROL);
-    if on {
-        fill_round(cr, seg_x + 4.0, y + 4.0, 86.0, 40.0, 12.0, draw::accent());
-    } else {
-        fill_round(cr, seg_x + 90.0, y + 4.0, 86.0, 40.0, 12.0, draw::accent());
-    }
-    draw::label(cr, fonts, true, 16.0, if on { draw::on_accent() } else { draw::SOFT }, seg_x + 28.0, y + 30.0, t.on);
-    draw::label(cr, fonts, true, 16.0, if on { draw::SOFT } else { draw::on_accent() }, seg_x + 118.0, y + 30.0, t.off);
-    panel.hot(on_id, seg_x, y, 90.0, 48.0);
-    panel.hot(off_id, seg_x + 90.0, y, 90.0, 48.0);
+/// Tonal row with a hover layer.
+fn row_fill(panel: &Panel, cr: &Context, x: f64, y: f64, w: f64) {
+    let look = panel.look(x, y, w, ROW_H);
+    let fill = match look {
+        draw::Look::Down => draw::CONTROL_DOWN,
+        draw::Look::Hover => draw::CONTROL_HOVER,
+        draw::Look::Rest => CONTROL,
+    };
+    fill_round(cr, x, y, w, ROW_H, R_CONTROL, fill);
 }
 
 fn row_button(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, label: &str, id: &str) {
-    fill_round(cr, x, y, w, 52.0, 14.0, INSET);
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, x + 16.0, y + 32.0, w - 32.0, label);
-    panel.hot(id, x, y, w, 52.0);
+    row_fill(panel, cr, x, y, w);
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 16.0, y + ROW_H / 2.0, label);
+    panel.hot(id, x, y, w, ROW_H);
 }
 
-/// A row with the app's icon. `accent` outlines the row that creates a new channel.
+/// A row with the app's icon. `accent` marks the row that creates a new channel.
 fn icon_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, app: (&str, &str), label: &str, id: &str, accent: bool) {
-    fill_round(cr, x, y, w, 52.0, 14.0, INSET);
     if accent {
-        stroke_round(cr, x, y, w, 52.0, 14.0, draw::accent(), 2.0);
+        fill_round(cr, x, y, w, ROW_H, R_CONTROL, draw::accent_tint());
+    } else {
+        row_fill(panel, cr, x, y, w);
     }
     paint_desktop_icon(panel, cr, fonts, app.0, app.1, x + 12.0, y + 10.0, 32.0);
-    draw::label_fit(cr, fonts, true, 16.0, if accent { draw::accent() } else { TEXT }, x + 56.0, y + 32.0, w - 72.0, label);
+    draw::label_fit(cr, fonts, accent, 15.0, if accent { draw::accent() } else { TEXT }, x + 56.0, y + 31.0, w - 72.0, label);
     panel.hot(id, x, y, w, 52.0);
 }
 
@@ -228,21 +225,14 @@ fn _builtin() -> &'static str {
 pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
     let (x, y, w, h) = panel.dialog_rect(680.0, 300.0, 28.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
-    draw::label_fit(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 48.0, w - 96.0, t.channel_name);
-    let close = (x + w - 56.0, y + 16.0, 40.0, 40.0);
-    let close_look = panel.look(close.0, close.1, close.2, close.3);
-    if close_look != draw::Look::Rest {
-        fill_round(cr, close.0, close.1, close.2, close.3, 12.0, if close_look == draw::Look::Down { draw::CONTROL_DOWN } else { draw::CONTROL_HOVER });
-    }
-    draw::icon(cr, draw::CLOSE_PATH, 1024.0, close.0 + 6.0, close.1 + 6.0, 28.0, TEXT);
-    panel.hot("dismiss", close.0, close.1, close.2, close.3);
+    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.channel_name);
+    close_button(panel, cr, x + w - 60.0, y + 24.0);
 
-    let field = (x + 28.0, y + 80.0, w - 56.0, 56.0);
-    fill_round(cr, field.0, field.1, field.2, field.3, 14.0, INSET);
-    stroke_round(cr, field.0, field.1, field.2, field.3, 14.0, draw::accent(), 2.0);
+    let field = (x + 28.0, y + 84.0, w - 56.0, 56.0);
+    fill_round(cr, field.0, field.1, field.2, field.3, R_CONTROL, CONTROL);
+    stroke_round(cr, field.0 + 1.0, field.1 + 1.0, field.2 - 2.0, field.3 - 2.0, R_CONTROL - 1.0, draw::accent(), 2.0);
     let draft = panel.name_draft.clone();
     let text_x = field.0 + 16.0;
     let baseline = field.1 + 36.0;

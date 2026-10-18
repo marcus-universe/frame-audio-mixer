@@ -29,9 +29,14 @@ pub struct Rgb {
     pub b: f64,
 }
 
+// Flat tonal surfaces. Each nested layer is one step lighter, so nothing needs an outline.
 pub const BG: Rgb = Rgb { r: 0x0e as f64 / 255.0, g: 0x10 as f64 / 255.0, b: 0x15 as f64 / 255.0 };
-pub const CARD: Rgb = Rgb { r: 0x1a as f64 / 255.0, g: 0x1d as f64 / 255.0, b: 0x24 as f64 / 255.0 };
-pub const INSET: Rgb = Rgb { r: 0x14 as f64 / 255.0, g: 0x17 as f64 / 255.0, b: 0x1c as f64 / 255.0 };
+pub const CARD: Rgb = Rgb { r: 0x17 as f64 / 255.0, g: 0x1a as f64 / 255.0, b: 0x21 as f64 / 255.0 };
+pub const INSET: Rgb = Rgb { r: 0x1f as f64 / 255.0, g: 0x23 as f64 / 255.0, b: 0x2b as f64 / 255.0 };
+/// Card, strip, control, button.
+pub const R_CARD: f64 = 20.0;
+pub const R_SURFACE: f64 = 16.0;
+pub const R_CONTROL: f64 = 12.0;
 pub const TEXT: Rgb = Rgb { r: 0xf2 as f64 / 255.0, g: 0xf3 as f64 / 255.0, b: 0xf5 as f64 / 255.0 };
 pub const MUTED: Rgb = Rgb { r: 0xa3 as f64 / 255.0, g: 0xa9 as f64 / 255.0, b: 0xb4 as f64 / 255.0 };
 pub const SOFT: Rgb = Rgb { r: 0xdf as f64 / 255.0, g: 0xe2 as f64 / 255.0, b: 0xe7 as f64 / 255.0 };
@@ -70,16 +75,31 @@ pub fn accent_down() -> Rgb {
 pub fn on_accent() -> Rgb {
     if THEME_PINK.with(|cell| cell.get()) { PINK_INK } else { BLUE_INK }
 }
+
+/// `a` laid over `b` at `amount`, as one opaque color.
+pub fn mix(a: Rgb, b: Rgb, amount: f64) -> Rgb {
+    Rgb { r: b.r + (a.r - b.r) * amount, g: b.g + (a.g - b.g) * amount, b: b.b + (a.b - b.b) * amount }
+}
+
+/// The unfilled part of a fader. Tinted with the accent so it reads as part of the control.
+pub fn track() -> Rgb {
+    mix(accent(), INSET, 0.2)
+}
+
+/// Selected rows and toggles that are on but not primary.
+pub fn accent_tint() -> Rgb {
+    mix(accent(), INSET, 0.16)
+}
 pub const DANGER: Rgb = Rgb { r: 0xe5 as f64 / 255.0, g: 0x53 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
-pub const DANGER_FILL: Rgb = Rgb { r: 0x2a as f64 / 255.0, g: 0x15 as f64 / 255.0, b: 0x18 as f64 / 255.0 };
-pub const DANGER_HOVER: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1c as f64 / 255.0, b: 0x1f as f64 / 255.0 };
-pub const DANGER_DOWN: Rgb = Rgb { r: 0x4a as f64 / 255.0, g: 0x20 as f64 / 255.0, b: 0x24 as f64 / 255.0 };
+pub const DANGER_FILL: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1d as f64 / 255.0, b: 0x21 as f64 / 255.0 };
+pub const DANGER_HOVER: Rgb = Rgb { r: 0x48 as f64 / 255.0, g: 0x23 as f64 / 255.0, b: 0x28 as f64 / 255.0 };
+pub const DANGER_DOWN: Rgb = Rgb { r: 0x56 as f64 / 255.0, g: 0x29 as f64 / 255.0, b: 0x2e as f64 / 255.0 };
 pub const DANGER_TEXT: Rgb = Rgb { r: 0xff as f64 / 255.0, g: 0x8a as f64 / 255.0, b: 0x80 as f64 / 255.0 };
-pub const CONTROL: Rgb = Rgb { r: 0x20 as f64 / 255.0, g: 0x24 as f64 / 255.0, b: 0x2c as f64 / 255.0 };
-pub const CONTROL_HOVER: Rgb = Rgb { r: 0x2a as f64 / 255.0, g: 0x2f as f64 / 255.0, b: 0x38 as f64 / 255.0 };
-pub const CONTROL_DOWN: Rgb = Rgb { r: 0x34 as f64 / 255.0, g: 0x39 as f64 / 255.0, b: 0x44 as f64 / 255.0 };
+pub const CONTROL: Rgb = Rgb { r: 0x28 as f64 / 255.0, g: 0x2d as f64 / 255.0, b: 0x36 as f64 / 255.0 };
+pub const CONTROL_HOVER: Rgb = Rgb { r: 0x31 as f64 / 255.0, g: 0x37 as f64 / 255.0, b: 0x42 as f64 / 255.0 };
+pub const CONTROL_DOWN: Rgb = Rgb { r: 0x3b as f64 / 255.0, g: 0x41 as f64 / 255.0, b: 0x4d as f64 / 255.0 };
 pub const LABEL_SOFT: Rgb = Rgb { r: 0xc9 as f64 / 255.0, g: 0xcd as f64 / 255.0, b: 0xd4 as f64 / 255.0 };
-pub const DIVIDER: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x3f as f64 / 255.0, b: 0x4a as f64 / 255.0 };
+pub const DIVIDER: Rgb = Rgb { r: 0x2c as f64 / 255.0, g: 0x31 as f64 / 255.0, b: 0x3a as f64 / 255.0 };
 pub const CHIP_OK_FILL: Rgb = Rgb { r: 0x17 as f64 / 255.0, g: 0x34 as f64 / 255.0, b: 0x24 as f64 / 255.0 };
 pub const CHIP_OK_TEXT: Rgb = Rgb { r: 0x4a as f64 / 255.0, g: 0xde as f64 / 255.0, b: 0x80 as f64 / 255.0 };
 
@@ -117,7 +137,11 @@ impl Fonts {
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         ])?;
+        // "Bold" in the panel is Medium. Titles and labels stay firm without the weight of Bold.
         let bold_path = find_font(&[
+            "/usr/share/fonts/noto-cjk/NotoSansCJK-Medium.ttc",
+            "/usr/share/fonts/opentype/noto/NotoSansCJK-Medium.ttc",
+            "/usr/share/fonts/noto/NotoSans-Medium.ttf",
             "/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
             "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
@@ -170,8 +194,13 @@ pub fn fill_keep(cr: &Context, c: Rgb, a: f64) {
 }
 
 pub fn card(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
-    rounded(cr, x, y, w, h, 18.0);
+    rounded(cr, x, y, w, h, R_CARD);
     fill(cr, CARD, 1.0);
+}
+
+/// Text centered on `cy`, for a single line inside a control.
+pub fn label_mid(cr: &Context, fonts: &Fonts, bold: bool, size: f64, c: Rgb, x: f64, cy: f64, text: &str) {
+    label(cr, fonts, bold, size, c, x, cy + size * 0.36, text);
 }
 
 pub fn set_font(cr: &Context, fonts: &Fonts, bold: bool, size: f64) {
@@ -288,9 +317,10 @@ pub fn stroke(cr: &Context, c: Rgb, width: f64) {
     let _ = cr.stroke();
 }
 
-/// Fill and border follow Frame Mic Tuner. `look` is Rest unless the pointer is over the button.
+/// Flat pill buttons: tonal for Plain and Danger, filled for Accent and DangerArmed.
+/// `look` is Rest unless the pointer is over the button.
 pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, caption: &str, kind: ButtonKind, look: Look) {
-    let (fill_c, border, text_c) = match kind {
+    let (fill_c, _border, text_c) = match kind {
         ButtonKind::Accent => {
             let fill_c = match look {
                 Look::Down => accent_down(),
@@ -305,7 +335,7 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
                 Look::Hover => DANGER_HOVER,
                 Look::Rest => DANGER_FILL,
             };
-            (fill_c, DANGER, TEXT)
+            (fill_c, DANGER, DANGER_TEXT)
         }
         ButtonKind::DangerArmed => (DANGER, DANGER, on_accent()),
         ButtonKind::Plain => {
@@ -317,13 +347,11 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
             (fill_c, BORDER, TEXT)
         }
     };
-    rounded(cr, x, y, w, h, h.min(32.0) / 2.0);
+    rounded(cr, x, y, w, h, h / 2.0);
     fill(cr, fill_c, 1.0);
-    rounded(cr, x, y, w, h, h.min(32.0) / 2.0);
-    stroke(cr, border, 2.0);
     if !caption.is_empty() {
-        let tw = text_width(cr, fonts, true, 16.0, caption);
-        label(cr, fonts, true, 16.0, text_c, x + (w - tw) / 2.0, y + h / 2.0 + 6.0, caption);
+        let tw = text_width(cr, fonts, true, 15.0, caption);
+        label_mid(cr, fonts, true, 15.0, text_c, x + (w - tw) / 2.0, y + h / 2.0, caption);
     }
 }
 
@@ -482,6 +510,13 @@ pub struct FaderGeom {
     pub icon_s: f64,
 }
 
+/// Below a vertical fader: percent baseline, mute icon center, dB baseline.
+const FADER_PCT_Y: f64 = 20.0;
+const FADER_ICON_Y: f64 = 42.0;
+const FADER_DB_Y: f64 = 66.0;
+/// Room a vertical fader needs under its capsule.
+pub const FADER_FOOT: f64 = 70.0;
+
 /// One mix fader: a 0–150% capsule, an optional meter, the percent, and a mute icon.
 /// `cx` is the horizontal center of the capsule. `peak` is a linear 0–1 level.
 pub fn paint_fader(
@@ -505,15 +540,13 @@ pub fn paint_fader(
     rounded(cr, x, top, cap_w, cap_h, radius);
     let _ = cr.clip();
     rounded(cr, x, top, cap_w, cap_h, 0.0);
-    fill(cr, BG, 1.0);
+    fill(cr, track(), 1.0);
     let fill_top = top + cap_h - cap_h * fraction;
     if top + cap_h - fill_top > 0.5 {
         rounded(cr, x, fill_top, cap_w, top + cap_h - fill_top, 0.0);
         fill(cr, accent(), 1.0);
     }
     let _ = cr.restore();
-    rounded(cr, x, top, cap_w, cap_h, radius);
-    stroke(cr, BORDER, 1.5);
     // Snap points below 100% are dots, so they never read as the 100% line.
     if snaps {
         for point in crate::config::FADER_SNAPS {
@@ -529,11 +562,12 @@ pub fn paint_fader(
         }
     }
     let notch_y = top + cap_h - cap_h * (100.0 / 150.0);
-    cr.set_source_rgb(TEXT.r, TEXT.g, TEXT.b);
+    let notch_c = if percent >= 100.0 { on_accent() } else { TEXT };
+    cr.set_source_rgba(notch_c.r, notch_c.g, notch_c.b, 0.85);
     cr.set_line_width(2.0);
     cr.set_line_cap(cairo::LineCap::Round);
-    cr.move_to(x + 5.0, notch_y);
-    cr.line_to(x + cap_w - 5.0, notch_y);
+    cr.move_to(x + 7.0, notch_y);
+    cr.line_to(x + cap_w - 7.0, notch_y);
     let _ = cr.stroke();
 
     let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
@@ -541,10 +575,10 @@ pub fn paint_fader(
     let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
     let meter_right = if meters {
         let mx = x + cap_w + 4.0;
-        let mw = 6.0;
-        rounded(cr, mx, top, mw, cap_h, 3.0);
+        let mw = 5.0;
+        rounded(cr, mx, top, mw, cap_h, 2.5);
         fill(cr, BG, 1.0);
-        fill_meter(cr, mx, top, mw, cap_h, 3.0, level, true);
+        fill_meter(cr, mx, top, mw, cap_h, 2.5, level, true);
         mx + mw
     } else {
         x + cap_w
@@ -553,18 +587,18 @@ pub fn paint_fader(
     let pct = format!("{:.0}%", percent);
     let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
     let tw = text_width(cr, fonts, true, 13.0, &pct);
-    label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + 13.0, &pct);
+    label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + FADER_PCT_Y, &pct);
 
     let icon_s = 22.0;
     let icon_x = cx - icon_s / 2.0;
-    let icon_y = top + cap_h + 30.0 - icon_s / 2.0;
+    let icon_y = top + cap_h + FADER_ICON_Y - icon_s / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
     if meters {
         if db > -47.5 {
             let shown = if db > -0.5 { 0.0 } else { db };
             let text = format!("{shown:.0}");
-            let dw = text_width(cr, fonts, true, 11.0, &text);
-            label(cr, fonts, true, 11.0, level_color(level), cx - dw / 2.0, top + cap_h + 52.0, &text);
+            let dw = text_width(cr, fonts, false, 11.0, &text);
+            label(cr, fonts, false, 11.0, level_color(level), cx - dw / 2.0, top + cap_h + FADER_DB_Y, &text);
         }
     }
     FaderGeom {
@@ -595,12 +629,12 @@ pub fn paint_side_fader(
     glyph: FaderGlyph,
     snaps: bool,
 ) -> FaderGeom {
-    let track_h = 26.0;
+    let track_h = 24.0;
     let icon_box = 28.0;
     let icon_s = 22.0;
-    let pct_w = 46.0;
+    let pct_w = 48.0;
     let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
-    let track_x = x + icon_box + 6.0;
+    let track_x = x + icon_box + 8.0;
     let track_y = y + (h - track_h) / 2.0;
     let radius = track_h / 2.0;
     let fraction = (percent / 150.0).clamp(0.0, 1.0);
@@ -608,14 +642,12 @@ pub fn paint_side_fader(
     rounded(cr, track_x, track_y, track_w, track_h, radius);
     let _ = cr.clip();
     rounded(cr, track_x, track_y, track_w, track_h, 0.0);
-    fill(cr, BG, 1.0);
+    fill(cr, track(), 1.0);
     if track_w * fraction > 0.5 {
         rounded(cr, track_x, track_y, track_w * fraction, track_h, 0.0);
         fill(cr, accent(), 1.0);
     }
     let _ = cr.restore();
-    rounded(cr, track_x, track_y, track_w, track_h, radius);
-    stroke(cr, BORDER, 1.5);
     if snaps {
         for point in crate::config::FADER_SNAPS {
             let mark = point * 100.0;
@@ -630,11 +662,12 @@ pub fn paint_side_fader(
         }
     }
     let notch_x = track_x + track_w * (100.0 / 150.0);
-    cr.set_source_rgb(TEXT.r, TEXT.g, TEXT.b);
+    let notch_c = if percent >= 100.0 { on_accent() } else { TEXT };
+    cr.set_source_rgba(notch_c.r, notch_c.g, notch_c.b, 0.85);
     cr.set_line_width(2.0);
     cr.set_line_cap(cairo::LineCap::Round);
-    cr.move_to(notch_x, track_y + 4.0);
-    cr.line_to(notch_x, track_y + track_h - 4.0);
+    cr.move_to(notch_x, track_y + 6.0);
+    cr.line_to(notch_x, track_y + track_h - 6.0);
     let _ = cr.stroke();
 
     let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
@@ -642,14 +675,15 @@ pub fn paint_side_fader(
     let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
     if meters {
         let my = (track_y - 8.0).max(y);
-        rounded(cr, track_x, my, track_w, 5.0, 2.5);
+        rounded(cr, track_x + 6.0, my, track_w - 12.0, 4.0, 2.0);
         fill(cr, BG, 1.0);
-        fill_meter(cr, track_x, my, track_w, 5.0, 2.5, level, false);
+        fill_meter(cr, track_x + 6.0, my, track_w - 12.0, 4.0, 2.0, level, false);
     }
 
     let pct = format!("{:.0}%", percent);
     let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
-    label(cr, fonts, true, 13.0, pct_color, track_x + track_w + 6.0, track_y + track_h / 2.0 + 4.0, &pct);
+    let pw = text_width(cr, fonts, true, 13.0, &pct);
+    label_mid(cr, fonts, true, 13.0, pct_color, x + w - pw, track_y + track_h / 2.0, &pct);
 
     let icon_x = x + (icon_box - icon_s) / 2.0;
     let icon_y = y + (h - icon_s) / 2.0;
@@ -723,10 +757,33 @@ pub const ADD_PATH: &str = "M3 6.75A3.75 3.75 0 0 1 6.75 3h14.5A3.75 3.75 0 0 1 
 pub const LANG_PATH: &str = "M11 5a.75.75 0 0 1 .688.452l3.25 7.5a.75.75 0 1 1-1.376.596L12.89 12H9.109l-.67 1.548a.75.75 0 1 1-1.377-.596l3.25-7.5A.75.75 0 0 1 11 5m-1.24 5.5h2.48L11 7.636zM5 1a.75.75 0 0 1 .75.75v1.261a25 25 0 0 1 2.598.211a.75.75 0 1 1-.2 1.487q-.33-.045-.662-.08A13 13 0 0 1 5.92 8.058q.356.456.752.873a.75.75 0 0 1-1.086 1.035A13 13 0 0 1 5 9.307a13 13 0 0 1-2.841 2.546a.75.75 0 0 1-.827-1.251A11.6 11.6 0 0 0 4.08 8.057a13 13 0 0 1-.554-.938a.75.75 0 1 1 1.323-.707l.15.271c.388-.68.708-1.405.952-2.164a24 24 0 0 0-4.1.19a.75.75 0 0 1-.2-1.487q1.28-.171 2.598-.211V1.75A.75.75 0 0 1 5 1";
 /// at-icons:headphones, view box 16, MIT, Valentin Fossati.
 pub const HEADPHONES_PATH: &str = "M8 1a7 7 0 0 1 7 7v5a2 2 0 0 1-2 2h-2a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1h2V8A5 5 0 0 0 3 8v1h2a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1H3a2 2 0 0 1-2-2V8a7 7 0 0 1 7-7";
+/// at-icons:magnet, view box 16, MIT, Valentin Fossati.
+pub const MAGNET_PATH: &str = "M14 9A6 6 0 0 1 2 9V5h4v4a2 2 0 1 0 4 0V5h4zM5 1a1 1 0 0 1 1 1v2H2V2a1 1 0 0 1 1-1zm8 0a1 1 0 0 1 1 1v2h-4V2a1 1 0 0 1 1-1z";
+/// fa6-solid:list-ul, view box 512, CC BY 4.0, Font Awesome.
+pub const LIST_PATH: &str = "M64 144a48 48 0 1 0 0-96a48 48 0 1 0 0 96m128-80c-17.7 0-32 14.3-32 32s14.3 32 32 32h288c17.7 0 32-14.3 32-32s-14.3-32-32-32zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32h288c17.7 0 32-14.3 32-32s-14.3-32-32-32zm0 160c-17.7 0-32 14.3-32 32s14.3 32 32 32h288c17.7 0 32-14.3 32-32s-14.3-32-32-32zM64 464a48 48 0 1 0 0-96a48 48 0 1 0 0 96m48-208a48 48 0 1 0-96 0a48 48 0 1 0 96 0";
+/// fa-solid:columns, view box 512, CC BY 4.0, Font Awesome.
+pub const COLUMNS_PATH: &str = "M464 32H48C21.49 32 0 53.49 0 80v352c0 26.51 21.49 48 48 48h416c26.51 0 48-21.49 48-48V80c0-26.51-21.49-48-48-48M224 416H64V160h160zm224 0H288V160h160z";
+/// fluent:table-resize-column-24-filled, view box 24, MIT, Microsoft.
+pub const RESIZE_COLUMN_PATH: &str = "M17.75 3A3.25 3.25 0 0 1 21 6.25v11.5A3.25 3.25 0 0 1 17.75 21h-.25v-6.647l1.058-1.19a1.75 1.75 0 0 0 0-2.326L17.5 9.647V3zm-3.663 12.558a1.75 1.75 0 0 1-.514-1.808h-3.145A1.75 1.75 0 0 1 8 15.832V21h8v-5.168a1.75 1.75 0 0 1-1.913-.274m0-7.116A1.75 1.75 0 0 1 16 8.168V3H8v5.168a1.75 1.75 0 0 1 2.428 2.082h3.144a1.75 1.75 0 0 1 .515-1.808M6.5 9.647V3h-.25A3.25 3.25 0 0 0 3 6.25v11.5A3.25 3.25 0 0 0 6.25 21h.25v-6.647l-1.058-1.19a1.75 1.75 0 0 1 0-2.326zm9.08 1.603H8.42l.89-1.002a.75.75 0 0 0-1.12-.996l-2 2.25a.75.75 0 0 0 0 .996l2 2.25a.75.75 0 1 0 1.12-.996l-.89-1.002h7.16l-.89 1.002a.75.75 0 1 0 1.12.996l2-2.25l.011-.012a.75.75 0 0 0-.013-.987l-1.997-2.247a.75.75 0 0 0-1.121.996z";
+/// fluent:table-resize-row-24-filled, view box 24, MIT, Microsoft.
+pub const RESIZE_ROW_PATH: &str = "M21 17.75A3.25 3.25 0 0 1 17.75 21H6.25A3.25 3.25 0 0 1 3 17.75v-.25h6.647l1.19 1.058a1.75 1.75 0 0 0 2.326 0l1.19-1.058H21zM8.442 14.087a1.75 1.75 0 0 1 1.808-.514v-3.145A1.75 1.75 0 0 1 8.168 8H3v8h5.168a1.75 1.75 0 0 1 .274-1.913m5.308-3.66v3.146A1.75 1.75 0 0 1 15.832 16H21V8h-5.168a1.75 1.75 0 0 1-2.082 2.428m.603-3.927H21v-.25A3.25 3.25 0 0 0 17.75 3H6.25A3.25 3.25 0 0 0 3 6.25v.25h6.647l1.19-1.058a1.75 1.75 0 0 1 2.326 0zm-1.603 9.08V8.42l1.002.89a.75.75 0 0 0 .996-1.12l-2.25-2a.75.75 0 0 0-.996 0l-2.25 2a.75.75 0 1 0 .996 1.12l1.002-.89v7.16l-1.002-.89a.75.75 0 1 0-.996 1.12l2.25 2l.012.011a.75.75 0 0 0 .987-.013l2.247-1.997a.75.75 0 0 0-.996-1.121z";
 /// material-symbols:settings-rounded, view box 24, Apache-2.0, Google.
 pub const SETTINGS_PATH: &str = "M10.825 22q-.675 0-1.162-.45t-.588-1.1L8.85 18.8q-.325-.125-.612-.3t-.563-.375l-1.55.65q-.625.275-1.25.05t-.975-.8l-1.175-2.05q-.35-.575-.2-1.225t.675-1.075l1.325-1Q4.5 12.5 4.5 12.337v-.675q0-.162.025-.337l-1.325-1Q2.675 9.9 2.525 9.25t.2-1.225L3.9 5.975q.35-.575.975-.8t1.25.05l1.55.65q.275-.2.575-.375t.6-.3l.225-1.65q.1-.65.588-1.1T10.825 2h2.35q.675 0 1.163.45t.587 1.1l.225 1.65q.325.125.613.3t.562.375l1.55-.65q.625-.275 1.25-.05t.975.8l1.175 2.05q.35.575.2 1.225t-.675 1.075l-1.325 1q.025.175.025.338v.674q0 .163-.05.338l1.325 1q.525.425.675 1.075t-.2 1.225l-1.2 2.05q-.35.575-.975.8t-1.25-.05l-1.5-.65q-.275.2-.575.375t-.6.3l-.225 1.65q-.1.65-.587 1.1t-1.163.45zm1.225-6.5q1.45 0 2.475-1.025T15.55 12t-1.025-2.475T12.05 8.5q-1.475 0-2.488 1.025T8.55 12t1.013 2.475T12.05 15.5";
 /// ep:close-bold, view box 1024, MIT, Element Plus.
 pub const CLOSE_PATH: &str = "M195.2 195.2a64 64 0 0 1 90.5 0L512 421.5l226.3-226.3a64 64 0 0 1 90.5 90.5L602.5 512l226.3 226.3a64 64 0 0 1-90.5 90.5L512 602.5L285.7 828.8a64 64 0 0 1-90.5-90.5L421.5 512L195.2 285.7a64 64 0 0 1 0-90.5";
+
+/// Opaque pixels of one glyph drawn at 64 px. Used to catch a path the parser drops.
+fn icon_coverage(path: &str, view: f64) -> Result<usize, String> {
+    let size = 64;
+    let surface = ImageSurface::create(Format::ARgb32, size, size).map_err(|e| e.to_string())?;
+    {
+        let cr = Context::new(&surface).map_err(|e| e.to_string())?;
+        icon(&cr, path, view, 0.0, 0.0, size as f64, TEXT);
+    }
+    let mut surface = surface;
+    let rgba = surface_to_rgba(&mut surface);
+    Ok(rgba.chunks(4).filter(|px| px[3] > 16).count())
+}
 
 fn read_number(bytes: &[u8], i: &mut usize) -> Option<f64> {
     while *i < bytes.len() && (bytes[*i] == b' ' || bytes[*i] == b',') {
@@ -863,6 +920,9 @@ fn append_svg(cr: &Context, d: &str) {
     let mut qcx = 0.0;
     let mut qcy = 0.0;
     let mut quad = false;
+    let mut ccx = 0.0;
+    let mut ccy = 0.0;
+    let mut cubic = false;
     while i < bytes.len() {
         while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b',') {
             i += 1;
@@ -893,6 +953,7 @@ fn append_svg(cr: &Context, d: &str) {
                 sx = x;
                 sy = y;
                 quad = false;
+                cubic = false;
             }
             b'L' | b'l' => {
                 let (Some(mut x), Some(mut y)) = (read_number(bytes, &mut i), read_number(bytes, &mut i)) else { return };
@@ -904,6 +965,7 @@ fn append_svg(cr: &Context, d: &str) {
                 cx = x;
                 cy = y;
                 quad = false;
+                cubic = false;
             }
             b'H' | b'h' => {
                 let Some(mut x) = read_number(bytes, &mut i) else { return };
@@ -913,6 +975,7 @@ fn append_svg(cr: &Context, d: &str) {
                 let _ = cr.line_to(x, cy);
                 cx = x;
                 quad = false;
+                cubic = false;
             }
             b'V' | b'v' => {
                 let Some(mut y) = read_number(bytes, &mut i) else { return };
@@ -922,6 +985,7 @@ fn append_svg(cr: &Context, d: &str) {
                 let _ = cr.line_to(cx, y);
                 cy = y;
                 quad = false;
+                cubic = false;
             }
             b'C' | b'c' => {
                 let nums = [(); 6].map(|_| read_number(bytes, &mut i));
@@ -938,9 +1002,33 @@ fn append_svg(cr: &Context, d: &str) {
                     n[5] += cy;
                 }
                 let _ = cr.curve_to(n[0], n[1], n[2], n[3], n[4], n[5]);
+                ccx = n[2];
+                ccy = n[3];
                 cx = n[4];
                 cy = n[5];
                 quad = false;
+                cubic = true;
+            }
+            b'S' | b's' => {
+                let nums = [(); 4].map(|_| read_number(bytes, &mut i));
+                if nums.iter().any(|n| n.is_none()) {
+                    return;
+                }
+                let mut n = nums.map(|v| v.unwrap());
+                if command == b's' {
+                    n[0] += cx;
+                    n[1] += cy;
+                    n[2] += cx;
+                    n[3] += cy;
+                }
+                let (c1x, c1y) = if cubic { (2.0 * cx - ccx, 2.0 * cy - ccy) } else { (cx, cy) };
+                let _ = cr.curve_to(c1x, c1y, n[0], n[1], n[2], n[3]);
+                ccx = n[0];
+                ccy = n[1];
+                cx = n[2];
+                cy = n[3];
+                quad = false;
+                cubic = true;
             }
             b'Q' | b'q' => {
                 let nums = [(); 4].map(|_| read_number(bytes, &mut i));
@@ -960,6 +1048,7 @@ fn append_svg(cr: &Context, d: &str) {
                 cx = n[2];
                 cy = n[3];
                 quad = true;
+                cubic = false;
             }
             b'T' | b't' => {
                 let (Some(mut x), Some(mut y)) = (read_number(bytes, &mut i), read_number(bytes, &mut i)) else { return };
@@ -974,6 +1063,7 @@ fn append_svg(cr: &Context, d: &str) {
                 cx = x;
                 cy = y;
                 quad = true;
+                cubic = false;
             }
             b'A' | b'a' => {
                 let nums = [(); 7].map(|_| read_number(bytes, &mut i));
@@ -989,12 +1079,14 @@ fn append_svg(cr: &Context, d: &str) {
                 }
                 svg_arc(cr, &mut cx, &mut cy, n[0], n[1], n[2], n[3] != 0.0, n[4] != 0.0, x, y);
                 quad = false;
+                cubic = false;
             }
             b'Z' | b'z' => {
                 let _ = cr.close_path();
                 cx = sx;
                 cy = sy;
                 quad = false;
+                cubic = false;
             }
             _ => return,
         }
@@ -1013,10 +1105,20 @@ pub fn self_test_paths() -> Result<(), String> {
         (ADD_PATH, 28.0),
         (LANG_PATH, 16.0),
         (HEADPHONES_PATH, 16.0),
+        (MAGNET_PATH, 16.0),
+        (LIST_PATH, 512.0),
+        (COLUMNS_PATH, 512.0),
+        (RESIZE_COLUMN_PATH, 24.0),
+        (RESIZE_ROW_PATH, 24.0),
         (SETTINGS_PATH, 24.0),
         (CLOSE_PATH, 1024.0),
     ] {
         icon(&cr, path, view, 0.0, 0.0, 16.0, TEXT);
+    }
+    // fa6-solid:list-ul uses smooth curves. A dropped `s` leaves only the first bullet.
+    let list_ink = icon_coverage(LIST_PATH, 512.0)?;
+    if list_ink < 400 {
+        return Err(format!("list icon coverage {list_ink}"));
     }
     let (fill_c, border, _) = button_colors(ButtonKind::Danger);
     if (fill_c.r - DANGER_FILL.r).abs() > 0.01 || (border.r - DANGER.r).abs() > 0.01 {

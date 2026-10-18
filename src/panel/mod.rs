@@ -80,6 +80,14 @@ pub(crate) struct Stage {
     pub check: (f64, f64, f64, f64),
 }
 
+/// Window margin, the gap between cards, and the header and footer bands.
+pub(crate) const MARGIN: f64 = 24.0;
+pub(crate) const GUTTER: f64 = 16.0;
+pub(crate) const HEADER_H: f64 = 48.0;
+pub(crate) const CONTENT_TOP: f64 = MARGIN + HEADER_H + GUTTER;
+const FOOTER_H: f64 = 80.0;
+const PICKER_H: f64 = 60.0;
+
 const HSCROLL: &str = "hscroll";
 const PAN: &str = "pan";
 /// How close, in pixels, a fader drag has to come to a snap point.
@@ -743,10 +751,6 @@ impl Panel {
         self.scroll = t * bar.max_scroll;
     }
 
-    pub(crate) fn dragging(&self, id: &str) -> bool {
-        self.drag.as_deref() == Some(id)
-    }
-
     pub fn render(&mut self, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) -> Vec<u8> {
         let mut surface = self.render_surface(fonts, snap, peaks);
         draw::surface_to_rgba(&mut surface)
@@ -780,21 +784,23 @@ impl Panel {
 
     pub(crate) fn stage(&self) -> Stage {
         let (w, h) = self.size_f();
-        let footer = (28.0, h - 114.0, w - 56.0, 88.0);
+        let footer = (MARGIN, h - MARGIN - FOOTER_H, w - 2.0 * MARGIN, FOOTER_H);
+        let bottom = footer.1 - GUTTER;
+        let mix_top = CONTENT_TOP + PICKER_H + 12.0;
         // The 9:10 list window is taller than it is wide. Mix Check still sits beside the sliders.
         let portrait = h > w && !self.config.list;
         if portrait {
             let check_h = 520.0_f64.min((h - 280.0) * 0.42).max(280.0);
-            let check = (28.0, footer.1 - 14.0 - check_h, w - 56.0, check_h);
-            let picker = (28.0, 92.0, w - 56.0, 60.0);
-            let mix = (28.0, 168.0, w - 56.0, (check.1 - 16.0 - 168.0).max(180.0));
+            let check = (MARGIN, bottom - check_h, w - 2.0 * MARGIN, check_h);
+            let picker = (MARGIN, CONTENT_TOP, w - 2.0 * MARGIN, PICKER_H);
+            let mix = (MARGIN, mix_top, w - 2.0 * MARGIN, (check.1 - GUTTER - mix_top).max(180.0));
             return Stage { w, portrait, footer, picker, mix, check };
         }
-        let check_w = 381.0;
-        let check = (w - 28.0 - check_w, 92.0, check_w, footer.1 - 14.0 - 92.0);
-        let mix_w = check.0 - 16.0 - 28.0;
-        let picker = (28.0, 92.0, mix_w, 60.0);
-        let mix = (28.0, 168.0, mix_w, check.1 + check.3 - 168.0);
+        let check_w = 384.0;
+        let check = (w - MARGIN - check_w, CONTENT_TOP, check_w, bottom - CONTENT_TOP);
+        let mix_w = check.0 - GUTTER - MARGIN;
+        let picker = (MARGIN, CONTENT_TOP, mix_w, PICKER_H);
+        let mix = (MARGIN, mix_top, mix_w, bottom - mix_top);
         Stage { w, portrait, footer, picker, mix, check }
     }
 
@@ -825,7 +831,7 @@ impl Panel {
         self.hbar = None;
         self.strip = None;
         let (pw, ph) = self.size_f();
-        fill_round(cr, 0.0, 0.0, pw, ph, 24.0, BG);
+        fill_round(cr, 0.0, 0.0, pw, ph, 28.0, BG);
         let t = i18n::text(self.lang);
         self.header(cr, fonts, t);
         if self.page == Page::Apps {
@@ -860,9 +866,12 @@ impl Panel {
     }
 
     fn header(&mut self, cr: &Context, fonts: &Fonts, t: &Text) {
-        draw::label(cr, fonts, true, 28.0, TEXT, 36.0, 58.0, t.title);
+        let mid = MARGIN + HEADER_H / 2.0;
+        let logo = crate::brand::icon_png(self.config.accent == "pink", 128);
+        draw::paint_png_bytes(cr, logo, MARGIN, mid - 18.0, 36.0, 36.0);
+        draw::label_mid(cr, fonts, true, 24.0, TEXT, MARGIN + 50.0, mid, t.title);
         let (w, _) = self.size_f();
-        let rect = (w - 236.0, 22.0, 208.0, 56.0);
+        let rect = (w - MARGIN - 200.0, mid - 24.0, 200.0, 48.0);
         if self.page == Page::Mix {
             self.button(cr, fonts, rect.0, rect.1, rect.2, rect.3, t.apps, ButtonKind::Plain);
             self.hot("apps", rect.0, rect.1, rect.2, rect.3);
@@ -979,10 +988,43 @@ pub(crate) fn stroke_round(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64,
 
 pub(crate) fn backdrop(panel: &mut Panel, cr: &Context) {
     let (w, h) = panel.size_f();
-    fill_round(cr, 0.0, 0.0, w, h, 24.0, BG);
+    fill_round(cr, 0.0, 0.0, w, h, 28.0, BG);
     cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
     let _ = cr.paint();
     panel.hot("dismiss", 0.0, 0.0, w, h);
+}
+
+/// A dialog surface: one tone above the cards, no outline.
+pub(crate) fn sheet_surface(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
+    fill_round(cr, x, y, w, h, 24.0, draw::INSET);
+}
+
+/// Close button in a dialog's top-right corner, with a hover layer.
+pub(crate) fn close_button(panel: &mut Panel, cr: &Context, x: f64, y: f64) {
+    let s = 40.0;
+    let look = panel.look(x, y, s, s);
+    if look != Look::Rest {
+        fill_round(cr, x, y, s, s, s / 2.0, if look == Look::Down { draw::CONTROL_DOWN } else { draw::CONTROL_HOVER });
+    }
+    draw::icon(cr, draw::CLOSE_PATH, 1024.0, x + 11.0, y + 11.0, 18.0, draw::SOFT);
+    panel.hot("dismiss", x, y, s, s);
+}
+
+/// On/Off as a pill. The chosen half is filled with the accent.
+pub(crate) fn pill_toggle(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, on: bool, labels: (&str, &str), ids: (&str, &str)) {
+    fill_round(cr, x, y, w, h, h / 2.0, draw::CONTROL);
+    let half = w / 2.0;
+    let pad = 4.0;
+    let sel_x = if on { x + pad } else { x + half };
+    fill_round(cr, sel_x, y + pad, half - pad, h - 2.0 * pad, (h - 2.0 * pad) / 2.0, draw::accent());
+    for (index, (text, id)) in [(labels.0, ids.0), (labels.1, ids.1)].into_iter().enumerate() {
+        let picked = (index == 0) == on;
+        let cx = x + half * index as f64 + half / 2.0;
+        let tw = draw::text_width(cr, fonts, true, 15.0, text);
+        let color = if picked { draw::on_accent() } else { draw::SOFT };
+        draw::label_mid(cr, fonts, true, 15.0, color, cx - tw / 2.0, y + h / 2.0, text);
+        panel.hot(id, x + half * index as f64, y, half, h);
+    }
 }
 
 pub(crate) fn fmt_token(template: &str, key: &str, value: &str) -> String {
@@ -1037,6 +1079,15 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.overlay = Overlay::None;
     panel.language_open = true;
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "lang"))?;
+    panel.language_open = false;
+    panel.config.list = true;
+    panel.scroll = 0.0;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "rows"))?;
+    panel.scroll = 90.0;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "rows-scrolled"))?;
+    panel.scroll = 0.0;
+    panel.config.accent = "pink".into();
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "rows-pink"))?;
     Ok(())
 }
 
@@ -1093,7 +1144,7 @@ pub(crate) fn paint_app_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts, nam
             return true;
         }
     }
-    fill_round(cr, x, y, size, size, size * 0.22, draw::CONTROL);
+    fill_round(cr, x, y, size, size, size * 0.22, draw::accent_tint());
     let letter: String = mono.chars().take(4).collect();
     let width = draw::text_width(cr, fonts, true, size * 0.28, &letter);
     draw::label(cr, fonts, true, size * 0.28, draw::accent(), x + (size - width) / 2.0, y + size * 0.62, &letter);
@@ -1133,10 +1184,10 @@ pub(crate) fn paint_desktop_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts,
         }
     }
     let letter: String = app.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_else(|| "?".into());
-    fill_round(cr, x, y, size, size, size * 0.25, draw::CONTROL);
+    fill_round(cr, x, y, size, size, size * 0.25, draw::accent_tint());
     let font = size * 0.5;
     let width = draw::text_width(cr, fonts, true, font, &letter);
-    draw::label(cr, fonts, true, font, TEXT, x + (size - width) / 2.0, y + size * 0.68, &letter);
+    draw::label(cr, fonts, true, font, draw::accent(), x + (size - width) / 2.0, y + size * 0.68, &letter);
 }
 
 fn truncate_name(text: &str) -> String {

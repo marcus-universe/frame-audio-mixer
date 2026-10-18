@@ -14,6 +14,7 @@ pub fn icon_png(pink: bool, size: u32) -> &'static [u8] {
     }
 }
 
+#[allow(dead_code)]
 pub fn flag_png(lang: Lang) -> &'static [u8] {
     match lang {
         Lang::De => include_bytes!("../assets/flags/de.png"),

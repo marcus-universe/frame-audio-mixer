@@ -1,6 +1,10 @@
 [Unit]
 Description=Frame Audio Mixer (dashboard panel)
+# BindsTo, not only PartOf: if this panel starts while steamvr.service failed,
+# VR_Init launches vrserver itself. Gamescope then aborts in rendervulkan
+# (empty DRM modifiers) and the headset stays on a blank display.
 After=steamvr.service
+BindsTo=steamvr.service
 PartOf=steamvr.service
 
 [Service]

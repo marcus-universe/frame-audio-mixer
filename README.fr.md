@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.0.0-33C4FF?style=flat-square" alt="Version 1.0.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
 
@@ -14,17 +14,6 @@
 Un panneau du tableau de bord SteamVR pour le Steam Frame. Il mélange le son des applis avec le micro du casque et envoie ce mix au PC par le flux sans fil. Sur le PC, il apparaît sous le nom **Steam Streaming Microphone**.
 
 Il se place après [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), qui gère toujours l'annulation d'écho et la réduction de bruit.
-
-## Fonctionnalités
-
-- **Appareils audio virtuels** : jusqu'à 32 canaux nommés. Chacun est une sortie (`Frame Mix: <name>`) que n'importe quelle appli peut choisir.
-- **Canaux d'appli** : créez un canal à partir d'une appli en cours. Son icône s'affiche à côté du nom.
-- **Mix pour le micro de streaming du PC** : le PC entend votre micro et les canaux.
-- **Deux faders par canal** : un pour le casque, un pour le PC, chacun avec sa propre sourdine. Les faders s'aimantent à 20, 50, 80 et 100 %.
-- **Microphone** : choisissez le micro du mix. Le micro par défaut du système ne change pas.
-- **Indicateurs de niveau** sur chaque fader. Vous pouvez les désactiver.
-- **Contrôle du mix** : enregistrez jusqu'à 10 secondes de ce que le PC entend, puis réécoutez-les.
-- Sept langues, et un thème de couleur bleu ou rose.
 
 ## Installation
 
@@ -38,6 +27,29 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 - Pour démarrer aussi le panneau avec SteamVR, terminez la commande par `| sh -s -- --autostart`.
 - Pour mettre à jour, relancez la même commande. Pour désinstaller, terminez-la par `| sh -s -- --uninstall`.
 - L'installation n'utilise pas `sudo` et n'écrit que dans votre répertoire personnel. Elle ne redémarre jamais PipeWire ni WirePlumber, donc une session VR en cours garde son son.
+- Depuis un PC : [Installation par SSH](docs/install-ssh.fr.md).
+
+## Fonctionnalités
+
+- **Appareils audio virtuels** : jusqu'à 32 canaux nommés. Chacun est une sortie (`Frame Mix: <name>`) que n'importe quelle appli peut choisir.
+- **Canaux d'appli** : créez un canal à partir d'une appli en cours. Son icône s'affiche à côté du nom.
+- **Mix pour le micro de streaming du PC** : le PC entend votre micro et les canaux.
+- **Deux faders par canal** : un pour le casque, un pour le PC, chacun avec sa propre sourdine. Les faders s'aimantent à 20, 50, 80 et 100 %.
+- **Microphone** : choisissez le micro du mix. Le micro par défaut du système ne change pas.
+- **Indicateurs de niveau** sur chaque fader. Vous pouvez les désactiver.
+- **Contrôle du mix** : enregistrez jusqu'à 10 secondes de ce que le PC entend, puis réécoutez-les.
+- Sept langues, et un thème de couleur bleu ou rose.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="Vue en colonnes, thème bleu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="Vue en liste, thème bleu" height="320"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="Vue en colonnes, thème rose" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="Vue en liste, thème rose" height="320"></td>
+  </tr>
+</table>
 
 ## Utilisation
 

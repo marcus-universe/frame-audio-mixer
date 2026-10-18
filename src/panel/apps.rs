@@ -1,9 +1,9 @@
 //! Apps & updates, laid out like Frame Mic Tuner. This app is Frame Audio Mixer.
 //! Frame Mic Tuner is the companion. The rest of the list is sasaken's Frame apps.
 
-use super::{backdrop, fill_round, fmt_token, paint_app_icon, stroke_round, Panel};
+use super::{backdrop, close_button, fill_round, fmt_token, paint_app_icon, pill_toggle, sheet_surface, Panel, CONTENT_TOP, GUTTER, MARGIN};
 use crate::apps::{AppState, Entry};
-use crate::draw::{self, ButtonKind, Fonts, BORDER, CARD, CHIP_OK_FILL, CHIP_OK_TEXT, DANGER_TEXT, INSET, MUTED, SOFT, TEXT};
+use crate::draw::{self, ButtonKind, Fonts, CHIP_OK_FILL, CHIP_OK_TEXT, DANGER_TEXT, INSET, MUTED, R_SURFACE, SOFT, TEXT};
 use crate::i18n::{Lang, Text};
 use crate::updater::{UpdateState, UpdateView, VERSION};
 use crate::worker::Snapshot;
@@ -11,18 +11,18 @@ use cairo::Context;
 
 pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
     let stage = panel.stage();
-    let top = 92.0;
-    let bottom = stage.footer.1 - 14.0;
-    let gap = 16.0;
+    let top = CONTENT_TOP;
+    let bottom = stage.footer.1 - GUTTER;
+    let gap = GUTTER;
+    let inner = stage.w - 2.0 * MARGIN;
     let (app, related_box) = if stage.portrait {
         let h = ((bottom - top - gap) / 2.0).max(240.0);
-        ((28.0, top, stage.w - 56.0, h), (28.0, top + h + gap, stage.w - 56.0, h))
+        ((MARGIN, top, inner, h), (MARGIN, top + h + gap, inner, h))
     } else {
-        let inner = stage.w - 56.0;
-        let left_w = (inner - gap) * 560.0 / 1128.0;
+        let left_w = ((inner - gap) / 2.0).floor();
         let right_w = inner - gap - left_w;
         let h = bottom - top;
-        ((28.0, top, left_w, h), (28.0 + left_w + gap, top, right_w, h))
+        ((MARGIN, top, left_w, h), (MARGIN + left_w + gap, top, right_w, h))
     };
     this_app(panel, cr, fonts, t, snap, app);
     related(panel, cr, fonts, t, snap, related_box);
@@ -31,50 +31,44 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
 fn this_app(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, card: (f64, f64, f64, f64)) {
     let (x, y, w, h) = card;
     draw::card(cr, x, y, w, h);
-    let left = x + 22.0;
-    draw::label(cr, fonts, true, 22.0, TEXT, left, y + 42.0, t.this_app);
+    let left = x + 24.0;
+    let inner = w - 48.0;
+    draw::label(cr, fonts, true, 20.0, TEXT, left, y + 44.0, t.this_app);
     let logo = crate::brand::icon_png(panel.config.accent == "pink", 128);
-    draw::paint_png_bytes(cr, logo, left, y + 64.0, 64.0, 64.0);
-    draw::label(cr, fonts, true, 20.0, TEXT, left + 80.0, y + 90.0, "Frame Audio Mixer");
-    draw::label(cr, fonts, false, 14.0, MUTED, left + 80.0 + 196.0, y + 90.0, VERSION);
-    draw::label_fit(cr, fonts, false, 13.0, MUTED, left + 80.0, y + 114.0, w - 120.0, t.this_app_desc);
+    draw::paint_png_bytes(cr, logo, left, y + 68.0, 56.0, 56.0);
+    let name = "Frame Audio Mixer";
+    draw::label(cr, fonts, true, 18.0, TEXT, left + 72.0, y + 92.0, name);
+    let name_w = draw::text_width(cr, fonts, true, 18.0, name);
+    draw::label(cr, fonts, false, 13.0, MUTED, left + 72.0 + name_w + 10.0, y + 92.0, VERSION);
+    draw::label_fit(cr, fonts, false, 13.0, MUTED, left + 72.0, y + 114.0, inner - 72.0, t.this_app_desc);
 
-    update_box(panel, cr, fonts, t, &snap.update, left, y + 152.0, w - 44.0);
+    update_box(panel, cr, fonts, t, &snap.update, left, y + 148.0, inner);
 
-    draw::label_fit(cr, fonts, true, 16.0, TEXT, left, y + 310.0, 200.0, t.apps_check);
-    let on = panel.config.check_updates;
-    let seg = (left + 210.0, y + 284.0, 180.0, 48.0);
-    fill_round(cr, seg.0, seg.1, seg.2, seg.3, 14.0, draw::CONTROL);
-    if on {
-        fill_round(cr, seg.0 + 4.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::accent());
-    } else {
-        fill_round(cr, seg.0 + 90.0, seg.1 + 4.0, 86.0, 40.0, 12.0, draw::accent());
-    }
-    draw::label(cr, fonts, true, 16.0, if on { draw::on_accent() } else { SOFT }, seg.0 + 28.0, seg.1 + 30.0, t.on);
-    draw::label(cr, fonts, true, 16.0, if on { SOFT } else { draw::on_accent() }, seg.0 + 118.0, seg.1 + 30.0, t.off);
-    panel.hot("upd-on", seg.0, seg.1, 90.0, 48.0);
-    panel.hot("upd-off", seg.0 + 90.0, seg.1, 90.0, 48.0);
-    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, y + 360.0, w - 44.0, t.list_note);
+    let check_y = y + 284.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, left, check_y + 24.0, t.apps_check);
+    pill_toggle(panel, cr, fonts, left + inner - 168.0, check_y, 168.0, 48.0, panel.config.check_updates, (t.on, t.off), ("upd-on", "upd-off"));
+    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, check_y + 76.0, inner, t.list_note);
     cr.set_source_rgb(draw::DIVIDER.r, draw::DIVIDER.g, draw::DIVIDER.b);
-    cr.rectangle(left, y + 430.0, w - 44.0, 1.0);
+    cr.rectangle(left, y + h - 84.0, inner, 1.0);
     let _ = cr.fill();
-    draw::label(cr, fonts, false, 13.0, MUTED, left, y + 460.0, t.help_title);
-    draw::label(cr, fonts, false, 14.0, SOFT, left, y + 484.0, "github.com/marcus-universe/frame-audio-mixer");
+    draw::label(cr, fonts, false, 12.0, MUTED, left, y + h - 52.0, t.help_title);
+    draw::label(cr, fonts, false, 14.0, SOFT, left, y + h - 30.0, "github.com/marcus-universe/frame-audio-mixer");
 }
 
 fn update_box(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, update: &UpdateView, x: f64, y: f64, w: f64) {
-    fill_round(cr, x, y, w, 112.0, 16.0, INSET);
+    fill_round(cr, x, y, w, 112.0, R_SURFACE, INSET);
     let (line, bad) = update_line(t, update);
-    draw::label_fit(cr, fonts, true, 16.0, if bad { DANGER_TEXT } else { TEXT }, x + 16.0, y + 36.0, w - 200.0, &line);
+    draw::label_fit(cr, fonts, true, 16.0, if bad { DANGER_TEXT } else { TEXT }, x + 20.0, y + 40.0, w - 200.0, &line);
     if !update.message.is_empty() && update.state != UpdateState::Available {
-        draw::label_fit(cr, fonts, false, 13.0, MUTED, x + 16.0, y + 62.0, w - 200.0, &update.message);
+        draw::label_fit(cr, fonts, false, 13.0, MUTED, x + 20.0, y + 64.0, w - 200.0, &update.message);
     }
-    panel.button(cr, fonts, x + w - 168.0, y + 28.0, 148.0, 48.0, t.check_now, ButtonKind::Plain);
-    panel.hot("upd-now", x + w - 168.0, y + 28.0, 148.0, 48.0);
+    let check_w = (draw::text_width(cr, fonts, true, 15.0, t.check_now) + 48.0).max(140.0);
+    panel.button(cr, fonts, x + w - 20.0 - check_w, y + 32.0, check_w, 48.0, t.check_now, ButtonKind::Plain);
+    panel.hot("upd-now", x + w - 20.0 - check_w, y + 32.0, check_w, 48.0);
     if update.installable && update.state == UpdateState::Available {
         let caption = fmt_token(t.update_to_fmt, "version", &update.latest);
-        panel.button(cr, fonts, x + 16.0, y + 64.0, 220.0, 36.0, &caption, ButtonKind::Accent);
-        panel.hot("upd-install", x + 16.0, y + 64.0, 220.0, 36.0);
+        panel.button(cr, fonts, x + 20.0, y + 64.0, 220.0, 40.0, &caption, ButtonKind::Accent);
+        panel.hot("upd-install", x + 20.0, y + 64.0, 220.0, 40.0);
     }
 }
 
@@ -92,11 +86,11 @@ fn update_line(t: &Text, update: &UpdateView) -> (String, bool) {
 fn related(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, card: (f64, f64, f64, f64)) {
     let (x, y, w, _h) = card;
     draw::card(cr, x, y, w, _h);
-    let left = x + 22.0;
-    let inner = w - 44.0;
-    draw::label_fit(cr, fonts, true, 22.0, TEXT, left, y + 42.0, inner, t.related_title);
-    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, y + 66.0, inner, t.related_hint);
-    let mut row_y = y + 88.0;
+    let left = x + 24.0;
+    let inner = w - 48.0;
+    draw::label_fit(cr, fonts, true, 20.0, TEXT, left, y + 44.0, inner, t.related_title);
+    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, y + 68.0, inner, t.related_hint);
+    let mut row_y = y + 92.0;
     for entry in snap.apps.iter().filter(|entry| entry.related).cloned().collect::<Vec<_>>() {
         app_row(panel, cr, fonts, t, &entry, left, row_y, inner, false);
         row_y += 104.0;
@@ -108,8 +102,13 @@ fn related(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snap
     } else {
         fmt_token(&fmt_token(t.missing_fmt, "missing", &missing.to_string()), "total", &total.to_string())
     };
-    fill_round(cr, left, row_y, inner, 88.0, 16.0, draw::CONTROL);
-    stroke_round(cr, left, row_y, inner, 88.0, 16.0, BORDER, 2.0);
+    let look = panel.look(left, row_y, inner, 88.0);
+    let fill = match look {
+        draw::Look::Down => draw::CONTROL_DOWN,
+        draw::Look::Hover => draw::CONTROL_HOVER,
+        draw::Look::Rest => draw::CONTROL,
+    };
+    fill_round(cr, left, row_y, inner, 88.0, R_SURFACE, fill);
     let mut icon_x = left + 16.0;
     for entry in snap.apps.iter().take(4) {
         paint_app_icon(panel, cr, fonts, &entry.name, &entry.mono, &entry.icon_path, icon_x, row_y + 26.0, 36.0);
@@ -118,13 +117,13 @@ fn related(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snap
     let text_x = icon_x + 24.0;
     draw::label_fit(cr, fonts, true, 16.0, TEXT, text_x, row_y + 38.0, left + inner - 40.0 - text_x, t.all_title);
     draw::label_fit(cr, fonts, false, 13.0, MUTED, text_x, row_y + 62.0, left + inner - 40.0 - text_x, &count);
-    draw::chevron(cr, left + inner - 28.0, row_y + 36.0, 14.0, TEXT, true, false);
+    draw::chevron(cr, left + inner - 28.0, row_y + 37.0, 14.0, draw::SOFT, true, false);
     panel.hot("apps-open", left, row_y, inner, 88.0);
-    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, row_y + 112.0, inner, t.install_note);
+    draw::label_fit(cr, fonts, false, 13.0, MUTED, left, row_y + 116.0, inner, t.install_note);
 }
 
 fn app_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, entry: &Entry, x: f64, y: f64, w: f64, in_list: bool) {
-    fill_round(cr, x, y, w, 96.0, 16.0, INSET);
+    fill_round(cr, x, y, w, 96.0, R_SURFACE, if in_list { draw::CONTROL } else { INSET });
     paint_app_icon(panel, cr, fonts, &entry.name, &entry.mono, &entry.icon_path, x + 16.0, y + 22.0, 52.0);
     let mut right = x + w - 16.0;
     if entry.state == AppState::Missing && !entry.busy {
@@ -141,7 +140,8 @@ fn app_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, entry: &Ent
         };
         let ok = !entry.busy && entry.state == AppState::Running;
         let chip_w = 18.0 + draw::text_width(cr, fonts, true, 14.0, label) + 28.0;
-        fill_round(cr, right - chip_w, y + 28.0, chip_w, 40.0, 20.0, if ok { CHIP_OK_FILL } else { draw::CONTROL });
+        let rest = if in_list { INSET } else { draw::CONTROL };
+        fill_round(cr, right - chip_w, y + 28.0, chip_w, 40.0, 20.0, if ok { CHIP_OK_FILL } else { rest });
         if ok {
             draw::fill_circle(cr, right - chip_w + 16.0, y + 48.0, 5.0, CHIP_OK_TEXT);
         }
@@ -167,13 +167,11 @@ fn app_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, entry: &Ent
 pub(crate) fn list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot) {
     backdrop(panel, cr);
     let (x, y, w, h) = panel.sheet(40.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
-    draw::label(cr, fonts, true, 22.0, TEXT, x + 28.0, y + 40.0, t.all_title);
-    draw::label_fit(cr, fonts, false, 13.0, MUTED, x + 28.0, y + 64.0, w - 80.0, t.list_sub);
-    draw::icon(cr, draw::CLOSE_PATH, 1024.0, x + w - 48.0, y + 18.0, 28.0, TEXT);
-    panel.hot("dismiss", x + w - 56.0, y + 12.0, 44.0, 44.0);
+    draw::label(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.all_title);
+    draw::label_fit(cr, fonts, false, 13.0, MUTED, x + 28.0, y + 68.0, w - 100.0, t.list_sub);
+    close_button(panel, cr, x + w - 60.0, y + 20.0);
     let list_top = y + 88.0;
     let list_h = (h - 188.0).max(160.0);
     let content = snap.apps.len() as f64 * 104.0;
@@ -201,8 +199,7 @@ pub(crate) fn list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
 pub(crate) fn confirm(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, key: &str) {
     backdrop(panel, cr);
     let (x, y, w, h) = panel.dialog_rect(680.0, 476.0, 24.0);
-    fill_round(cr, x, y, w, h, 18.0, CARD);
-    stroke_round(cr, x, y, w, h, 18.0, BORDER, 2.0);
+    sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
     let entry = snap.apps.iter().find(|entry| entry.key == key);
     let title = if let Some(entry) = entry {

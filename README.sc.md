@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.0.0-33C4FF?style=flat-square" alt="Version 1.0.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
 
@@ -14,17 +14,6 @@
 这是 Steam Frame 上的一个 SteamVR 仪表盘面板。它把应用的声音和头显麦克风混在一起，再通过无线串流把这份混音送给 PC。PC 上显示为 **Steam Streaming Microphone**。
 
 它接在 [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) 之后。回声消除和噪声抑制仍由 Frame Mic Tuner 负责。
-
-## 功能
-
-- **虚拟音频设备**：最多 32 个命名通道。每个通道都是一个输出（`Frame Mix: <name>`），任何应用都可以选择它。
-- **应用通道**：用正在运行的应用创建通道。名称旁边会显示它的图标。
-- **PC 串流麦克风混音**：PC 听到的是你的麦克风加上各个通道。
-- **每个通道两个推子**：一个用于头显，一个用于 PC，各自有静音。推子会吸附到 20、50、80 和 100 %。
-- **麦克风**：选择用于混音的麦克风。系统默认麦克风不会改变。
-- 每个推子上都有 **电平表**。可以关闭。
-- **混音检查**：录制 PC 听到的声音，最多 10 秒，然后播放。
-- 七种语言，以及蓝色或粉色的配色主题。
 
 ## 安装
 
@@ -38,6 +27,29 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 - 如果还想让面板随 SteamVR 启动，把命令结尾改成 `| sh -s -- --autostart`。
 - 更新时，再运行一次同一条命令。卸载时，把结尾改成 `| sh -s -- --uninstall`。
 - 它不使用 `sudo`，只写入你的主目录。它从不重启 PipeWire 或 WirePlumber，所以正在进行的 VR 会话不会失去声音。
+- 从 PC 安装：[通过 SSH 安装](docs/install-ssh.sc.md)。
+
+## 功能
+
+- **虚拟音频设备**：最多 32 个命名通道。每个通道都是一个输出（`Frame Mix: <name>`），任何应用都可以选择它。
+- **应用通道**：用正在运行的应用创建通道。名称旁边会显示它的图标。
+- **PC 串流麦克风混音**：PC 听到的是你的麦克风加上各个通道。
+- **每个通道两个推子**：一个用于头显，一个用于 PC，各自有静音。推子会吸附到 20、50、80 和 100 %。
+- **麦克风**：选择用于混音的麦克风。系统默认麦克风不会改变。
+- 每个推子上都有 **电平表**。可以关闭。
+- **混音检查**：录制 PC 听到的声音，最多 10 秒，然后播放。
+- 七种语言，以及蓝色或粉色的配色主题。
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="分栏视图，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="列表视图，蓝色主题" height="320"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="分栏视图，粉色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="列表视图，粉色主题" height="320"></td>
+  </tr>
+</table>
 
 ## 使用
 

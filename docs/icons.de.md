@@ -16,6 +16,11 @@ Das Logo von Frame Audio Mixer liegt als SVG in `assets/logo/`, in Blau und Rosa
 | [heroicons:language-16-solid](https://icon-sets.iconify.design/heroicons/language-16-solid/) | Heroicons | Refactoring UI Inc | MIT |
 | [circle-flags](https://icon-sets.iconify.design/circle-flags/) en, de, fr, cn, jp, es, it (PNG) | Circle Flags | HatScripts | MIT |
 | [at-icons:headphones](https://icon-sets.iconify.design/at-icons/headphones/) | @icons | Valentin Fossati | MIT |
+| [at-icons:magnet](https://icon-sets.iconify.design/at-icons/magnet/) | @icons | Valentin Fossati | MIT |
+| [fa6-solid:list-ul](https://icon-sets.iconify.design/fa6-solid/list-ul/) | Font Awesome | Fonticons Inc | CC BY 4.0 |
+| [fa-solid:columns](https://icon-sets.iconify.design/fa-solid/columns/) | Font Awesome | Fonticons Inc | CC BY 4.0 |
+| [fluent:table-resize-column-24-filled](https://icon-sets.iconify.design/fluent/table-resize-column-24-filled/) | Fluent | Microsoft | MIT |
+| [fluent:table-resize-row-24-filled](https://icon-sets.iconify.design/fluent/table-resize-row-24-filled/) | Fluent | Microsoft | MIT |
 | [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 | [ep:close-bold](https://icon-sets.iconify.design/ep/close-bold/) | Element Plus | Element Plus | MIT |
 

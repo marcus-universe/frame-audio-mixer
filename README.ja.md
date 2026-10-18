@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.0.0-33C4FF?style=flat-square" alt="Version 1.0.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
 
@@ -14,17 +14,6 @@
 Steam Frame 用の SteamVR ダッシュボードパネルです。アプリの音をヘッドセットのマイクと混ぜ、そのミックスをワイヤレス配信で PC に送ります。PC では **Steam Streaming Microphone** として表示されます。
 
 このアプリは [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) の後段で動きます。エコー除去とノイズ抑制は、引き続き Frame Mic Tuner が担当します。
-
-## できること
-
-- **仮想オーディオデバイス**: 名前付きのチャンネルを最大 32 個作れます。それぞれが出力（`Frame Mix: <name>`）になり、どのアプリからも選べます。
-- **アプリのチャンネル**: 実行中のアプリからチャンネルを作れます。名前の横にそのアプリのアイコンが表示されます。
-- **PC 配信マイクのミックス**: PC にはマイクとチャンネルの音が届きます。
-- **チャンネルごとに 2 本のフェーダー**: ヘッドセット用と PC 用があり、それぞれにミュートがあります。フェーダーは 20、50、80、100 % に吸着します。
-- **マイク**: ミックスに使うマイクを選べます。システムの既定マイクは変わりません。
-- **レベルメーター**をすべてのフェーダーに表示します。オフにもできます。
-- **ミックス確認**: PC に届く音を最大 10 秒録音して再生します。
-- 7 つの言語と、青またはピンクのカラーテーマに対応しています。
 
 ## インストール
 
@@ -38,6 +27,29 @@ curl -fsSL https://raw.githubusercontent.com/marcus-universe/frame-audio-mixer/m
 - パネルを SteamVR と一緒に起動するには、コマンドの最後を `| sh -s -- --autostart` にします。
 - 更新するには、同じコマンドをもう一度実行します。アンインストールするには、最後を `| sh -s -- --uninstall` にします。
 - `sudo` は使わず、書き込むのはホームディレクトリだけです。PipeWire や WirePlumber を再起動しないので、実行中の VR セッションの音は途切れません。
+- PC から入れる場合: [SSH でインストール](docs/install-ssh.ja.md)。
+
+## できること
+
+- **仮想オーディオデバイス**: 名前付きのチャンネルを最大 32 個作れます。それぞれが出力（`Frame Mix: <name>`）になり、どのアプリからも選べます。
+- **アプリのチャンネル**: 実行中のアプリからチャンネルを作れます。名前の横にそのアプリのアイコンが表示されます。
+- **PC 配信マイクのミックス**: PC にはマイクとチャンネルの音が届きます。
+- **チャンネルごとに 2 本のフェーダー**: ヘッドセット用と PC 用があり、それぞれにミュートがあります。フェーダーは 20、50、80、100 % に吸着します。
+- **マイク**: ミックスに使うマイクを選べます。システムの既定マイクは変わりません。
+- **レベルメーター**をすべてのフェーダーに表示します。オフにもできます。
+- **ミックス確認**: PC に届く音を最大 10 秒録音して再生します。
+- 7 つの言語と、青またはピンクのカラーテーマに対応しています。
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="カラム表示、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="リスト表示、青のテーマ" height="320"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="カラム表示、ピンクのテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="リスト表示、ピンクのテーマ" height="320"></td>
+  </tr>
+</table>
 
 ## 使い方
 

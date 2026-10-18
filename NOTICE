@@ -24,9 +24,18 @@ https://api.iconify.design/collection?prefix=<set>&info=1):
 - heroicons:language-16-solid — Heroicons, Refactoring UI Inc, MIT
   https://icon-sets.iconify.design/heroicons/language-16-solid/
   https://github.com/tailwindlabs/heroicons/blob/master/LICENSE
-- at-icons:headphones — @icons, Valentin Fossati, MIT
+- at-icons:headphones and at-icons:magnet — @icons, Valentin Fossati, MIT
   https://icon-sets.iconify.design/at-icons/headphones/
+  https://icon-sets.iconify.design/at-icons/magnet/
   https://github.com/Voxybuns/at-icons/blob/main/LICENSE
+- fluent:table-resize-column-24-filled and fluent:table-resize-row-24-filled —
+  Fluent UI System Icons, Microsoft Corporation, MIT
+  https://icon-sets.iconify.design/fluent/table-resize-column-24-filled/
+  https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE
+- fa6-solid:list-ul and fa-solid:columns — Font Awesome Free, Fonticons Inc, CC BY 4.0
+  https://icon-sets.iconify.design/fa6-solid/list-ul/
+  https://icon-sets.iconify.design/fa-solid/columns/
+  https://fontawesome.com/license/free
 - material-symbols:settings-rounded — Material Symbols, Google, Apache-2.0
   https://icon-sets.iconify.design/material-symbols/settings-rounded/
   https://github.com/google/material-design-icons/blob/master/LICENSE

@@ -1,6 +1,6 @@
 [package]
 name = "frame-audio-mixer"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
 description = "Mix app audio with the Steam Frame microphone for the PC wireless stream"
