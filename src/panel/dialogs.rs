@@ -1,6 +1,6 @@
 //! Add-a-channel, the microphone picker, and App Settings.
 
-use super::{backdrop, close_button, fill_round, fmt_token, paint_desktop_icon, pill_toggle, sheet_surface, source_label, stroke_round, Panel, SUGGESTIONS};
+use super::{backdrop, close_button, fill_round, paint_desktop_icon, pill_toggle, sheet_surface, source_label, stroke_round, Panel, SUGGESTIONS};
 use crate::draw::{self, ButtonKind, Fonts, CONTROL, MUTED, R_CONTROL, TEXT};
 
 /// Row in a dialog list.
@@ -27,46 +27,12 @@ pub(crate) fn add(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
     }
     row_button(panel, cr, fonts, x + 24.0, row, mid - x - 48.0, t.custom, "custom");
 
-    let choosing = panel.pin_app.clone();
-    let heading = if choosing.is_some() { t.picker } else { t.running };
-    let heading_w = if choosing.is_some() { w / 2.0 - 56.0 } else { w / 2.0 - 220.0 };
-    draw::label_fit(cr, fonts, true, 20.0, TEXT, mid + 28.0, y + 48.0, heading_w, heading);
-    if choosing.is_none() {
-        panel.button(cr, fonts, x + w - 160.0, y + 24.0, 120.0, 40.0, t.refresh, ButtonKind::Plain);
-        panel.hot("refresh", x + w - 160.0, y + 24.0, 120.0, 40.0);
-    }
+    draw::label_fit(cr, fonts, true, 20.0, TEXT, mid + 28.0, y + 48.0, w / 2.0 - 220.0, t.running);
+    panel.button(cr, fonts, x + w - 160.0, y + 24.0, 120.0, 40.0, t.refresh, ButtonKind::Plain);
+    panel.hot("refresh", x + w - 160.0, y + 24.0, 120.0, 40.0);
     let list_top = y + 80.0;
     let list_h = h - 110.0;
     let row_w = w / 2.0 - 64.0;
-    if let Some(app) = choosing {
-        draw::label_fit(cr, fonts, false, 13.0, MUTED, mid + 28.0, y + 70.0, row_w, &app);
-        let channels = panel.config.channels.clone();
-        let content = channels.len() as f64 * 58.0 + 2.0 * 58.0;
-        panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (content - list_h).max(0.0));
-        let _ = cr.save();
-        cr.rectangle(mid + 16.0, list_top, w / 2.0 - 40.0, list_h);
-        let _ = cr.clip();
-        let mut ry = list_top - panel.dialog_scroll;
-        row_button(panel, cr, fonts, mid + 24.0, ry, row_w, &format!("‹  {}", t.back_mixer), "pin-back");
-        ry += 58.0;
-        let binary = panel.app_binaries.iter().find(|(name, _)| *name == app).map(|(_, b)| b.clone()).unwrap_or_default();
-        let new_label = fmt_token(t.new_channel_fmt, "name", &app);
-        icon_row(panel, cr, fonts, mid + 24.0, ry, row_w, (&app, &binary), &new_label, "pin-new", true);
-        ry += 58.0;
-        for channel in &channels {
-            if ry + 52.0 >= list_top && ry <= list_top + list_h {
-                let id = format!("pin:{}", channel.id);
-                if channel.app.is_empty() {
-                    row_button(panel, cr, fonts, mid + 24.0, ry, row_w, &channel.name, &id);
-                } else {
-                    icon_row(panel, cr, fonts, mid + 24.0, ry, row_w, (&channel.app, &channel.binary), &channel.name, &id, false);
-                }
-            }
-            ry += 58.0;
-        }
-        let _ = cr.restore();
-        return;
-    }
     let apps = snap.graph.picker_apps();
     panel.app_binaries = apps.iter().map(|app| (app.name.clone(), app.binary.clone())).collect();
     let content = apps.len() as f64 * 58.0;

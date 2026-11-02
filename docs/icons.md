@@ -23,5 +23,7 @@ The Frame Audio Mixer logo is in `assets/logo/` as SVG, in blue and pink. `asset
 | [fluent:table-resize-row-24-filled](https://icon-sets.iconify.design/fluent/table-resize-row-24-filled/) | Fluent | Microsoft | MIT |
 | [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 | [ep:close-bold](https://icon-sets.iconify.design/ep/close-bold/) | Element Plus | Element Plus | MIT |
+| [andrsrxn:ear](https://icon-sets.iconify.design/andrsrxn/ear/) | andrsrxn | Andrsrxn | MIT |
+| [iconoir:fx-tag-solid](https://icon-sets.iconify.design/iconoir/fx-tag-solid/) | Iconoir | Luca Burgio | MIT |
 
 The icons in the Apps list come from frame-apps 0.3.1 by sasaken1102r and are MIT, like the code they came with. App icons in the channel row are read from the apps installed on the headset.

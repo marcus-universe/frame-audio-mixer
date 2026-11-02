@@ -95,6 +95,54 @@ pub const DANGER_FILL: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1d as f64 / 255.
 pub const DANGER_HOVER: Rgb = Rgb { r: 0x48 as f64 / 255.0, g: 0x23 as f64 / 255.0, b: 0x28 as f64 / 255.0 };
 pub const DANGER_DOWN: Rgb = Rgb { r: 0x56 as f64 / 255.0, g: 0x29 as f64 / 255.0, b: 0x2e as f64 / 255.0 };
 pub const DANGER_TEXT: Rgb = Rgb { r: 0xff as f64 / 255.0, g: 0x8a as f64 / 255.0, b: 0x80 as f64 / 255.0 };
+pub const METER_GREEN_LO: Rgb = Rgb { r: 0x1e as f64 / 255.0, g: 0x6b as f64 / 255.0, b: 0x45 as f64 / 255.0 };
+pub const METER_GREEN_HI: Rgb = Rgb { r: 0x3d as f64 / 255.0, g: 0xdc as f64 / 255.0, b: 0x97 as f64 / 255.0 };
+pub const METER_YELLOW: Rgb = Rgb { r: 0xf0 as f64 / 255.0, g: 0xc1 as f64 / 255.0, b: 0x4a as f64 / 255.0 };
+pub const METER_RED: Rgb = Rgb { r: 0xff as f64 / 255.0, g: 0x4b as f64 / 255.0, b: 0x5c as f64 / 255.0 };
+pub const FX_REVERB: Rgb = Rgb { r: 0x3b as f64 / 255.0, g: 0x6f as f64 / 255.0, b: 0xe0 as f64 / 255.0 };
+pub const FX_COMP: Rgb = Rgb { r: 0xff as f64 / 255.0, g: 0x4b as f64 / 255.0, b: 0x5c as f64 / 255.0 };
+pub const FX_EQ: Rgb = Rgb { r: 0x2e as f64 / 255.0, g: 0xc4 as f64 / 255.0, b: 0xb6 as f64 / 255.0 };
+pub const FX_DELAY: Rgb = Rgb { r: 0x3d as f64 / 255.0, g: 0xdc as f64 / 255.0, b: 0x97 as f64 / 255.0 };
+pub const FX_PHASER: Rgb = Rgb { r: 0xa7 as f64 / 255.0, g: 0x8b as f64 / 255.0, b: 0xfa as f64 / 255.0 };
+pub const FX_PITCHER: Rgb = Rgb { r: 0xf5 as f64 / 255.0, g: 0xa5 as f64 / 255.0, b: 0x24 as f64 / 255.0 };
+pub const FX_FLANGER: Rgb = Rgb { r: 0xe0 as f64 / 255.0, g: 0x7e as f64 / 255.0, b: 0xf5 as f64 / 255.0 };
+
+pub fn bus_color(index: usize) -> Rgb {
+    let first_pink = THEME_PINK.with(|cell| cell.get());
+    match (first_pink, index) {
+        (false, 0) => BLUE,
+        (false, _) => PINK,
+        (true, 0) => PINK,
+        (true, _) => BLUE,
+    }
+}
+
+pub fn ink_on(fill: Rgb) -> Rgb {
+    if fill.r > fill.b { PINK_INK } else { BLUE_INK }
+}
+
+pub fn effect_color(kind: crate::config::EffectKind) -> Rgb {
+    match kind {
+        crate::config::EffectKind::Reverb => FX_REVERB,
+        crate::config::EffectKind::Comp => FX_COMP,
+        crate::config::EffectKind::Eq => FX_EQ,
+        crate::config::EffectKind::Pitcher => FX_PITCHER,
+        crate::config::EffectKind::Flanger => FX_FLANGER,
+        crate::config::EffectKind::Phaser => FX_PHASER,
+        crate::config::EffectKind::Delay => FX_DELAY,
+    }
+}
+
+/// Post-fader amplitude 0..1.5 (1.0 is 0 dB / 100%).
+pub fn meter_color(amplitude: f64) -> Rgb {
+    if amplitude >= 1.0 {
+        METER_RED
+    } else if amplitude >= 0.8 {
+        METER_YELLOW
+    } else {
+        mix(METER_GREEN_HI, METER_GREEN_LO, (amplitude / 0.8).clamp(0.0, 1.0))
+    }
+}
 pub const CONTROL: Rgb = Rgb { r: 0x28 as f64 / 255.0, g: 0x2d as f64 / 255.0, b: 0x36 as f64 / 255.0 };
 pub const CONTROL_HOVER: Rgb = Rgb { r: 0x31 as f64 / 255.0, g: 0x37 as f64 / 255.0, b: 0x42 as f64 / 255.0 };
 pub const CONTROL_DOWN: Rgb = Rgb { r: 0x3b as f64 / 255.0, g: 0x41 as f64 / 255.0, b: 0x4d as f64 / 255.0 };
@@ -439,42 +487,101 @@ pub fn chevron(cr: &Context, x: f64, y: f64, size: f64, c: Rgb, right: bool, up:
     let _ = cr.restore();
 }
 
-/// Color of a meter reading. `fraction` is 0 at the quiet end (blue) and 1 at the loud end (pink).
+/// Color of a meter reading. `fraction` is 0 at silence and 1 at 0 dB.
 pub fn level_color(fraction: f64) -> Rgb {
-    let f = fraction.clamp(0.0, 1.0);
-    Rgb {
-        r: BLUE.r + (PINK.r - BLUE.r) * f,
-        g: BLUE.g + (PINK.g - BLUE.g) * f,
-        b: BLUE.b + (PINK.b - BLUE.b) * f,
+    meter_color(fraction.clamp(0.0, 1.0) * 1.5)
+}
+
+const LED_H: f64 = 3.0;
+const LED_GAP: f64 = 1.0;
+const METER_TICKS: [(f64, &'static str); 6] = [(3.0, "+3"), (0.0, "0"), (-6.0, "−6"), (-12.0, "−12"), (-24.0, "−24"), (-48.0, "−48")];
+
+fn db_to_amp(db: f64) -> f64 {
+    10f64.powf(db / 20.0)
+}
+
+/// Segmented peak column. `amplitude` is post-fader linear gain, 1.0 at 0 dB.
+/// The scale runs to 1.5 (+3.5 dB). Green below 80%, yellow to 100%, red above.
+pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, amplitude: f64, labels: bool) -> f64 {
+    if w <= 0.0 || h <= 0.0 {
+        return x;
+    }
+    rounded(cr, x, y, w, h, 2.0);
+    fill(cr, BG, 1.0);
+    let step = LED_H + LED_GAP;
+    let n = ((h + LED_GAP) / step).floor().max(1.0) as usize;
+    let amp = amplitude.max(0.0);
+    for i in 0..n {
+        let t = (i as f64 + 0.5) / n as f64;
+        let led_amp = t * 1.5;
+        let ly = y + h - (i as f64 + 1.0) * step + LED_GAP;
+        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        rounded(cr, x + 1.0, ly, w - 2.0, LED_H, 0.8);
+        fill(cr, color, 1.0);
+    }
+    if !labels {
+        return x + w;
+    }
+    let label_x = x + w + 4.0;
+    let mut right = label_x;
+    for (db, text) in METER_TICKS {
+        let t = (db_to_amp(db) / 1.5).clamp(0.0, 1.0);
+        let ty = y + h - t * h;
+        cr.set_source_rgba(MUTED.r, MUTED.g, MUTED.b, 0.7);
+        cr.set_line_width(1.0);
+        cr.move_to(x + w, ty);
+        cr.line_to(x + w + 3.0, ty);
+        let _ = cr.stroke();
+        let tw = text_width(cr, fonts, false, 10.0, text);
+        label(cr, fonts, false, 10.0, MUTED, label_x, ty + 3.0, text);
+        right = right.max(label_x + tw);
+    }
+    right
+}
+
+/// Short LED strip along a side fader. Labels only 0 and −12.
+pub fn paint_led_strip(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
+    if w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    rounded(cr, x, y, w, h, h / 2.0);
+    fill(cr, BG, 1.0);
+    let step = LED_H + LED_GAP;
+    let n = ((w + LED_GAP) / step).floor().max(1.0) as usize;
+    let amp = amplitude.max(0.0);
+    for i in 0..n {
+        let t = (i as f64 + 0.5) / n as f64;
+        let led_amp = t * 1.5;
+        let lx = x + i as f64 * step;
+        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        rounded(cr, lx, y + 1.0, LED_H, h - 2.0, 0.8);
+        fill(cr, color, 1.0);
+    }
+    for (db, text) in [(0.0, "0"), (-12.0, "−12")] {
+        let t = (db_to_amp(db) / 1.5).clamp(0.0, 1.0);
+        let tx = x + t * w;
+        label(cr, fonts, false, 9.0, MUTED, tx - 6.0, y - 2.0, text);
     }
 }
 
-/// Brand gradient, blue at the start of the span and pink at the end.
-/// `vertical` grows up from the bottom. Otherwise the fill grows to the right.
-pub fn fill_meter(cr: &Context, x: f64, y: f64, full_w: f64, h: f64, radius: f64, fraction: f64, vertical: bool) {
-    let fraction = fraction.clamp(0.0, 1.0);
-    if fraction <= 0.004 || full_w <= 0.0 || h <= 0.0 {
+/// Horizontal LED meter for Mix Check.
+pub fn paint_led_bar(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
+    if w <= 0.0 || h <= 0.0 {
         return;
     }
-    let _ = cr.save();
-    rounded(cr, x, y, full_w, h, radius);
-    let _ = cr.clip();
-    let grad = if vertical {
-        cairo::LinearGradient::new(0.0, y + h, 0.0, y)
-    } else {
-        cairo::LinearGradient::new(x, 0.0, x + full_w, 0.0)
-    };
-    grad.add_color_stop_rgb(0.0, BLUE.r, BLUE.g, BLUE.b);
-    grad.add_color_stop_rgb(1.0, PINK.r, PINK.g, PINK.b);
-    let _ = cr.set_source(&grad);
-    if vertical {
-        let lit = y + h - h * fraction;
-        cr.rectangle(x, lit, full_w, y + h - lit);
-    } else {
-        cr.rectangle(x, y, full_w * fraction, h);
+    rounded(cr, x, y, w, h, h / 2.0);
+    fill(cr, BG, 1.0);
+    let step = 4.0;
+    let n = ((w + 1.0) / step).floor().max(1.0) as usize;
+    let amp = amplitude.max(0.0);
+    for i in 0..n {
+        let t = (i as f64 + 0.5) / n as f64;
+        let led_amp = t * 1.5;
+        let lx = x + i as f64 * step;
+        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        rounded(cr, lx + 0.5, y + 1.0, 3.0, h - 2.0, 1.0);
+        fill(cr, color, 1.0);
     }
-    let _ = cr.fill();
-    let _ = cr.restore();
 }
 
 /// Path and view box. Mute and live glyphs share one view box, so the symbol
@@ -510,12 +617,15 @@ pub struct FaderGeom {
     pub icon_s: f64,
 }
 
-/// Below a vertical fader: percent baseline, mute icon center, dB baseline.
-const FADER_PCT_Y: f64 = 20.0;
-const FADER_ICON_Y: f64 = 42.0;
-const FADER_DB_Y: f64 = 66.0;
-/// Room a vertical fader needs under its capsule.
-pub const FADER_FOOT: f64 = 70.0;
+/// Below a vertical fader: percent baseline, path icon, then Mute/Solo and FX in mix.rs.
+const FADER_PCT_Y: f64 = 16.0;
+const FADER_ICON_Y: f64 = 36.0;
+pub const FADER_MUTE_Y: f64 = 48.0;
+pub const FADER_MUTE_H: f64 = 28.0;
+pub const FADER_FX_Y: f64 = 80.0;
+pub const FADER_FX_S: f64 = 28.0;
+/// Room a vertical fader needs under its capsule, including Mute, Solo and FX.
+pub const FADER_FOOT: f64 = 116.0;
 
 /// One mix fader: a 0–150% capsule, an optional meter, the percent, and a mute icon.
 /// `cx` is the horizontal center of the capsule. `peak` is a linear 0–1 level.
@@ -571,15 +681,11 @@ pub fn paint_fader(
     let _ = cr.stroke();
 
     let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
+    let amplitude = post as f64;
     let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
-    let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
     let meter_right = if meters {
         let mx = x + cap_w + 4.0;
-        let mw = 5.0;
-        rounded(cr, mx, top, mw, cap_h, 2.5);
-        fill(cr, BG, 1.0);
-        fill_meter(cr, mx, top, mw, cap_h, 2.5, level, true);
-        mx + mw
+        paint_led_column(cr, fonts, mx, top, 8.0, cap_h, amplitude, true)
     } else {
         x + cap_w
     };
@@ -593,14 +699,7 @@ pub fn paint_fader(
     let icon_x = cx - icon_s / 2.0;
     let icon_y = top + cap_h + FADER_ICON_Y - icon_s / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
-    if meters {
-        if db > -47.5 {
-            let shown = if db > -0.5 { 0.0 } else { db };
-            let text = format!("{shown:.0}");
-            let dw = text_width(cr, fonts, false, 11.0, &text);
-            label(cr, fonts, false, 11.0, level_color(level), cx - dw / 2.0, top + cap_h + FADER_DB_Y, &text);
-        }
-    }
+    let _ = db;
     FaderGeom {
         capsule_x: x,
         capsule_y: top,
@@ -671,13 +770,9 @@ pub fn paint_side_fader(
     let _ = cr.stroke();
 
     let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
-    let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
-    let level = ((db + 48.0) / 48.0).clamp(0.0, 1.0);
     if meters {
-        let my = (track_y - 8.0).max(y);
-        rounded(cr, track_x + 6.0, my, track_w - 12.0, 4.0, 2.0);
-        fill(cr, BG, 1.0);
-        fill_meter(cr, track_x + 6.0, my, track_w - 12.0, 4.0, 2.0, level, false);
+        let my = (track_y - 10.0).max(y);
+        paint_led_strip(cr, fonts, track_x + 6.0, my, track_w - 12.0, 5.0, post as f64);
     }
 
     let pct = format!("{:.0}%", percent);
@@ -771,6 +866,10 @@ pub const RESIZE_ROW_PATH: &str = "M21 17.75A3.25 3.25 0 0 1 17.75 21H6.25A3.25 
 pub const SETTINGS_PATH: &str = "M10.825 22q-.675 0-1.162-.45t-.588-1.1L8.85 18.8q-.325-.125-.612-.3t-.563-.375l-1.55.65q-.625.275-1.25.05t-.975-.8l-1.175-2.05q-.35-.575-.2-1.225t.675-1.075l1.325-1Q4.5 12.5 4.5 12.337v-.675q0-.162.025-.337l-1.325-1Q2.675 9.9 2.525 9.25t.2-1.225L3.9 5.975q.35-.575.975-.8t1.25.05l1.55.65q.275-.2.575-.375t.6-.3l.225-1.65q.1-.65.588-1.1T10.825 2h2.35q.675 0 1.163.45t.587 1.1l.225 1.65q.325.125.613.3t.562.375l1.55-.65q.625-.275 1.25-.05t.975.8l1.175 2.05q.35.575.2 1.225t-.675 1.075l-1.325 1q.025.175.025.338v.674q0 .163-.05.338l1.325 1q.525.425.675 1.075t-.2 1.225l-1.2 2.05q-.35.575-.975.8t-1.25-.05l-1.5-.65q-.275.2-.575.375t-.6.3l-.225 1.65q-.1.65-.587 1.1t-1.163.45zm1.225-6.5q1.45 0 2.475-1.025T15.55 12t-1.025-2.475T12.05 8.5q-1.475 0-2.488 1.025T8.55 12t1.013 2.475T12.05 15.5";
 /// ep:close-bold, view box 1024, MIT, Element Plus.
 pub const CLOSE_PATH: &str = "M195.2 195.2a64 64 0 0 1 90.5 0L512 421.5l226.3-226.3a64 64 0 0 1 90.5 90.5L602.5 512l226.3 226.3a64 64 0 0 1-90.5 90.5L512 602.5L285.7 828.8a64 64 0 0 1-90.5-90.5L421.5 512L195.2 285.7a64 64 0 0 1 0-90.5";
+/// andrsrxn:ear, the filled silhouette of the duotone mark.
+pub const EAR_PATH: &str = "M7.38 3.88L5.01 7.1v7.57l2.38 2.41a2 2 0 0 1 .5.9L8.43 20a2 2 0 0 0 1.18 1.35l1.47.59a2 2 0 0 0 1.6-.04l1.67-.79a2 2 0 0 0 1.1-1.41l.84-4.12a2 2 0 0 1 .24-.62l2.64-4.48a2 2 0 0 0 .23-1.43l-.82-3.86a2 2 0 0 0-1.05-1.37l-3.4-1.73a2 2 0 0 0-1.45-.14L8.45 3.14a2 2 0 0 0-1.07.74Z";
+/// iconoir:fx-tag-solid
+pub const FX_TAG_PATH: &str = "M8 2.25A6.75 6.75 0 0 0 1.25 9v6A6.75 6.75 0 0 0 8 21.75h8A6.75 6.75 0 0 0 22.75 15V9A6.75 6.75 0 0 0 16 2.25zm-2 6a.75.75 0 0 0-.75.75v6a.75.75 0 0 0 1.5 0v-2.25h2.821a.75.75 0 0 0 0-1.5H6.75v-1.5H11a.75.75 0 0 0 0-1.5zm7.576.27a.75.75 0 1 0-1.152.96l2.1 2.52l-2.1 2.52a.75.75 0 1 0 1.152.96l1.924-2.308l1.924 2.308a.75.75 0 1 0 1.152-.96l-2.1-2.52l2.1-2.52a.75.75 0 1 0-1.152-.96L15.5 10.829z";
 
 /// Opaque pixels of one glyph drawn at 64 px. Used to catch a path the parser drops.
 fn icon_coverage(path: &str, view: f64) -> Result<usize, String> {
@@ -1112,6 +1211,8 @@ pub fn self_test_paths() -> Result<(), String> {
         (RESIZE_ROW_PATH, 24.0),
         (SETTINGS_PATH, 24.0),
         (CLOSE_PATH, 1024.0),
+        (EAR_PATH, 24.0),
+        (FX_TAG_PATH, 24.0),
     ] {
         icon(&cr, path, view, 0.0, 0.0, 16.0, TEXT);
     }
@@ -1154,10 +1255,13 @@ pub fn self_test_paths() -> Result<(), String> {
     if views.iter().any(|view| (*view - FADER_ICON_VIEW).abs() > 0.01) {
         return Err("icon view".into());
     }
-    let quiet = level_color(0.0);
-    let loud = level_color(1.0);
-    if (quiet.b - BLUE.b).abs() > 0.01 || (loud.r - PINK.r).abs() > 0.01 {
-        return Err("meter gradient".into());
+    let quiet = meter_color(0.2);
+    let clip = meter_color(1.2);
+    if (quiet.g - METER_GREEN_LO.g).abs() > 0.2 || (clip.r - METER_RED.r).abs() > 0.01 {
+        return Err("meter colors".into());
+    }
+    if (meter_color(0.9).r - METER_YELLOW.r).abs() > 0.01 {
+        return Err("meter yellow".into());
     }
     record_dot(&cr, 8.0, 8.0, 3.0, DANGER);
     stop_square(&cr, 8.0, 8.0, 6.0, TEXT);

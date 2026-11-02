@@ -10,7 +10,13 @@ use std::collections::HashMap;
 
 pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>) {
     let (x, y, w, h) = panel.stage().check;
+    if w < 8.0 || h <= 0.0 {
+        return;
+    }
     draw::card(cr, x, y, w, h);
+    if w < 80.0 {
+        return;
+    }
     let left = x + 24.0;
     let right = x + w - 24.0;
     let recording = snap.check == CheckPhase::Recording || panel.record_pending;
@@ -45,12 +51,9 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
         let clock = format!("{elapsed:.0}s  ·  {left_s:.0}s");
         let clock_w = draw::text_width(cr, fonts, false, 14.0, &clock);
         draw::label(cr, fonts, false, 14.0, TEXT, right - clock_w, first, &clock);
-        let peak = peaks.get("mic").copied().unwrap_or(0.0);
-        let db = if peak <= 1e-6 { -60.0 } else { (20.0 * (peak as f64).log10()).max(-60.0) };
-        let fraction = ((db + 60.0) / 60.0).clamp(0.0, 1.0);
+        let peak = peaks.get("mix").copied().unwrap_or(0.0);
         let bar_y = first + 12.0;
-        super::fill_round(cr, left, bar_y, right - left, 8.0, 4.0, draw::BG);
-        draw::fill_meter(cr, left, bar_y, right - left, 8.0, 4.0, fraction, false);
+        draw::paint_led_bar(cr, left, bar_y, right - left, 8.0, peak as f64);
     } else {
         let (text, bold, color) = if snap.message.is_empty() {
             (t.mix_check_body, false, MUTED)

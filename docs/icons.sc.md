@@ -23,5 +23,7 @@ Frame Audio Mixer 的 logo 以 SVG 格式放在 `assets/logo/`，有蓝色和粉
 | [fluent:table-resize-row-24-filled](https://icon-sets.iconify.design/fluent/table-resize-row-24-filled/) | Fluent | Microsoft | MIT |
 | [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 | [ep:close-bold](https://icon-sets.iconify.design/ep/close-bold/) | Element Plus | Element Plus | MIT |
+| [andrsrxn:ear](https://icon-sets.iconify.design/andrsrxn/ear/) | andrsrxn | Andrsrxn | MIT |
+| [iconoir:fx-tag-solid](https://icon-sets.iconify.design/iconoir/fx-tag-solid/) | Iconoir | Luca Burgio | MIT |
 
 应用列表里的图标来自 sasaken1102r 的 frame-apps 0.3.1，和随附的代码一样采用 MIT 许可。通道行里的应用图标读取自头显上安装的应用。

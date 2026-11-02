@@ -35,10 +35,10 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-
 - **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The whole mix is also a microphone input named `Frame Mix`.
 - **App channels**: make a channel from a running app. Its icon is shown next to the name.
 - **PC streaming microphone mix**: the PC hears your microphone plus the channels.
-- **Two faders per channel**: one for the headset, one for the PC, each with its own mute. Faders snap to 20, 50, 80 and 100 %.
+- **Two faders per channel**: one for the headset, one for the PC, each with Mute and Solo. Faders snap to 20, 50, 80 and 100 %.
 - **Microphone**: choose the microphone for the mix. The system default microphone does not change.
 - **Level meters** on every fader. They can be turned off.
-- **Mix Check**: record up to 10 seconds of what the PC hears and play it back.
+- **Mix Check**: record up to 10 seconds of what the PC hears and play it back. It sits on the right rail, next to two effect buses.
 - Seven languages, and a blue or pink color theme.
 
 <table>

@@ -12,7 +12,7 @@ The one-line install runs [`scripts/get.sh`](../scripts/get.sh). It downloads th
 
 - binary `~/.local/bin/frame-audio-mixer`
 - runner `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- user units `frame-audio-mixer.service`, `frame-audio-mixer-graph.service` and `frame-audio-mixer-channel@.service`
+- user units `frame-audio-mixer.service`, `frame-audio-mixer-graph.service`, `frame-audio-mixer-channel@.service` and `frame-audio-mixer-fx@.service`
 - WirePlumber script `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` and `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf` (component `custom.frame-audio-mixer`)
 - desktop entry and icons under `~/.local/share`
 - settings in `~/.config/frame-audio-mixer/` and channel names in `~/.config/pipewire/frame-audio-mixer/<id>.name`
@@ -45,7 +45,13 @@ The choice is saved as `frame-audio-mixer.mic-source` (`""`, `builtin`, or a nod
 
 ## Level meters
 
-Meters run only while the dashboard is visible, Mix is on, and meters are on in App Settings (the gear next to the language menu). Only the channels you can see on screen are metered. Each meter is a `pw-record` tap with `node.virtual=true`, so it does not turn Valve's mic filters on. Channel taps are passive. The microphone tap is not. The panel redraws at about 30 fps while meters run and does not draw while the dashboard is hidden.
+Meter taps stay up while Mix is on, including while the dashboard is hidden, so opening the Steam menu does not add capture streams on the same edge as its own sounds. App Settings can still turn meters off. Only the channels you can see on screen are metered. Each meter is a `pw-record` tap with `node.virtual=true`, so it does not turn Valve's mic filters on. Channel taps are passive. The microphone tap is not. The panel redraws at about 30 fps while meters run and about 60 fps while a drawer is moving. It still does not draw while the dashboard is hidden.
+
+Mute and Solo sit under every fader. Solo is per destination: the microphone and PC faders solo against each other, and headset faders solo against the other headset faders. The worker applies that with `wpctl` and does not change the saved mute flags.
+
+## Effect buses
+
+Two shared buses. Each fader can send to either or both. A send leaves the dry path and returns through the bus, so the fader level stays what you hear. Both buses on means bus 1, then bus 2. An empty chain is a bypass. Each bus has two process instances (PC and headset) that share one parameter set. Processing is float32 at 48 kHz in the mixer process, 512 frames, with no LADSPA packages. `frame-audio-mixer-fx@.service` only adds the mix sinks; toggling a send or a parameter does not restart PipeWire, WirePlumber, or the channel units.
 
 ## Apps and updates
 
@@ -88,6 +94,6 @@ cargo build --release
 ./scripts/package.sh
 ```
 
-`--dump-png` writes the main view and the other views (Apps, Add, channel picker, settings, language menu, a scrolled row while recording) next to the given path.
+`--dump-png` writes the main view and the other views (Apps, Add, settings, language menu, a scrolled row while recording, an effect bus) next to the given path.
 
 `scripts/package.sh` writes `dist/frame-audio-mixer-<version>.tar.gz`, the same bytes as `dist/frame-audio-mixer-aarch64.tar.gz`, and `dist/SHA256SUMS` listing both. Upload all three to a GitHub release, and the one-line install and the in-app updater use it.

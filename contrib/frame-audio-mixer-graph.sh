@@ -4,6 +4,7 @@
 #
 #   frame-audio-mixer-graph.sh core
 #   frame-audio-mixer-graph.sh channel ch3
+#   frame-audio-mixer-graph.sh fx a-pc
 #
 # The mic is whatever is the current default source (the built-in mic after
 # Valve's filters, or an external mic). WirePlumber pins frame_amix_from_mic
@@ -15,9 +16,11 @@ mode="${1:-}"
 id="${2:-}"
 name_dir="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/frame-audio-mixer"
 # The headset graph is 48 kHz. A fixed latency lets a new channel join without
-# changing the quantum, which is the short crackle. No force-quantum: that
-# would retime every other stream.
-lock="audio.rate = 48000 node.latency = 1024/48000 stream.dont-remix = true"
+# changing the quantum, which is the short crackle. 512 keeps these loopbacks
+# from being the longest period in the graph, so the Steam menu's own streams
+# do not pull the quantum around them. No force-quantum: that would retime
+# every other stream.
+lock="audio.rate = 48000 node.latency = 512/48000 stream.dont-remix = true"
 
 pids=()
 cleanup() {
@@ -70,11 +73,23 @@ elif [[ "$mode" == "channel" ]]; then
         --capture-props="{ media.class = Audio/Sink node.name = frame_amix_${id} node.description = \"${esc}\" node.nick = \"${esc}\" device.description = \"${esc}\" audio.position = [ FL FR ] priority.session = 1 media.name = \"${esc}\" $lock }" \
         --playback-props="{ node.name = frame_amix_${id}_virtual_sink_playback node.passive = true node.virtual = true audio.position = [ FL FR ] media.name = \"Frame Mix ${id} headphones\" $lock }"
     # Monitor of that sink into the mix bus. The "to mic" slider is this playback.
+    # Not passive, for the same reason as the mic capture: with both ends passive
+    # the bus only ever carried the microphone.
     start \
-        --capture-props="{ node.name = frame_amix_${id}_from_monitor stream.capture.sink = true target.object = frame_amix_${id} node.passive = true node.virtual = true audio.position = [ FL FR ] media.name = \"Frame Mix ${id} monitor\" $lock }" \
+        --capture-props="{ node.name = frame_amix_${id}_from_monitor stream.capture.sink = true target.object = frame_amix_${id} node.passive = false node.virtual = true audio.position = [ FL FR ] media.name = \"Frame Mix ${id} monitor\" $lock }" \
         --playback-props="{ node.name = frame_amix_${id}_virtual_sink_to_bus target.object = frame_amix_bus node.passive = true node.virtual = true node.dont-fallback = true audio.position = [ FL FR ] media.name = \"Frame Mix ${id} mic\" $lock }"
+elif [[ "$mode" == "fx" ]]; then
+    # Mix sink for one effect-bus instance: a-pc, a-phones, b-pc, b-phones.
+    if [[ "$id" != "a-pc" && "$id" != "a-phones" && "$id" != "b-pc" && "$id" != "b-phones" ]]; then
+        echo "frame-audio-mixer: bad fx id: $id" >&2
+        exit 1
+    fi
+    node="frame_amix_fx_${id//-/_}"
+    start \
+        --capture-props="{ media.class = Audio/Sink node.name = ${node} node.description = \"Frame Mix FX ${id}\" node.virtual = true audio.position = [ FL FR ] priority.session = 1 media.name = \"Frame Mix FX ${id}\" $lock }" \
+        --playback-props="{ node.name = ${node}_discard node.passive = true node.virtual = true node.mute = true audio.position = [ FL FR ] media.name = \"Frame Mix FX ${id} discard\" $lock }"
 else
-    echo "usage: frame-audio-mixer-graph.sh core | channel chN" >&2
+    echo "usage: frame-audio-mixer-graph.sh core | channel chN | fx a-pc" >&2
     exit 2
 fi
 

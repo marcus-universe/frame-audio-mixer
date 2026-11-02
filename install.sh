@@ -71,6 +71,7 @@ stop_mixer() {
     systemctl --user disable --now frame-audio-mixer.service >/dev/null 2>&1 || true
     systemctl --user disable --now frame-audio-mixer-graph.service >/dev/null 2>&1 || true
     systemctl --user disable --now 'frame-audio-mixer-channel@*.service' >/dev/null 2>&1 || true
+    systemctl --user disable --now 'frame-audio-mixer-fx@*.service' >/dev/null 2>&1 || true
     pkill -TERM -x frame-audio-mixer >/dev/null 2>&1 || true
 }
 
@@ -80,6 +81,7 @@ if [[ $uninstall -eq 1 ]]; then
         "$unit_dir/frame-audio-mixer.service" \
         "$unit_dir/frame-audio-mixer-graph.service" \
         "$unit_dir/frame-audio-mixer-channel@.service" \
+        "$unit_dir/frame-audio-mixer-fx@.service" \
         "$lib_dir/frame-audio-mixer-graph.sh" \
         "$wp_script" "$wp_conf"
     rm -rf "$name_dir"
@@ -158,6 +160,7 @@ mv "$desktop.tmp" "$desktop"
 install -Dm644 contrib/frame-audio-mixer.service "$unit_dir/frame-audio-mixer.service"
 install -Dm644 contrib/frame-audio-mixer-graph.service "$unit_dir/frame-audio-mixer-graph.service"
 install -Dm644 contrib/frame-audio-mixer-channel@.service "$unit_dir/frame-audio-mixer-channel@.service"
+install -Dm644 contrib/frame-audio-mixer-fx@.service "$unit_dir/frame-audio-mixer-fx@.service"
 systemctl --user daemon-reload
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$desktop" || true

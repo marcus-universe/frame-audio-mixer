@@ -1,7 +1,7 @@
 //! Peak meters for the mix faders.
 //!
-//! One `pw-record` child per target, and only while the panel is visible, Mix
-//! is on and meters are enabled. Channel taps are `node.virtual` and passive.
+//! One `pw-record` child per target while meters are enabled and either the
+//! panel is visible or Mix is on. Channel taps are `node.virtual` and passive.
 //! The microphone tap is not virtual, so Frame Mic Tuner's tracker keeps the
 //! built-in chain running and the system-default mic can show a level.
 
@@ -119,7 +119,7 @@ pub fn record_args(target: &Target) -> Vec<String> {
         "--channels".into(),
         "1".into(),
         "--rate".into(),
-        "16000".into(),
+        "48000".into(),
         "--latency".into(),
         "20ms".into(),
         "--target".into(),
@@ -148,8 +148,9 @@ fn start_tap(target: &Target) -> Option<Tap> {
 }
 
 fn read_peak(stdout: &mut impl Read, peak: &AtomicU32, updated: &AtomicU32) {
-    // 20 ms at 16 kHz, one float per sample. The old 100 ms block is what made the bar lag.
-    let mut buf = [0u8; 320 * 4];
+    // 20 ms at 48 kHz, one float per sample. The old 100 ms block is what made the bar lag.
+    // The graph rate, so a tap does not add a resampler.
+    let mut buf = [0u8; 960 * 4];
     let started = Instant::now();
     loop {
         match stdout.read(&mut buf) {

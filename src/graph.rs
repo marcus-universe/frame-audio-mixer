@@ -30,6 +30,8 @@ pub struct Graph {
     pub clients: Vec<AppRef>,
     pub default_source: String,
     pub default_sink: String,
+    /// `target.object` in the default metadata, by node id. The value is a serial or a name.
+    pub targets: std::collections::HashMap<u32, String>,
 }
 
 pub fn parse_dump(text: &str) -> Result<Graph, String> {
@@ -95,6 +97,18 @@ fn read_defaults(item: &Value, graph: &mut Graph) {
     };
     for entry in entries {
         let key = entry.get("key").and_then(Value::as_str).unwrap_or("");
+        if key == "target.object" {
+            let subject = entry.get("subject").and_then(Value::as_u64).unwrap_or(0) as u32;
+            let value = match entry.get("value") {
+                Some(Value::String(text)) => text.trim().trim_matches('"').to_string(),
+                Some(Value::Number(n)) => n.to_string(),
+                _ => String::new(),
+            };
+            if subject != 0 && !value.is_empty() {
+                graph.targets.insert(subject, value);
+            }
+            continue;
+        }
         let node = entry.get("value").map(metadata_node_name).unwrap_or_default();
         if key == "default.audio.source" {
             graph.default_source = node;
@@ -334,11 +348,15 @@ pub fn self_test() -> Result<(), String> {
     }
     let object_form = r#"[{"id":1,"type":"PipeWire:Interface:Metadata","info":{"props":{"metadata.name":"default"},"metadata":[
         {"key":"default.audio.source","value":{"name":"alsa_input.object"}},
-        {"key":"default.audio.sink","value":"alsa_output.bare"}
+        {"key":"default.audio.sink","value":"alsa_output.bare"},
+        {"subject":46,"key":"target.object","type":"Spa:Id","value":"92"}
     ]}}]"#;
     let object = parse_dump(object_form)?;
     if object.default_source != "alsa_input.object" || object.default_sink != "alsa_output.bare" {
         return Err(format!("metadata {} {}", object.default_source, object.default_sink));
+    }
+    if object.targets.get(&46).map(String::as_str) != Some("92") {
+        return Err(format!("targets {:?}", object.targets));
     }
     Ok(())
 }

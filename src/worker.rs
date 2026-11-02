@@ -3,10 +3,11 @@
 //! writes only `frame_amix_mic_virtual_sink`.
 
 use crate::config::{Channel, Config, is_channel_id};
+use crate::fx::{Engine, InstanceKey};
 use crate::graph::{AudioNode, Graph, parse_dump};
 use crate::apps::{self, Entry};
 use crate::updater::{self, UpdateView};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -68,6 +69,8 @@ impl Default for Snapshot {
 
 pub enum Job {
     Apply(Config),
+    /// Fader volumes during a drag. Applied on this worker turn, nothing else changes.
+    Levels(Config),
     Refresh,
     Autostart(bool),
     Record,
@@ -123,6 +126,8 @@ struct State {
     pinned: HashMap<u64, u32>,
     /// Stream serial to (stream id, channel sink serial) for streams that named a channel sink.
     target_pins: HashMap<u64, (u32, u64)>,
+    /// VRLink capture id to the Frame Mix serial written for it.
+    vrlink_pins: HashMap<u32, u64>,
     levels: HashMap<String, (u32, String)>,
     check: Option<Child>,
     check_phase: CheckPhase,
@@ -136,6 +141,9 @@ struct State {
     playing_id: u64,
     record_path: Option<PathBuf>,
     booted: bool,
+    engine: Engine,
+    /// Playback node name to (node id, target serial). `None` means the pin was deleted.
+    fx_pins: HashMap<String, (u32, Option<u64>)>,
 }
 
 struct StoredClip {
@@ -157,6 +165,7 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         facts_at: None,
         pinned: HashMap::new(),
         target_pins: HashMap::new(),
+        vrlink_pins: HashMap::new(),
         levels: HashMap::new(),
         check: None,
         check_phase: CheckPhase::Idle,
@@ -170,6 +179,8 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         playing_id: 0,
         record_path: None,
         booted: false,
+        engine: Engine::new(),
+        fx_pins: HashMap::new(),
     };
     install_icons(&state.config.accent);
     refresh_facts(&mut state, true);
@@ -182,15 +193,20 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
     loop {
         let job = rx.recv_timeout(Duration::from_millis(800));
         let mut urgent = false;
+        let mut dragging = false;
         match job {
             Ok(Job::Quit) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Ok(job) => urgent = apply_job(&mut state, &snap, job),
+            Ok(job) => {
+                dragging = matches!(job, Job::Levels(_));
+                urgent = apply_job(&mut state, &snap, job);
+            }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
         }
         while let Ok(extra) = rx.try_recv() {
             if matches!(extra, Job::Quit) {
                 return;
             }
+            dragging |= matches!(extra, Job::Levels(_));
             if apply_job(&mut state, &snap, extra) {
                 urgent = true;
             }
@@ -198,6 +214,11 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         if urgent {
             // The button and the clip list update before the next pw-dump.
             publish_check(&snap, &state);
+        }
+        if dragging {
+            // A drag must not wait behind pw-dump or the update check.
+            sync_levels(&mut state);
+            continue;
         }
         state.apps.tick(state.config.check_updates);
         let check_due = state.config.check_updates
@@ -212,15 +233,16 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         publish(&snap, &state);
     }
     stop_child(&mut state);
-    if state.config.mix_on {
-        // Leaving the process does not turn Mix off. The graph unit keeps running.
-    }
+    // Effect processing lives in this process. Put sends back on the dry path so Mix
+    // still reaches the PC after the panel quits. The graph unit itself stays up.
+    stop_fx(&mut state);
 }
 
 /// Record, stop, and play return true so the panel can show that phase before `pw-dump`.
 fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
     match job {
         Job::Apply(config) => apply_config(state, config),
+        Job::Levels(config) => take_levels(state, &config),
         Job::Autostart(on) => set_autostart(on),
         Job::Record => {
             start_record(state);
@@ -343,13 +365,16 @@ fn apply_config(state: &mut State, config: Config) {
         }
         return;
     }
-    if state.config.mix_on && !was {
+    // At start the saved config already says Mix is on, so there is no off-to-on edge.
+    // WirePlumber's copy of the switch is written anyway.
+    if state.config.mix_on && (first || !was) {
         save_setting("frame-audio-mixer.enabled", "true");
         save_setting("frame-audio-mixer.vrlink-gain", &format!("{:.3}", state.config.vrlink_gain));
-    } else if !state.config.mix_on && was {
+    } else if !state.config.mix_on && (first || was) {
         save_setting("frame-audio-mixer.enabled", "false");
         restore_vrlink();
         clear_pins(state);
+        unpin_vrlink(state);
     }
     for channel in &state.config.channels {
         if is_channel_id(&channel.id) && !old_ids.contains(&channel.id) {
@@ -388,15 +413,70 @@ fn apply_config(state: &mut State, config: Config) {
     state.facts_at = None;
 }
 
+/// Queued drag updates collapse: each one only copies values, and `sync_audio` runs
+/// `wpctl` once at the end of the turn for whatever changed.
+fn take_levels(state: &mut State, config: &Config) {
+    state.config.mic_volume = config.mic_volume;
+    state.config.fx_a = config.fx_a.clone();
+    state.config.fx_b = config.fx_b.clone();
+    for channel in &mut state.config.channels {
+        if let Some(new) = config.channels.iter().find(|item| item.id == channel.id) {
+            channel.to_mic = new.to_mic;
+            channel.phones = new.phones;
+        }
+    }
+    let fx_a = state.config.fx_a.clone();
+    let fx_b = state.config.fx_b.clone();
+    state.engine.push_params(&fx_a, &fx_b);
+}
+
 fn sync_audio(state: &mut State) {
+    sync_levels(state);
     let graph = state.graph.clone();
+    pin_targets(state, &graph);
+    if !state.config.mix_on {
+        if !state.pinned.is_empty() {
+            clear_pins(state);
+        }
+        unpin_vrlink(state);
+        restore_vrlink();
+        stop_fx(state);
+        return;
+    }
+    pin_apps(state, &graph);
+    pin_vrlink(state, &graph);
+    touch_vrlink(state, &graph);
+    sync_fx(state);
+}
+
+fn solo_mute(saved: bool, this_solo: bool, any_solo: bool) -> bool {
+    if any_solo { saved || !this_solo } else { saved }
+}
+
+fn sync_levels(state: &mut State) {
+    let graph = state.graph.clone();
+    let pc_any = state.config.mic_solo || state.config.channels.iter().any(|channel| channel.to_mic_solo);
+    let ph_any = state.config.channels.iter().any(|channel| channel.phones_solo);
     apply_level(state, "frame_amix_mic_virtual_sink", state.config.mic_volume, &graph);
-    set_mute(state, "frame_amix_mic_virtual_sink", state.config.mic_muted, &graph);
+    set_mute(
+        state,
+        "frame_amix_mic_virtual_sink",
+        solo_mute(state.config.mic_muted, state.config.mic_solo, pc_any),
+        &graph,
+    );
     let channel_levels: Vec<(String, f64, f64, bool, bool)> = state
         .config
         .channels
         .iter()
-        .map(|channel| (channel.id.clone(), channel.phones, channel.to_mic, channel.phones_muted, channel.to_mic_muted))
+        .map(|channel| {
+            (
+                channel.id.clone(),
+                channel.phones,
+                channel.to_mic,
+                solo_mute(channel.phones_muted, channel.phones_solo, ph_any),
+                solo_mute(channel.to_mic_muted, channel.to_mic_solo, pc_any),
+            )
+        })
         .collect();
     for (id, phones, to_mic, phones_muted, to_mic_muted) in channel_levels {
         apply_level(state, &format!("frame_amix_{id}_virtual_sink_playback"), phones, &graph);
@@ -404,16 +484,55 @@ fn sync_audio(state: &mut State) {
         set_mute(state, &format!("frame_amix_{id}_virtual_sink_playback"), phones_muted, &graph);
         set_mute(state, &format!("frame_amix_{id}_virtual_sink_to_bus"), to_mic_muted, &graph);
     }
-    pin_targets(state, &graph);
-    if !state.config.mix_on {
-        if !state.pinned.is_empty() {
-            clear_pins(state);
-        }
-        restore_vrlink();
+}
+
+/// VRLink follows the default source unless its capture is pinned. The WirePlumber
+/// script does this too, but only after WirePlumber has loaded it. A write is skipped
+/// when the metadata already holds the serial, because a rewrite relinks the stream.
+fn pin_vrlink(state: &mut State, graph: &Graph) {
+    let Some(source) = graph.node_by_name("frame_amix_source").filter(|node| node.serial != 0) else {
+        unpin_vrlink(state);
         return;
+    };
+    let serial = source.serial;
+    let live: Vec<u32> = graph
+        .nodes
+        .iter()
+        .filter(|node| node.media_class == "Stream/Input/Audio" && Graph::is_vrlink(node))
+        .map(|node| node.id)
+        .collect();
+    state.vrlink_pins.retain(|id, _| live.contains(id));
+    for id in live {
+        if state.vrlink_pins.get(&id) == Some(&serial) {
+            continue;
+        }
+        let wanted = serial.to_string();
+        if graph.targets.get(&id) != Some(&wanted) {
+            let _ = Command::new("pw-metadata")
+                .args(["-n", "default", &id.to_string(), "target.object", &wanted, "Spa:Id"])
+                .status();
+        }
+        state.vrlink_pins.insert(id, serial);
     }
-    pin_apps(state, &graph);
-    touch_vrlink(state, &graph);
+}
+
+/// Also clears a pin to Frame Mix left by an earlier panel process.
+fn unpin_vrlink(state: &mut State) {
+    let mut ids: Vec<u32> = state.vrlink_pins.keys().copied().collect();
+    if let Some(source) = state.graph.node_by_name("frame_amix_source") {
+        let serial = source.serial.to_string();
+        for node in state.graph.nodes.iter().filter(|node| Graph::is_vrlink(node)) {
+            if state.graph.targets.get(&node.id) == Some(&serial) && !ids.contains(&node.id) {
+                ids.push(node.id);
+            }
+        }
+    }
+    for id in ids {
+        let _ = Command::new("pw-metadata").args(["-n", "default", "-d", &id.to_string(), "target.object"]).status();
+        // The next pw-dump is up to two seconds away. Do not delete the same key again before it.
+        state.graph.targets.remove(&id);
+    }
+    state.vrlink_pins.clear();
 }
 
 fn apply_level(state: &mut State, name: &str, volume: f64, graph: &Graph) {
@@ -496,6 +615,203 @@ fn clear_pins(state: &mut State) {
     state.pinned.clear();
 }
 
+fn fx_unit(id: &str) -> String {
+    format!("frame-audio-mixer-fx@{id}.service")
+}
+
+fn fx_needed(config: &Config) -> HashSet<InstanceKey> {
+    let mut needed = HashSet::new();
+    if config.mic_fx_a || config.channels.iter().any(|channel| channel.to_mic_fx_a) {
+        needed.insert(InstanceKey::APc);
+    }
+    if config.mic_fx_b || config.channels.iter().any(|channel| channel.to_mic_fx_b) {
+        needed.insert(InstanceKey::BPc);
+    }
+    if config.channels.iter().any(|channel| channel.phones_fx_a) {
+        needed.insert(InstanceKey::APhones);
+    }
+    if config.channels.iter().any(|channel| channel.phones_fx_b) {
+        needed.insert(InstanceKey::BPhones);
+    }
+    needed
+}
+
+fn fx_play_targets(config: &Config, graph: &Graph) -> HashMap<InstanceKey, String> {
+    let mut wanted = HashMap::new();
+    let Some(bus) = graph.node_by_name("frame_amix_bus").filter(|node| node.serial != 0) else {
+        return wanted;
+    };
+    let bus_serial = bus.serial.to_string();
+    let phones = if graph.default_sink.is_empty() {
+        None
+    } else {
+        let target = graph.link_target(&graph.default_sink);
+        (!target.is_empty()).then_some(target)
+    };
+    let needed = fx_needed(config);
+    let pc_both = (config.mic_fx_a && config.mic_fx_b) || config.channels.iter().any(|channel| channel.to_mic_fx_a && channel.to_mic_fx_b);
+    let ph_both = config.channels.iter().any(|channel| channel.phones_fx_a && channel.phones_fx_b);
+    if needed.contains(&InstanceKey::APc) && graph.node_by_name(&InstanceKey::APc.sink()).is_some() {
+        let dest = if pc_both {
+            graph
+                .node_by_name(&InstanceKey::BPc.sink())
+                .filter(|node| node.serial != 0)
+                .map(|node| node.serial.to_string())
+                .unwrap_or_else(|| bus_serial.clone())
+        } else {
+            bus_serial.clone()
+        };
+        wanted.insert(InstanceKey::APc, dest);
+    }
+    if needed.contains(&InstanceKey::BPc) && graph.node_by_name(&InstanceKey::BPc.sink()).is_some() {
+        wanted.insert(InstanceKey::BPc, bus_serial);
+    }
+    if let Some(phones) = phones {
+        if needed.contains(&InstanceKey::APhones) && graph.node_by_name(&InstanceKey::APhones.sink()).is_some() {
+            let dest = if ph_both {
+                graph
+                    .node_by_name(&InstanceKey::BPhones.sink())
+                    .filter(|node| node.serial != 0)
+                    .map(|node| node.serial.to_string())
+                    .unwrap_or_else(|| phones.clone())
+            } else {
+                phones.clone()
+            };
+            wanted.insert(InstanceKey::APhones, dest);
+        }
+        if needed.contains(&InstanceKey::BPhones) && graph.node_by_name(&InstanceKey::BPhones.sink()).is_some() {
+            wanted.insert(InstanceKey::BPhones, phones);
+        }
+    }
+    wanted
+}
+
+fn sync_fx(state: &mut State) {
+    let needed = fx_needed(&state.config);
+    let mut started = false;
+    for key in InstanceKey::ALL {
+        let unit = fx_unit(key.id());
+        let want = needed.contains(&key);
+        let active = unit_active(&unit);
+        if want && !active {
+            let _ = Command::new("systemctl").args(["--user", "enable", "--now", &unit]).status();
+            started = true;
+        } else if !want && active {
+            let _ = Command::new("systemctl").args(["--user", "disable", "--now", &unit]).status();
+            let _ = Command::new("systemctl").args(["--user", "reset-failed", &unit]).status();
+        }
+    }
+    if started {
+        refresh_facts(state, true);
+    }
+    let graph = state.graph.clone();
+    let wanted = fx_play_targets(&state.config, &graph);
+    let fx_a = state.config.fx_a.clone();
+    let fx_b = state.config.fx_b.clone();
+    state.engine.sync(&graph, &fx_a, &fx_b, &wanted);
+    pin_fx_sends(state, &graph);
+}
+
+fn stop_fx(state: &mut State) {
+    let empty = HashMap::new();
+    let graph = state.graph.clone();
+    let fx_a = state.config.fx_a.clone();
+    let fx_b = state.config.fx_b.clone();
+    state.engine.sync(&graph, &fx_a, &fx_b, &empty);
+    if !state.fx_pins.is_empty() {
+        restore_fx_pins(state);
+    }
+    for key in InstanceKey::ALL {
+        let unit = fx_unit(key.id());
+        if unit_active(&unit) {
+            let _ = Command::new("systemctl").args(["--user", "disable", "--now", &unit]).status();
+            let _ = Command::new("systemctl").args(["--user", "reset-failed", &unit]).status();
+        }
+    }
+}
+
+fn pin_fx_sends(state: &mut State, graph: &Graph) {
+    let bus = graph.node_by_name("frame_amix_bus").map(|node| node.serial).filter(|serial| *serial != 0);
+    pin_fx_send(state, graph, "frame_amix_mic_virtual_sink", bus, false, state.config.mic_fx_a, state.config.mic_fx_b);
+    let routes: Vec<(String, bool, bool, bool, bool)> = state
+        .config
+        .channels
+        .iter()
+        .map(|channel| {
+            (
+                channel.id.clone(),
+                channel.to_mic_fx_a,
+                channel.to_mic_fx_b,
+                channel.phones_fx_a,
+                channel.phones_fx_b,
+            )
+        })
+        .collect();
+    for (id, a, b, pa, pb) in routes {
+        pin_fx_send(state, graph, &format!("frame_amix_{id}_virtual_sink_to_bus"), bus, false, a, b);
+        pin_fx_send(state, graph, &format!("frame_amix_{id}_virtual_sink_playback"), bus, true, pa, pb);
+    }
+}
+
+fn pin_fx_send(state: &mut State, graph: &Graph, name: &str, bus: Option<u64>, phones: bool, a: bool, b: bool) {
+    if !a && !b && !state.fx_pins.contains_key(name) {
+        return;
+    }
+    set_fx_pin(state, graph, name, fx_send_serial(graph, bus, phones, a, b));
+}
+
+fn fx_send_serial(graph: &Graph, bus: Option<u64>, phones: bool, a: bool, b: bool) -> Option<u64> {
+    if a || b {
+        let key = match (phones, a) {
+            (false, true) => InstanceKey::APc,
+            (false, false) => InstanceKey::BPc,
+            (true, true) => InstanceKey::APhones,
+            (true, false) => InstanceKey::BPhones,
+        };
+        return graph.node_by_name(&key.sink()).map(|node| node.serial).filter(|serial| *serial != 0);
+    }
+    if phones { None } else { bus }
+}
+
+fn set_fx_pin(state: &mut State, graph: &Graph, name: &str, serial: Option<u64>) {
+    let Some(node) = graph.node_by_name(name) else { return };
+    if state.fx_pins.get(name) == Some(&(node.id, serial)) {
+        return;
+    }
+    let current = graph.targets.get(&node.id);
+    match serial {
+        Some(value) => {
+            let wanted = value.to_string();
+            if current != Some(&wanted) {
+                let _ = Command::new("pw-metadata")
+                    .args(["-n", "default", &node.id.to_string(), "target.object", &wanted, "Spa:Id"])
+                    .status();
+            }
+        }
+        None => {
+            if current.is_some() {
+                let _ = Command::new("pw-metadata")
+                    .args(["-n", "default", "-d", &node.id.to_string(), "target.object"])
+                    .status();
+                state.graph.targets.remove(&node.id);
+            }
+        }
+    }
+    state.fx_pins.insert(name.to_string(), (node.id, serial));
+}
+
+fn restore_fx_pins(state: &mut State) {
+    let graph = state.graph.clone();
+    let bus = graph.node_by_name("frame_amix_bus").map(|node| node.serial).filter(|serial| *serial != 0);
+    let names: Vec<String> = state.fx_pins.keys().cloned().collect();
+    for name in names {
+        let phones = name.ends_with("_virtual_sink_playback");
+        let serial = if phones { None } else { bus };
+        set_fx_pin(state, &graph, &name, serial);
+    }
+    state.fx_pins.clear();
+}
+
 fn touch_vrlink(state: &State, graph: &Graph) {
     if (state.config.vrlink_gain - 1.0).abs() < 0.001 {
         return;
@@ -544,6 +860,9 @@ fn start_record(state: &mut State) {
     let path = check_dir().join(format!("mix-{}.wav", state.next_clip + 1));
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
+    }
+    if state.graph.node_by_name("frame_amix_source").is_some_and(|node| node.serial == 0) || state.graph.nodes.is_empty() {
+        refresh_facts(state, true);
     }
     let target = record_target(state);
     let path_arg = path.to_string_lossy().to_string();
@@ -642,6 +961,9 @@ fn tick_check(state: &mut State) {
 }
 
 /// Stereo 48 kHz, the same rate the mix graph uses. 16 kHz mono is what made Mix Check sound dull.
+/// `--target` follows an object serial on this headset. `node.dont-fallback` keeps a stale
+/// serial from silently recording the default microphone. The stream stays non-virtual,
+/// like VRLink, so Valve's mic filters run while recording, as they do while streaming.
 pub fn check_record_args(target: &str, path: &str) -> Vec<String> {
     vec![
         "--target".into(),
@@ -654,6 +976,8 @@ pub fn check_record_args(target: &str, path: &str) -> Vec<String> {
         "s16".into(),
         "--latency".into(),
         "20ms".into(),
+        "-P".into(),
+        "{ node.virtual=true node.dont-fallback=true }".into(),
         path.into(),
     ]
 }
@@ -661,7 +985,7 @@ pub fn check_record_args(target: &str, path: &str) -> Vec<String> {
 fn record_target(state: &State) -> String {
     let graph = &state.graph;
     if graph.node_by_name("frame_amix_source").is_some() {
-        return "frame_amix_source".to_string();
+        return graph.link_target("frame_amix_source");
     }
     if state.config.mic_source.is_empty() {
         if !graph.default_source.is_empty() {
@@ -777,10 +1101,16 @@ pub fn wav_peaks_bytes(bytes: &[u8], bars: usize) -> (f64, Vec<f32>) {
 }
 
 pub fn self_test() -> Result<(), String> {
-    let args = check_record_args("frame_amix_source", "/tmp/mix.wav");
+    let args = check_record_args("42", "/tmp/mix.wav");
     let joined = args.join(" ");
-    if !joined.contains("--rate 48000") || !joined.contains("--channels 2") || !joined.contains("--format s16") {
+    if !joined.contains("--target 42") || !joined.contains("--rate 48000") || !joined.contains("--channels 2") || !joined.contains("--format s16") || !joined.contains("node.virtual=true") || !joined.contains("node.dont-fallback=true") {
         return Err(joined);
+    }
+    if args.last().map(String::as_str) != Some("/tmp/mix.wav") {
+        return Err("record path last".into());
+    }
+    if solo_mute(false, false, true) != true || solo_mute(false, true, true) != false || solo_mute(true, true, false) != true {
+        return Err("solo mute".into());
     }
     let mut frames = vec![[0i16, 0i16]; 480];
     frames[0] = [32767, -32768];

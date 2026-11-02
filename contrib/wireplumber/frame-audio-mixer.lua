@@ -113,7 +113,13 @@ local function set_target (metadata, id, serial)
   if metadata_target (metadata, id) == wanted then
     return
   end
-  metadata:set (id, "target.object", nil, wanted)
+  -- A plain serial typed Spa:Id, the form WirePlumber's own linking reads back.
+  -- A quoted JSON string would not parse as a serial.
+  if wanted == nil then
+    metadata:set (id, "target.object", nil, nil)
+  else
+    metadata:set (id, "target.object", "Spa:Id", wanted)
+  end
 end
 
 -- VRLink follows the mix source only while Mix is on and the source exists.
@@ -246,11 +252,23 @@ end)
 playback_om:connect ("object-added", function ()
   pin_channel_targets ()
 end)
-node_om:connect ("object-added", function ()
-  apply_all ()
+-- Opening the Steam menu adds and removes many unrelated streams. Only this
+-- app's nodes, VRLink and microphones can change a route.
+local function on_node (node)
+  local props = node.properties
+  local name = props["node.name"] or ""
+  if name:find ("^frame_amix_") or is_vrlink (node) then
+    apply_all ()
+  elseif props["media.class"] == "Audio/Source" then
+    pin_from_mic ()
+  end
+end
+
+node_om:connect ("object-added", function (_, node)
+  on_node (node)
 end)
-node_om:connect ("object-removed", function ()
-  apply_all ()
+node_om:connect ("object-removed", function (_, node)
+  on_node (node)
 end)
 
 default_om:activate ()
@@ -273,6 +291,7 @@ SimpleEventHook {
   },
   execute = function ()
     pin_from_mic ()
+    apply_route ()
   end
 }:register ()
 

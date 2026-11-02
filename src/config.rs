@@ -24,6 +24,18 @@ pub struct Channel {
     pub to_mic_muted: bool,
     #[serde(default)]
     pub phones_muted: bool,
+    #[serde(default)]
+    pub to_mic_solo: bool,
+    #[serde(default)]
+    pub phones_solo: bool,
+    #[serde(default)]
+    pub to_mic_fx_a: bool,
+    #[serde(default)]
+    pub to_mic_fx_b: bool,
+    #[serde(default)]
+    pub phones_fx_a: bool,
+    #[serde(default)]
+    pub phones_fx_b: bool,
     /// Set when the channel was created from a running app. Only used to find its icon.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub app: String,
@@ -40,6 +52,12 @@ impl Channel {
             phones: default_phones(),
             to_mic_muted: false,
             phones_muted: false,
+            to_mic_solo: false,
+            phones_solo: false,
+            to_mic_fx_a: false,
+            to_mic_fx_b: false,
+            phones_fx_a: false,
+            phones_fx_b: false,
             app: String::new(),
             binary: String::new(),
         }
@@ -64,6 +82,12 @@ pub struct Config {
     pub mic_volume: f64,
     #[serde(default)]
     pub mic_muted: bool,
+    #[serde(default)]
+    pub mic_solo: bool,
+    #[serde(default)]
+    pub mic_fx_a: bool,
+    #[serde(default)]
+    pub mic_fx_b: bool,
     /// Applied to VRLink only while Mix is on, and only when it is not 1.0.
     #[serde(default = "default_unity")]
     pub vrlink_gain: f64,
@@ -92,6 +116,92 @@ pub struct Config {
     /// Extended dashboard: 21:9, or 9:10 while `list` is on.
     #[serde(default)]
     pub wide: bool,
+    #[serde(default)]
+    pub fx_a: FxBus,
+    #[serde(default)]
+    pub fx_b: FxBus,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EffectKind {
+    Reverb,
+    Comp,
+    Eq,
+    Pitcher,
+    Flanger,
+    Phaser,
+    Delay,
+}
+
+impl EffectKind {
+    pub const ALL: [EffectKind; 7] = [
+        EffectKind::Reverb,
+        EffectKind::Comp,
+        EffectKind::Eq,
+        EffectKind::Pitcher,
+        EffectKind::Flanger,
+        EffectKind::Phaser,
+        EffectKind::Delay,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            EffectKind::Reverb => "reverb",
+            EffectKind::Comp => "comp",
+            EffectKind::Eq => "eq",
+            EffectKind::Pitcher => "pitcher",
+            EffectKind::Flanger => "flanger",
+            EffectKind::Phaser => "phaser",
+            EffectKind::Delay => "delay",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|kind| kind.key() == value)
+    }
+
+    pub fn param_count(self) -> usize {
+        match self {
+            EffectKind::Pitcher => 1,
+            _ => 3,
+        }
+    }
+
+    pub fn defaults(self) -> [f64; 3] {
+        match self {
+            EffectKind::Reverb => [0.55, 0.45, 0.25],
+            EffectKind::Comp => [0.55, 0.4, 0.2],
+            EffectKind::Eq => [0.5, 0.5, 0.5],
+            EffectKind::Pitcher => [0.5, 0.0, 0.0],
+            EffectKind::Flanger => [0.35, 0.5, 0.35],
+            EffectKind::Phaser => [0.3, 0.55, 0.4],
+            EffectKind::Delay => [0.35, 0.3, 0.3],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EffectSlot {
+    pub kind: EffectKind,
+    #[serde(default = "default_effect_params")]
+    pub params: [f64; 3],
+}
+
+impl EffectSlot {
+    pub fn new(kind: EffectKind) -> Self {
+        Self { kind, params: kind.defaults() }
+    }
+}
+
+fn default_effect_params() -> [f64; 3] {
+    [0.5, 0.5, 0.5]
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct FxBus {
+    #[serde(default)]
+    pub chain: Vec<EffectSlot>,
 }
 
 fn default_language() -> String {
@@ -121,6 +231,9 @@ impl Default for Config {
             mix_on: false,
             mic_volume: 1.0,
             mic_muted: false,
+            mic_solo: false,
+            mic_fx_a: false,
+            mic_fx_b: false,
             vrlink_gain: 1.0,
             channels: Vec::new(),
             pins: Vec::new(),
@@ -130,6 +243,8 @@ impl Default for Config {
             snap: true,
             list: false,
             wide: false,
+            fx_a: FxBus::default(),
+            fx_b: FxBus::default(),
         }
     }
 }
@@ -181,6 +296,8 @@ fn sanitize(mut config: Config) -> Config {
         channel.to_mic = clamp_volume(channel.to_mic);
         channel.phones = clamp_volume(channel.phones);
     }
+    sanitize_bus(&mut config.fx_a);
+    sanitize_bus(&mut config.fx_b);
     config.pins.retain(|pin| is_channel_id(&pin.channel) && !pin.app.is_empty());
     config.mic_source = sanitize_mic_source(&config.mic_source);
     if config.accent != "pink" {
@@ -197,6 +314,19 @@ pub fn sanitize_mic_source(value: &str) -> String {
     let ok = value.len() <= 200
         && !value.chars().any(|c| c.is_control() || matches!(c, '"' | '\\' | '{' | '}' | ' '));
     if ok { value.to_string() } else { String::new() }
+}
+
+fn sanitize_bus(bus: &mut FxBus) {
+    bus.chain.truncate(3);
+    for slot in &mut bus.chain {
+        for value in &mut slot.params {
+            *value = value.clamp(0.0, 1.0);
+        }
+        if slot.kind == EffectKind::Pitcher {
+            slot.params[1] = 0.0;
+            slot.params[2] = 0.0;
+        }
+    }
 }
 
 pub fn clamp_volume(value: f64) -> f64 {
@@ -321,6 +451,16 @@ pub fn self_test() -> Result<(), String> {
     let loaded = load(&path);
     if loaded != sanitize(config) {
         return Err("config round trip".into());
+    }
+    let mut fx = Config::default();
+    fx.fx_a.chain.push(EffectSlot::new(EffectKind::Delay));
+    fx.fx_a.chain.push(EffectSlot::new(EffectKind::Reverb));
+    fx.fx_a.chain.push(EffectSlot::new(EffectKind::Eq));
+    fx.fx_a.chain.push(EffectSlot::new(EffectKind::Comp));
+    fx.fx_a.chain[0].params[0] = 2.0;
+    let fx = sanitize(fx);
+    if fx.fx_a.chain.len() != 3 || fx.fx_a.chain[0].params[0] > 1.0 {
+        return Err("fx chain".into());
     }
     let _ = fs::remove_dir_all(&dir);
     Ok(())

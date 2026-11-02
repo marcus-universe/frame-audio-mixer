@@ -56,6 +56,14 @@ A channel made from a running app also remembers that app. While Mix is on, its 
 
 Nothing in this app calls `wpctl set-default`.
 
+## Mix Check
+
+Mix Check records `frame_amix_source` by its `object.serial`, with `node.dont-fallback` so a missed serial cannot capture the default microphone. The level under the timer is that mix, not the headset mic alone.
+
+## Effect buses
+
+The right rail opens Mix Check or one of two effect buses. Each fader has two send buttons. A send leaves the dry path and comes back through that bus, at the same fader level. Both buses on means bus 1 then bus 2. Each bus holds up to three effects, processed in the mixer at 48 kHz. Headset sends stay in the headset. PC sends stay on the stream the PC records.
+
 ## Echo cancellation
 
 With the Frame's speakers, the microphone can hear the speakers. The speakers already play the channels, so without echo cancellation the PC hears the app audio twice: once from the mix and once through the air. Turn echo cancellation on in Frame Mic Tuner when you use the speakers. Headphones do not have this problem.

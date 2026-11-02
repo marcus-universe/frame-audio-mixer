@@ -6,6 +6,7 @@ mod apps;
 mod brand;
 mod config;
 mod draw;
+mod fx;
 mod graph;
 mod i18n;
 mod icons;
@@ -160,13 +161,21 @@ fn main() {
         ui.tick();
         let visible = session.dashboard_visible();
         let snap = worker.snapshot();
-        if visible && ui.wants_meters() {
-            levels.sync(&ui.meter_targets(&snap));
+        // With Mix on the taps stay up while the dashboard is hidden, so opening the
+        // Steam menu does not add capture streams on the same edge as its own sounds.
+        let targets = if visible || ui.config.mix_on { ui.meter_targets(&snap) } else { Vec::new() };
+        levels.sync(&targets);
+        let meters_live = visible && !targets.is_empty();
+        let interval = if ui.animating() {
+            Duration::from_millis(16)
+        } else if meters_live {
+            Duration::from_millis(33)
         } else {
-            levels.sync(&[]);
+            Duration::from_millis(250)
+        };
+        if ui.animating() {
+            dirty = true;
         }
-        let meters_live = visible && ui.wants_meters() && !ui.meter_targets(&snap).is_empty();
-        let interval = if meters_live { Duration::from_millis(33) } else { Duration::from_millis(250) };
         if visible && (dirty || last_draw.elapsed() >= interval) {
             let (panel_w, panel_h) = ui.pixel_size();
             if let Err(err) = session.fit(panel_w, panel_h) {
@@ -197,6 +206,7 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
             let _ = config::save(&config::config_path(), &ui.config);
             worker.send(Job::Apply(ui.config.clone()));
         }
+        Action::Levels => worker.send(Job::Levels(ui.config.clone())),
         Action::Quit => std::process::exit(3),
         Action::ShowKeyboard { description, existing } => {
             // The session is needed; the caller handles the keyboard when it sees this
@@ -221,6 +231,7 @@ fn self_test() -> Result<(), String> {
     graph::self_test()?;
     i18n::self_test()?;
     draw::self_test_paths()?;
+    fx::self_test()?;
     panel::self_test()?;
     overlay::self_test()?;
     icons::self_test()?;

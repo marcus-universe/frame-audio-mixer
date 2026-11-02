@@ -7,7 +7,9 @@ mod apps;
 mod check;
 mod dialogs;
 mod footer;
+mod fx;
 mod mix;
+mod rail;
 
 use crate::apps::Entry;
 use crate::config::{self, Config, Pin};
@@ -78,6 +80,15 @@ pub(crate) struct Stage {
     pub picker: (f64, f64, f64, f64),
     pub mix: (f64, f64, f64, f64),
     pub check: (f64, f64, f64, f64),
+    pub rail: (f64, f64, f64, f64),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Drawer {
+    Closed,
+    Check,
+    FxA,
+    FxB,
 }
 
 /// Window margin, the gap between cards, and the header and footer bands.
@@ -87,11 +98,15 @@ pub(crate) const HEADER_H: f64 = 48.0;
 pub(crate) const CONTENT_TOP: f64 = MARGIN + HEADER_H + GUTTER;
 const FOOTER_H: f64 = 80.0;
 const PICKER_H: f64 = 60.0;
+const RAIL_W: f64 = 48.0;
+const DRAWER_W: f64 = 384.0;
+const DRAWER_MS: f64 = 0.22;
 
 const HSCROLL: &str = "hscroll";
 const PAN: &str = "pan";
 /// How close, in pixels, a fader drag has to come to a snap point.
 const SNAP_REACH_PX: f64 = 8.0;
+const LEVELS_EVERY: Duration = Duration::from_millis(40);
 
 pub struct Panel {
     pub config: Config,
@@ -133,11 +148,20 @@ pub struct Panel {
     record_message: String,
     record_at: Option<Instant>,
     seen_message: String,
+    levels_sent: Option<Instant>,
+    drawer: Drawer,
+    drawer_target: Drawer,
+    drawer_progress: f64,
+    anim_at: Instant,
+    pub(crate) fx_edit: Option<(u8, usize)>,
+    fx_drag: Option<(u8, usize)>,
 }
 
 pub enum Action {
     None,
     Save,
+    /// Fader or effect values changed during a drag. Applied, not written to disk.
+    Levels,
     Quit,
     ShowKeyboard { description: String, existing: String },
     Record,
@@ -187,6 +211,13 @@ impl Panel {
             record_message: String::new(),
             record_at: None,
             seen_message: String::new(),
+            levels_sent: None,
+            drawer: Drawer::Check,
+            drawer_target: Drawer::Check,
+            drawer_progress: 1.0,
+            anim_at: Instant::now(),
+            fx_edit: None,
+            fx_drag: None,
         }
     }
 
@@ -230,18 +261,76 @@ impl Panel {
                 self.icon_rx = None;
             }
         }
+        let dt = now.saturating_duration_since(self.anim_at).as_secs_f64().min(0.05);
+        self.anim_at = now;
+        let target = if self.drawer_target == Drawer::Closed { 0.0 } else { 1.0 };
+        if (self.drawer_progress - target).abs() > 0.001 {
+            let step = dt / DRAWER_MS;
+            if self.drawer_progress < target {
+                self.drawer_progress = (self.drawer_progress + step).min(1.0);
+            } else {
+                self.drawer_progress = (self.drawer_progress - step).max(0.0);
+            }
+        } else {
+            self.drawer_progress = target;
+        }
+        if self.drawer_target != Drawer::Closed {
+            self.drawer = self.drawer_target;
+        } else if self.drawer_progress <= 0.02 {
+            self.drawer = Drawer::Closed;
+        }
     }
 
+    pub fn animating(&self) -> bool {
+        let target = if self.drawer_target == Drawer::Closed { 0.0 } else { 1.0 };
+        (self.drawer_progress - target).abs() > 0.001
+    }
+
+    pub(crate) fn drawer_shows_check(&self) -> bool {
+        self.drawer_target == Drawer::Check
+    }
+
+    pub(crate) fn drawer_shows_fx(&self, bus: usize) -> bool {
+        match bus {
+            0 => self.drawer_target == Drawer::FxA,
+            _ => self.drawer_target == Drawer::FxB,
+        }
+    }
+
+    fn set_drawer(&mut self, next: Drawer) {
+        if self.drawer_target == next {
+            self.drawer_target = Drawer::Closed;
+        } else {
+            self.drawer_target = next;
+            if self.drawer_progress > 0.5 {
+                self.drawer = next;
+            }
+        }
+    }
+
+    /// Taps do not follow the page or a dialog. Starting and stopping capture streams is
+    /// itself a graph change, and the dashboard opening is the worst time for one.
     pub fn wants_meters(&self) -> bool {
-        self.config.meters && matches!(self.page, Page::Mix) && matches!(self.overlay, Overlay::None)
+        self.config.meters
     }
 
     /// PipeWire nodes to meter. The mic tap is not passive. Channel taps are.
+    /// While Mix Check records, Frame Mix itself is tapped, even with meters off.
     pub fn meter_targets(&self, snap: &Snapshot) -> Vec<crate::meter::Target> {
-        if !self.wants_meters() {
-            return Vec::new();
-        }
         let mut targets = Vec::new();
+        let recording = snap.check == CheckPhase::Recording || self.record_pending;
+        if recording && snap.graph.node_by_name("frame_amix_source").is_some() {
+            targets.push(crate::meter::Target {
+                key: "mix".into(),
+                object: snap.graph.link_target("frame_amix_source"),
+                capture_sink: false,
+                passive: true,
+                virtual_node: true,
+            });
+        }
+        if !self.wants_meters() {
+            return targets;
+        }
         if let Some(name) = resolved_source(&self.config.mic_source, &snap.graph) {
             targets.push(crate::meter::Target {
                 key: "mic".into(),
@@ -404,8 +493,11 @@ impl Panel {
                         self.scroll = (self.scroll - delta).max(0.0);
                     }
                     self.pan_at = Some((x, y));
+                } else if id.starts_with("fxgrip:") {
+                    self.fx_reorder(y);
                 } else {
                     self.set_fader(&id, x, y);
+                    return self.live_levels();
                 }
             }
             return Action::None;
@@ -413,7 +505,9 @@ impl Panel {
         if kind == crate::overlay::MOUSE_UP {
             self.pressed = false;
             self.pan_at = None;
-            let save = self.drag.take().is_some_and(|id| id != HSCROLL && id != PAN);
+            let dragged = self.drag.take();
+            self.fx_drag = None;
+            let save = dragged.as_deref().is_some_and(|id| id != HSCROLL && id != PAN);
             return if save { Action::Save } else { Action::None };
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
@@ -453,7 +547,8 @@ impl Panel {
         if let Some(id) = self.fader_at(x, y) {
             self.drag = Some(id.clone());
             self.set_fader(&id, x, y);
-            return Action::None;
+            self.levels_sent = None;
+            return self.live_levels();
         }
         if self.hot_at(x, y).is_some() {
             return self.hit_at(x, y);
@@ -594,31 +689,7 @@ impl Panel {
             return self.begin_name(NameEdit::Add, String::new());
         }
         if let Some(app) = id.strip_prefix("use:") {
-            if self.config.channels.is_empty() {
-                return self.add_app_channel(app);
-            }
-            self.pin_app = Some(app.to_string());
-            self.dialog_scroll = 0.0;
-            return Action::None;
-        }
-        if id == "pin-new" {
-            let Some(app) = self.pin_app.clone() else { return Action::None };
-            return self.add_app_channel(&app);
-        }
-        if id == "pin-back" {
-            self.pin_app = None;
-            self.dialog_scroll = 0.0;
-            return Action::None;
-        }
-        if let Some(channel) = id.strip_prefix("pin:") {
-            let Some(app) = self.pin_app.clone() else { return Action::None };
-            if !self.config.channels.iter().any(|item| item.id == channel) {
-                return Action::None;
-            }
-            self.pin(app, channel.to_string());
-            self.pin_app = None;
-            self.overlay = Overlay::None;
-            return Action::Save;
+            return self.add_app_channel(app);
         }
         if let Some(name) = id.strip_prefix("suggest:") {
             return self.add_channel(name.to_string(), None);
@@ -648,21 +719,23 @@ impl Panel {
             self.delete_until = None;
             return Action::Save;
         }
-        if id == "mute:mic" {
-            self.config.mic_muted = !self.config.mic_muted;
-            return Action::Save;
+        if id == "rail-check" {
+            self.set_drawer(Drawer::Check);
+            return Action::None;
         }
-        if let Some(channel) = id.strip_prefix("mute:tomic:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.to_mic_muted = !item.to_mic_muted;
-            }
-            return Action::Save;
+        if id == "rail-fx-0" {
+            self.set_drawer(Drawer::FxA);
+            return Action::None;
         }
-        if let Some(channel) = id.strip_prefix("mute:phones:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.phones_muted = !item.phones_muted;
-            }
-            return Action::Save;
+        if id == "rail-fx-1" {
+            self.set_drawer(Drawer::FxB);
+            return Action::None;
+        }
+        if let Some(action) = self.handle_fader_toggle(id) {
+            return action;
+        }
+        if let Some(action) = self.handle_fx(id) {
+            return action;
         }
         if id == "rec" {
             self.record_pending = true;
@@ -710,6 +783,124 @@ impl Panel {
         Action::None
     }
 
+    fn handle_fader_toggle(&mut self, id: &str) -> Option<Action> {
+        if let Some(rest) = id.strip_prefix("mute:") {
+            self.toggle_mute(rest);
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("solo:") {
+            self.toggle_solo(rest);
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("fxa:") {
+            self.toggle_fx(rest, true);
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("fxb:") {
+            self.toggle_fx(rest, false);
+            return Some(Action::Save);
+        }
+        None
+    }
+
+    fn toggle_mute(&mut self, id: &str) {
+        if id == "mic" {
+            self.config.mic_muted = !self.config.mic_muted;
+        } else if let Some(channel) = id.strip_prefix("tomic:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                item.to_mic_muted = !item.to_mic_muted;
+            }
+        } else if let Some(channel) = id.strip_prefix("phones:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                item.phones_muted = !item.phones_muted;
+            }
+        }
+    }
+
+    fn toggle_solo(&mut self, id: &str) {
+        if id == "mic" {
+            self.config.mic_solo = !self.config.mic_solo;
+        } else if let Some(channel) = id.strip_prefix("tomic:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                item.to_mic_solo = !item.to_mic_solo;
+            }
+        } else if let Some(channel) = id.strip_prefix("phones:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                item.phones_solo = !item.phones_solo;
+            }
+        }
+    }
+
+    fn toggle_fx(&mut self, id: &str, bus_a: bool) {
+        let flag = |a: &mut bool, b: &mut bool| {
+            if bus_a { *a = !*a; } else { *b = !*b; }
+        };
+        if id == "mic" {
+            flag(&mut self.config.mic_fx_a, &mut self.config.mic_fx_b);
+        } else if let Some(channel) = id.strip_prefix("tomic:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                flag(&mut item.to_mic_fx_a, &mut item.to_mic_fx_b);
+            }
+        } else if let Some(channel) = id.strip_prefix("phones:") {
+            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
+                flag(&mut item.phones_fx_a, &mut item.phones_fx_b);
+            }
+        }
+    }
+
+    fn handle_fx(&mut self, id: &str) -> Option<Action> {
+        if let Some(rest) = id.strip_prefix("fxadd:") {
+            let (bus, kind) = rest.split_once(':')?;
+            let bus: usize = bus.parse().ok()?;
+            let kind = crate::config::EffectKind::parse(kind)?;
+            let chain = &mut fx::bus_mut(&mut self.config, bus).chain;
+            if chain.len() >= 3 {
+                return Some(Action::None);
+            }
+            chain.push(crate::config::EffectSlot::new(kind));
+            self.fx_edit = Some((bus as u8, chain.len() - 1));
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("fxrm:") {
+            let (bus, index) = rest.split_once(':')?;
+            let bus: usize = bus.parse().ok()?;
+            let index: usize = index.parse().ok()?;
+            let chain = &mut fx::bus_mut(&mut self.config, bus).chain;
+            if index < chain.len() {
+                chain.remove(index);
+            }
+            self.fx_edit = None;
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("fxedit:") {
+            let (bus, index) = rest.split_once(':')?;
+            let bus: u8 = bus.parse().ok()?;
+            let index: usize = index.parse().ok()?;
+            self.fx_edit = if self.fx_edit == Some((bus, index)) { None } else { Some((bus, index)) };
+            return Some(Action::None);
+        }
+        if let Some(rest) = id.strip_prefix("fxgrip:") {
+            let (bus, index) = rest.split_once(':')?;
+            let bus: u8 = bus.parse().ok()?;
+            let index: usize = index.parse().ok()?;
+            self.fx_drag = Some((bus, index));
+            self.drag = Some(id.to_string());
+            return Some(Action::None);
+        }
+        None
+    }
+
+    /// Volumes while a fader is held. At most one every `LEVELS_EVERY`, so a drag does not
+    /// queue a `wpctl` per pointer event. Release sends `Save` with the final value.
+    fn live_levels(&mut self) -> Action {
+        let due = self.levels_sent.is_none_or(|at| at.elapsed() >= LEVELS_EVERY);
+        if !due {
+            return Action::None;
+        }
+        self.levels_sent = Some(Instant::now());
+        Action::Levels
+    }
+
     fn fader_at(&self, x: f64, y: f64) -> Option<String> {
         self.faders.iter().rev().find(|f| x >= f.x && x < f.x + f.w && y >= f.y && y < f.y + f.h).map(|f| f.id.clone())
     }
@@ -721,6 +912,18 @@ impl Panel {
         let span = if horizontal { fw } else { fh };
         let along = if horizontal { x - fx } else { fy + fh - y };
         let t = if span <= 0.0 { 0.0 } else { (along / span).clamp(0.0, 1.0) };
+        if let Some(rest) = id.strip_prefix("fxp:") {
+            let mut parts = rest.split(':');
+            let bus: usize = parts.next().unwrap_or("").parse().unwrap_or(99);
+            let index: usize = parts.next().unwrap_or("").parse().unwrap_or(99);
+            let param: usize = parts.next().unwrap_or("").parse().unwrap_or(99);
+            if let Some(slot) = fx::bus_mut(&mut self.config, bus).chain.get_mut(index) {
+                if param < slot.params.len() {
+                    slot.params[param] = t;
+                }
+            }
+            return;
+        }
         let mut value = config::clamp_volume(t * 1.5);
         if self.config.snap {
             let reach = if span > 0.0 { SNAP_REACH_PX / span * 1.5 } else { 0.0 };
@@ -737,6 +940,26 @@ impl Panel {
                 channel.to_mic = value;
             }
         }
+    }
+
+    fn fx_reorder(&mut self, y: f64) {
+        let Some((bus, from)) = self.fx_drag else { return };
+        let chain = &mut fx::bus_mut(&mut self.config, bus as usize).chain;
+        if chain.len() < 2 || from >= chain.len() {
+            return;
+        }
+        let (dx, dy, _dw, dh) = self.stage().check;
+        let top = dy + 80.0;
+        let row = 60.0;
+        let index = ((y - top) / row).floor().clamp(0.0, (chain.len() - 1) as f64) as usize;
+        if index == from {
+            return;
+        }
+        let slot = chain.remove(from);
+        chain.insert(index.min(chain.len()), slot);
+        self.fx_drag = Some((bus, index.min(chain.len().saturating_sub(1))));
+        let _ = dx;
+        let _ = dh;
     }
 
     /// The thumb follows the pointer; a click on the track jumps there.
@@ -787,21 +1010,16 @@ impl Panel {
         let footer = (MARGIN, h - MARGIN - FOOTER_H, w - 2.0 * MARGIN, FOOTER_H);
         let bottom = footer.1 - GUTTER;
         let mix_top = CONTENT_TOP + PICKER_H + 12.0;
-        // The 9:10 list window is taller than it is wide. Mix Check still sits beside the sliders.
         let portrait = h > w && !self.config.list;
-        if portrait {
-            let check_h = 520.0_f64.min((h - 280.0) * 0.42).max(280.0);
-            let check = (MARGIN, bottom - check_h, w - 2.0 * MARGIN, check_h);
-            let picker = (MARGIN, CONTENT_TOP, w - 2.0 * MARGIN, PICKER_H);
-            let mix = (MARGIN, mix_top, w - 2.0 * MARGIN, (check.1 - GUTTER - mix_top).max(180.0));
-            return Stage { w, portrait, footer, picker, mix, check };
-        }
-        let check_w = 384.0;
-        let check = (w - MARGIN - check_w, CONTENT_TOP, check_w, bottom - CONTENT_TOP);
-        let mix_w = check.0 - GUTTER - MARGIN;
+        let rail = (w - MARGIN - RAIL_W, CONTENT_TOP, RAIL_W, bottom - CONTENT_TOP);
+        let ease = 1.0 - (1.0 - self.drawer_progress).powi(2);
+        let drawer_w = DRAWER_W * ease;
+        let check = (rail.0 - GUTTER - drawer_w, CONTENT_TOP, drawer_w, bottom - CONTENT_TOP);
+        let mix_right = if drawer_w > 8.0 { check.0 - GUTTER } else { rail.0 - GUTTER };
+        let mix_w = (mix_right - MARGIN).max(180.0);
         let picker = (MARGIN, CONTENT_TOP, mix_w, PICKER_H);
         let mix = (MARGIN, mix_top, mix_w, bottom - mix_top);
-        Stage { w, portrait, footer, picker, mix, check }
+        Stage { w, portrait, footer, picker, mix, check, rail }
     }
 
     pub fn render_surface(&mut self, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) -> cairo::ImageSurface {
@@ -838,7 +1056,12 @@ impl Panel {
             apps::draw(self, cr, fonts, t, snap);
         } else {
             mix::draw(self, cr, fonts, t, snap, peaks);
-            check::draw(self, cr, fonts, t, snap, peaks);
+            match self.drawer {
+                Drawer::FxA => fx::draw(self, cr, fonts, t, 0),
+                Drawer::FxB => fx::draw(self, cr, fonts, t, 1),
+                _ => check::draw(self, cr, fonts, t, snap, peaks),
+            }
+            rail::draw(self, cr, fonts, t);
         }
         footer::draw(self, cr, fonts, t, snap.autostart);
         if self.language_open {
@@ -1060,9 +1283,6 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     snap.graph.clients.push(crate::graph::AppRef { name: "Zen".into(), binary: "zen".into() });
     snap.graph.clients.push(crate::graph::AppRef { name: "Steam".into(), binary: "steam".into() });
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "add"))?;
-    panel.pin_app = Some("Steam".into());
-    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "pin"))?;
-    panel.pin_app = None;
     panel.overlay = Overlay::None;
     panel.page = Page::Mix;
     panel.scroll = f64::MAX;
@@ -1088,6 +1308,15 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.scroll = 0.0;
     panel.config.accent = "pink".into();
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "rows-pink"))?;
+    panel.config.list = false;
+    panel.config.accent = "blue".into();
+    panel.drawer = Drawer::FxA;
+    panel.drawer_target = Drawer::FxA;
+    panel.drawer_progress = 1.0;
+    panel.config.fx_a.chain.push(crate::config::EffectSlot::new(crate::config::EffectKind::Reverb));
+    panel.config.fx_a.chain.push(crate::config::EffectSlot::new(crate::config::EffectKind::Delay));
+    panel.fx_edit = Some((0, 0));
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx"))?;
     Ok(())
 }
 
@@ -1265,6 +1494,9 @@ pub fn self_test() -> Result<(), String> {
     let stage = Panel::new(config).stage();
     if stage.portrait || stage.check.0 <= stage.mix.0 + stage.mix.2 {
         return Err("list extend check on the right".into());
+    }
+    if (stage.rail.2 - 48.0).abs() > 0.1 {
+        return Err("rail width".into());
     }
     Ok(())
 }
