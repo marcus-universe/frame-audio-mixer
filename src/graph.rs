@@ -349,7 +349,7 @@ const FIXTURE: &str = r#"[
     {"key": "default.audio.sink", "value": "{\"name\":\"alsa_output.platform-sound.HiFi__Speaker__sink\"}"}
   ]}},
   {"id": 7, "type": "PipeWire:Interface:Node", "info": {"props": {
-    "node.name": "frame_amix_source", "object.serial": 42, "node.description": "Frame Mic + Mix",
+    "node.name": "frame_amix_source", "object.serial": 42, "node.description": "Frame Mix",
     "media.class": "Audio/Source", "node.virtual": "true"
   }}},
   {"id": 8, "type": "PipeWire:Interface:Node", "info": {"props": {

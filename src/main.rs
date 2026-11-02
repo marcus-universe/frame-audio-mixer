@@ -185,7 +185,8 @@ fn main() {
             }
             last_draw = Instant::now();
         }
-        std::thread::sleep(Duration::from_millis(16));
+        let pause = if visible { Duration::from_millis(16) } else { Duration::from_millis(250) };
+        std::thread::sleep(pause);
     }
 }
 

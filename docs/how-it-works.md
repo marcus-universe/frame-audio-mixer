@@ -9,10 +9,10 @@ flowchart LR
     mic["Microphone<br/>(after Frame Mic Tuner)"] --> from_mic[frame_amix_from_mic]
     from_mic --> mic_fader["frame_amix_mic_virtual_sink<br/>microphone fader"]
     mic_fader --> bus[frame_amix_bus]
-    app["App"] --> sink["frame_amix_chN<br/>Frame Mix: name"]
+    app["App"] --> sink["frame_amix_chN<br/>channel name"]
     sink --> phones["…_virtual_sink_playback<br/>headset fader"] --> out["Headset output"]
     sink --> to_bus["…_virtual_sink_to_bus<br/>PC fader"] --> bus
-    bus --> source["frame_amix_source<br/>Frame Mic + Mix"]
+    bus --> source["frame_amix_source<br/>Frame Mix"]
     source --> vrlink["VRLink<br/>Steam Streaming Microphone on the PC"]
 ```
 
@@ -26,7 +26,7 @@ The mix starts with the microphone you chose in the panel. **System default** fo
 
 - `frame_amix_from_mic` records the chosen microphone.
 - `frame_amix_mic_virtual_sink` is the microphone fader. It plays into `frame_amix_bus`.
-- `frame_amix_source` (**Frame Mic + Mix**) is the source that VRLink records.
+- `frame_amix_source` (**Frame Mix**) is the microphone input that carries the whole mix. Apps on the headset can record it. VRLink records it while PC streaming is on.
 
 The microphone mute in the panel mutes `frame_amix_mic_virtual_sink` only. The system microphone and the channels are not muted.
 
@@ -34,7 +34,7 @@ The microphone mute in the panel mutes `frame_amix_mic_virtual_sink` only. The s
 
 Each channel is its own `frame-audio-mixer-channel@chN.service`, from `ch1` to `ch32`:
 
-- `frame_amix_chN` is the output that apps select (`Frame Mix: <name>`).
+- `frame_amix_chN` is the output that apps select. Its name is the channel name (`DJ`), with no prefix.
 - `frame_amix_chN_virtual_sink_playback` plays it in the headset. This is the headset fader.
 - `frame_amix_chN_virtual_sink_to_bus` sends the same audio into the mix bus. This is the PC fader.
 
@@ -44,13 +44,13 @@ The internal playback names contain both `virtual` and `sink`. Because of that, 
 
 ## Routing to the PC
 
-While Mix is on (`frame-audio-mixer.enabled` is true), the WirePlumber component `custom.frame-audio-mixer` points the VRLink capture stream at `frame_amix_source`. It writes that source's `object.serial` into the default metadata, because a node name there does not move the stream. If the source is missing, VRLink keeps the normal default microphone. Other apps that record the microphone are not moved.
+While Mix is on (`frame-audio-mixer.enabled` is true), the WirePlumber component `custom.frame-audio-mixer` points the VRLink capture stream at `frame_amix_source`. The same switch is in App settings, labeled as the PC streaming microphone. Turning it off leaves the channel outputs and the Frame Mix input in place. It writes that source's `object.serial` into the default metadata, because a node name there does not move the stream. If the source is missing, VRLink keeps the normal default microphone. Other apps that record the microphone are not moved.
 
 `frame-audio-mixer.vrlink-gain` defaults to `1.0`, which leaves VRLink's volume as it is. Any other value is applied while Mix is on, and the previous volume comes back when Mix turns off.
 
 ## Routing apps to channels
 
-An app that chooses `Frame Mix: <name>` still goes through spatial audio, and a node name as its target is ignored. So Frame Audio Mixer pins the stream to the channel by the output's `object.serial`. The WirePlumber script and the panel both do this. The serial changes when a channel restarts, and the pin is written again when the output comes back. When an output is removed, the pin is cleared so the app falls back to the normal output.
+An app that chooses a channel by name still goes through spatial audio, and a node name as its target is ignored. So Frame Audio Mixer pins the stream to the channel by the output's `object.serial`. The WirePlumber script and the panel both do this. The serial changes when a channel restarts, and the pin is written again when the output comes back. When an output is removed, the pin is cleared so the app falls back to the normal output.
 
 A channel made from a running app also remembers that app. While Mix is on, its streams are pinned to the channel even when the app has no output setting.
 

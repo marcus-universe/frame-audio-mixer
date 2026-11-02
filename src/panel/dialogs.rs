@@ -147,7 +147,7 @@ fn mic_rows(panel: &Panel, t: &Text, snap: &Snapshot) -> Vec<(String, String, St
 
 pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
-    let (x, y, w, h) = panel.dialog_rect(640.0, 260.0, 24.0);
+    let (x, y, w, h) = panel.dialog_rect(640.0, 324.0, 24.0);
     sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
     draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.settings);
@@ -171,6 +171,10 @@ pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text)
     let meters_y = color_y + 64.0;
     draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, meters_y + 24.0, t.meters);
     pill_toggle(panel, cr, fonts, seg_x, meters_y, 168.0, 48.0, panel.config.meters, (t.on, t.off), ("meters-on", "meters-off"));
+
+    let stream_y = meters_y + 64.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, stream_y + 24.0, t.pc_stream);
+    pill_toggle(panel, cr, fonts, seg_x, stream_y, 168.0, 48.0, panel.config.mix_on, (t.on, t.off), ("mix-on", "mix-off"));
     if panel.color_open {
         let menu_y = drop.1 + drop.3 + 6.0;
         fill_round(cr, drop.0, menu_y, drop.2, 96.0, R_CONTROL + 4.0, CONTROL);

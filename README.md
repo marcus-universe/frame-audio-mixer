@@ -32,7 +32,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-
 
 ## Features
 
-- **Virtual audio devices**: up to 32 named channels. Each one is an output (`Frame Mix: <name>`) that any app can select.
+- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The whole mix is also a microphone input named `Frame Mix`.
 - **App channels**: make a channel from a running app. Its icon is shown next to the name.
 - **PC streaming microphone mix**: the PC hears your microphone plus the channels.
 - **Two faders per channel**: one for the headset, one for the PC, each with its own mute. Faders snap to 20, 50, 80 and 100 %.
@@ -57,7 +57,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-
 1. Open the SteamVR dashboard and choose **Frame Audio Mixer**.
 2. Turn **Mix** on.
 3. Press **+** to add a channel: a suggestion, your own name, or a running app.
-4. In that app, choose the output `Frame Mix: <name>`.
+4. In that app, choose the output named after the channel (`DJ`). Open the app again if it was already running: it keeps the device list it read at startup.
 5. The speaker fader sets how loud the channel is in your headset. The microphone fader sets how much of it the PC hears.
 
 If you use the Frame's speakers, turn echo cancellation on in Frame Mic Tuner. Otherwise the PC can hear the app audio twice.

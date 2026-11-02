@@ -324,6 +324,7 @@ fn apply_config(state: &mut State, config: Config) {
     let old_mic = state.config.mic_source.clone();
     let old_accent = state.config.accent.clone();
     let old_ids: Vec<String> = state.config.channels.iter().map(|c| c.id.clone()).collect();
+    let old_names: Vec<(String, String)> = state.config.channels.iter().map(|c| (c.id.clone(), c.name.clone())).collect();
     state.config = config;
     if state.config.mic_source != old_mic {
         save_setting("frame-audio-mixer.mic-source", &state.config.mic_source);
@@ -332,10 +333,14 @@ fn apply_config(state: &mut State, config: Config) {
         install_icons(&state.config.accent);
     }
     write_names(&state.config.channels);
+    let renamed = restart_renamed(&old_names, &state.config.channels);
     let ids_now: Vec<String> = state.config.channels.iter().map(|channel| channel.id.clone()).collect();
     let first = !state.booted;
     state.booted = true;
     if !first && ids_now == old_ids && state.config.mix_on == was {
+        if renamed {
+            state.facts_at = None;
+        }
         return;
     }
     if state.config.mix_on && !was {
@@ -452,7 +457,7 @@ fn pin_apps(state: &mut State, graph: &Graph) {
     }
 }
 
-/// An app that picked `Frame Mix: <name>` itself is moved by the sink's serial, like
+/// An app that picked a channel by name is moved by the sink's serial, like
 /// `pin_channel_targets` in the WirePlumber script. A WirePlumber that is already
 /// running keeps the script it started with, so a channel it does not know yet
 /// still lands on its sink. The entry is cleared when that sink goes away.
@@ -828,6 +833,25 @@ fn install_icons(accent: &str) {
         }
         let _ = fs::write(path, crate::brand::icon_png(pink, size));
     }
+}
+
+/// The sink description is read only when the channel process starts.
+/// Restart that one unit so a rename shows up in other apps.
+fn restart_renamed(old: &[(String, String)], channels: &[Channel]) -> bool {
+    let mut any = false;
+    for channel in channels {
+        if !is_channel_id(&channel.id) {
+            continue;
+        }
+        let changed = old.iter().any(|(id, name)| id == &channel.id && name != &channel.name);
+        if !changed {
+            continue;
+        }
+        let unit = format!("frame-audio-mixer-channel@{}.service", channel.id);
+        let _ = Command::new("systemctl").args(["--user", "restart", &unit]).status();
+        any = true;
+    }
+    any
 }
 
 fn write_names(channels: &[Channel]) {

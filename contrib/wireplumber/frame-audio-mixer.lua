@@ -78,6 +78,44 @@ local function metadata_name (metadata, key)
   return parsed.name
 end
 
+-- metadata:set relinks a stream even when the serial has not changed. Adding a
+-- channel creates several nodes, and rewriting the same target drops the mix.
+local function metadata_target (metadata, id)
+  if metadata == nil or metadata.find == nil or id == nil then
+    return nil
+  end
+  local ok, value = pcall (function ()
+    return metadata:find (id, "target.object")
+  end)
+  if not ok or value == nil or value == "" then
+    return nil
+  end
+  local text = tostring (value)
+  if text:sub (1, 1) == "\"" then
+    local parsed_ok, parsed = pcall (function ()
+      return Json.Raw (text):parse ()
+    end)
+    if parsed_ok and parsed ~= nil then
+      text = tostring (parsed)
+    end
+  end
+  if text == "" then
+    return nil
+  end
+  return text
+end
+
+local function set_target (metadata, id, serial)
+  local wanted = nil
+  if serial ~= nil then
+    wanted = tostring (serial)
+  end
+  if metadata_target (metadata, id) == wanted then
+    return
+  end
+  metadata:set (id, "target.object", nil, wanted)
+end
+
 -- VRLink follows the mix source only while Mix is on and the source exists.
 local function apply_route ()
   local metadata = default_om:lookup ()
@@ -91,10 +129,10 @@ local function apply_route ()
       local id = tonumber (node.properties["object.id"])
       if id ~= nil then
         if mix_on and serial ~= nil then
-          metadata:set (id, "target.object", nil, tostring (serial))
+          set_target (metadata, id, serial)
           routed[id] = true
         elseif routed[id] then
-          metadata:set (id, "target.object", nil, nil)
+          set_target (metadata, id, nil)
           routed[id] = nil
         end
       end
@@ -155,7 +193,7 @@ local function pin_from_mic ()
     if node.properties["node.name"] == from_mic_name then
       local id = tonumber (node.properties["object.id"])
       if id ~= nil then
-        metadata:set (id, "target.object", nil, tostring (serial))
+        set_target (metadata, id, serial)
         mic_pinned[id] = true
       end
     end
@@ -178,7 +216,7 @@ local function pin_channel_targets ()
     if id ~= nil and target:find ("^frame_amix_ch[1-9]%d*$") then
       local serial = node_serial (target)
       if serial ~= nil then
-        metadata:set (id, "target.object", nil, tostring (serial))
+        set_target (metadata, id, serial)
         channel_pinned[id] = true
         live[id] = true
       end
@@ -186,7 +224,7 @@ local function pin_channel_targets ()
   end
   for id, _ in pairs (channel_pinned) do
     if not live[id] then
-      metadata:set (id, "target.object", nil, nil)
+      set_target (metadata, id, nil)
       channel_pinned[id] = nil
     end
   end
