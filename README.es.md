@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -35,7 +35,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Dispositivos de audio virtuales**: hasta 32 canales con nombre. Cada uno es una salida (`Frame Mix: <name>`) que cualquier app puede elegir.
 - **Canales de apps**: crea un canal a partir de una app en ejecución. Su icono aparece junto al nombre.
 - **Mezcla del micrófono de streaming del PC**: el PC oye tu micrófono más los canales.
-- **Dos faders por canal**: uno para el visor y otro para el PC, cada uno con su propio silencio. Los faders se ajustan a 20, 50, 80 y 100 %.
+- **Un fader por canal**, en dB, con silencio, solo e inserciones. A es lo que oyes. B son micrófonos virtuales. En ajustes: 2, 4, 6 u 8 salidas. EQ paramétrico de 3, 6, 8 o 12 puntos.
 - **Micrófono**: elige el micrófono de la mezcla. El micrófono predeterminado del sistema no cambia.
 - **Medidores** en cada fader. Se pueden desactivar.
 - **Prueba de mezcla**: graba hasta 10 segundos de lo que oye el PC y reprodúcelo.
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Activa la **mezcla**.
 3. Pulsa **+** para añadir un canal: una sugerencia, un nombre propio o una app en ejecución.
 4. En esa app, elige la salida `Frame Mix: <name>`.
-5. El fader del altavoz marca el volumen del canal en tu visor. El fader del micrófono marca cuánto oye el PC de él.
+5. El fader marca el nivel de la tira. A1 suena en el visor. B1 va al PC. El resto de buses está en el cajón Salidas.
 
 Si usas los altavoces del Frame, activa la cancelación de eco en Frame Mic Tuner. Si no, el PC puede oír el audio de la app dos veces.
 

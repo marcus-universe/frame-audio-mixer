@@ -1,6 +1,6 @@
 [package]
 name = "frame-audio-mixer"
-version = "1.1.0"
+version = "2.0.0"
 edition = "2021"
 license = "MIT"
 description = "Mix app audio with the Steam Frame microphone for the PC wireless stream"
@@ -17,7 +17,23 @@ ureq = { version = "2.12", default-features = false, features = ["tls"] }
 sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
+pipewire = "0.10"
+libspa = "0.10"
 
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# The engine runs in PipeWire's realtime thread. A debug build of these
+# crates starves the speaker period.
+[profile.dev.package.pipewire]
+opt-level = 3
+
+[profile.dev.package.libspa]
+opt-level = 3
+
+[profile.dev.package.libspa-sys]
+opt-level = 3
+
+[profile.dev.package.pipewire-sys]
+opt-level = 3

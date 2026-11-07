@@ -1,9 +1,10 @@
 //! Read a `pw-dump` snapshot. The panel never changes PipeWire itself; the
 //! worker turns these facts into `wpctl` and `pw-metadata` calls.
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioNode {
     pub id: u32,
     pub serial: u64,
@@ -18,13 +19,13 @@ pub struct AudioNode {
     pub target: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppRef {
     pub name: String,
     pub binary: String,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Graph {
     pub nodes: Vec<AudioNode>,
     pub clients: Vec<AppRef>,

@@ -11,8 +11,7 @@
 `install.sh` はホームディレクトリの下にだけ書き込み、`sudo` は使いません:
 
 - バイナリ `~/.local/bin/frame-audio-mixer`
-- ランナー `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- ユーザーユニット `frame-audio-mixer.service`、`frame-audio-mixer-graph.service`、`frame-audio-mixer-channel@.service`
+- ユーザーユニット `frame-audio-mixer.service` と `frame-audio-mixer-engine.service`
 - WirePlumber スクリプト `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` と `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf`（コンポーネント `custom.frame-audio-mixer`）
 - `~/.local/share` の下のデスクトップエントリとアイコン
 - `~/.config/frame-audio-mixer/` の設定と、`~/.config/pipewire/frame-audio-mixer/<id>.name` のチャンネル名
@@ -27,7 +26,7 @@ git のチェックアウトからは、`./install.sh` が `cargo` でビルド�
 
 ## チャンネル
 
-- チャンネルは最大 32 個で、`ch1` から `ch32` です。それぞれが 1 つの systemd インスタンスで、`pw-loopback` のプロセスを 2 つ持ちます。
+- チャンネルは最大 32 個で、`ch1` から `ch32` です。追加や削除は `frame-audio-mixer-engine.service` の中で、そのチャンネルのノードだけを作ります。
 - 名前は 1 行、32 文字までで、大文字小文字を無視して一意です。
 - 実行中のアプリから作ったチャンネルには、そのアプリの名前が付きます。そのアプリをチャンネルに固定し、`.desktop` エントリにあるアプリのアイコンを表示します。アイコンが無い場合は、最初の 1 文字を表示します。
 - 行がパネルより広いときは、コントローラーのスティックでスクロールするか、チャンネルの下のバーをドラッグします。

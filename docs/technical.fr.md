@@ -11,8 +11,7 @@ L'installation en une ligne lance [`scripts/get.sh`](../scripts/get.sh). Il tél
 `install.sh` n'écrit que dans le répertoire personnel et n'utilise pas `sudo` :
 
 - binaire `~/.local/bin/frame-audio-mixer`
-- lanceur `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- unités utilisateur `frame-audio-mixer.service`, `frame-audio-mixer-graph.service` et `frame-audio-mixer-channel@.service`
+- unités utilisateur `frame-audio-mixer.service` et `frame-audio-mixer-engine.service`
 - script WirePlumber `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` et `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf` (composant `custom.frame-audio-mixer`)
 - entrée de bureau et icônes dans `~/.local/share`
 - réglages dans `~/.config/frame-audio-mixer/` et noms des canaux dans `~/.config/pipewire/frame-audio-mixer/<id>.name`
@@ -27,7 +26,7 @@ Depuis un dépôt git, `./install.sh` compile avec `cargo` puis installe. `./ins
 
 ## Canaux
 
-- Jusqu'à 32 canaux, de `ch1` à `ch32`. Chacun est une instance systemd avec deux processus `pw-loopback`.
+- Jusqu'à 32 canaux, de `ch1` à `ch32`. Ajouter ou retirer un canal ne crée ou ne détruit que les nœuds de ce canal dans `frame-audio-mixer-engine.service`.
 - Un nom tient sur une ligne, 32 caractères au plus, et il est unique sans tenir compte de la casse.
 - Un canal créé à partir d'une appli en cours porte le nom de l'appli, épingle l'appli sur ce canal et affiche son icône tirée de son entrée `.desktop`. Sans icône, il affiche la première lettre.
 - Quand la rangée est plus large que le panneau, faites-la défiler avec le stick de la manette ou faites glisser la barre sous les canaux.

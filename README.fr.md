@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -35,7 +35,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Appareils audio virtuels** : jusqu'à 32 canaux nommés. Chacun est une sortie (`Frame Mix: <name>`) que n'importe quelle appli peut choisir.
 - **Canaux d'appli** : créez un canal à partir d'une appli en cours. Son icône s'affiche à côté du nom.
 - **Mix pour le micro de streaming du PC** : le PC entend votre micro et les canaux.
-- **Deux faders par canal** : un pour le casque, un pour le PC, chacun avec sa propre sourdine. Les faders s'aimantent à 20, 50, 80 et 100 %.
+- **Un fader par canal**, en dB, avec sourdine, solo et inserts. A est ce que vous entendez. B sont des micros virtuels. Dans les réglages : 2, 4, 6 ou 8 sorties. Égaliseur paramétrique à 3, 6, 8 ou 12 points.
 - **Microphone** : choisissez le micro du mix. Le micro par défaut du système ne change pas.
 - **Indicateurs de niveau** sur chaque fader. Vous pouvez les désactiver.
 - **Contrôle du mix** : enregistrez jusqu'à 10 secondes de ce que le PC entend, puis réécoutez-les.
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Activez **Mix**.
 3. Appuyez sur **+** pour ajouter un canal : une suggestion, votre propre nom ou une appli en cours.
 4. Dans cette appli, choisissez la sortie `Frame Mix: <name>`.
-5. Le fader haut-parleur règle le volume du canal dans votre casque. Le fader micro règle la part que le PC en entend.
+5. Le fader règle le niveau de la tranche. A1 joue dans le casque. B1 part vers le PC. Les autres bus sont dans le tiroir Sorties.
 
 Si vous utilisez les haut-parleurs du Frame, activez l'annulation d'écho dans Frame Mic Tuner. Sinon, le PC peut entendre le son de l'appli deux fois.
 

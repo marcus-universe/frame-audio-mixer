@@ -11,8 +11,7 @@
 `install.sh` 只写入主目录，不使用 `sudo`：
 
 - 二进制文件 `~/.local/bin/frame-audio-mixer`
-- 运行脚本 `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- 用户单元 `frame-audio-mixer.service`、`frame-audio-mixer-graph.service` 和 `frame-audio-mixer-channel@.service`
+- 用户单元 `frame-audio-mixer.service` 和 `frame-audio-mixer-engine.service`
 - WirePlumber 脚本 `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` 和 `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf`（组件 `custom.frame-audio-mixer`）
 - `~/.local/share` 下的桌面项和图标
 - `~/.config/frame-audio-mixer/` 中的设置，以及 `~/.config/pipewire/frame-audio-mixer/<id>.name` 中的通道名称
@@ -27,7 +26,7 @@
 
 ## 通道
 
-- 最多 32 个通道，`ch1` 到 `ch32`。每个通道是一个 systemd 实例，带两个 `pw-loopback` 进程。
+- 最多 32 个通道，`ch1` 到 `ch32`。添加或删除只在 `frame-audio-mixer-engine.service` 里创建或销毁该通道的节点。
 - 名称占一行，最多 32 个字符，忽略大小写后必须唯一。
 - 用正在运行的应用创建的通道以该应用命名，会把该应用固定到这个通道，并显示应用 `.desktop` 项里的图标。没有图标时显示首字母。
 - 这一行比面板宽时，用手柄摇杆滚动，或者拖动通道下方的滚动条。

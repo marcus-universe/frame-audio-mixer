@@ -91,6 +91,9 @@ pub fn accent_tint() -> Rgb {
     mix(accent(), INSET, 0.16)
 }
 pub const DANGER: Rgb = Rgb { r: 0xe5 as f64 / 255.0, g: 0x53 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
+pub const FX1: Rgb = Rgb { r: 0x7f as f64 / 255.0, g: 0xd8 as f64 / 255.0, b: 0xa8 as f64 / 255.0 };
+pub const FX2: Rgb = Rgb { r: 0xf0 as f64 / 255.0, g: 0xb4 as f64 / 255.0, b: 0x5a as f64 / 255.0 };
+pub const SOLO: Rgb = Rgb { r: 0xf2 as f64 / 255.0, g: 0xd1 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
 pub const DANGER_FILL: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1d as f64 / 255.0, b: 0x21 as f64 / 255.0 };
 pub const DANGER_HOVER: Rgb = Rgb { r: 0x48 as f64 / 255.0, g: 0x23 as f64 / 255.0, b: 0x28 as f64 / 255.0 };
 pub const DANGER_DOWN: Rgb = Rgb { r: 0x56 as f64 / 255.0, g: 0x29 as f64 / 255.0, b: 0x2e as f64 / 255.0 };
@@ -645,20 +648,20 @@ const FADER_ICON_Y: f64 = 36.0;
 pub const FADER_MUTE_Y: f64 = 48.0;
 pub const FADER_MUTE_H: f64 = 28.0;
 pub const FADER_FX_S: f64 = 28.0;
-/// Room above the capsule for the two effect-bus buttons.
-pub const FADER_HEAD: f64 = 36.0;
+/// Room above the capsule for the A/B route grid and the two sends.
+pub const FADER_HEAD: f64 = 96.0;
 /// Room a vertical fader needs under its capsule, including Mute and Solo.
 pub const FADER_FOOT: f64 = 80.0;
 
-/// One mix fader: a 0–150% capsule, an optional meter, the percent, and a mute icon.
-/// `cx` is the horizontal center of the capsule. `peak` is a linear 0–1 level.
+/// One mix fader scaled from silence to +12 dB. `db` is the strip gain.
+/// `peak` is a linear 0–1 level.
 pub fn paint_fader(
     cr: &Context,
     fonts: &Fonts,
     cx: f64,
     top: f64,
     cap_h: f64,
-    percent: f64,
+    db: f64,
     peak: f32,
     meters: bool,
     muted: bool,
@@ -668,7 +671,7 @@ pub fn paint_fader(
     let cap_w = 32.0;
     let x = cx - cap_w / 2.0;
     let radius = cap_w / 2.0;
-    let fraction = (percent / 150.0).clamp(0.0, 1.0);
+    let fraction = crate::config::db_to_t(db);
     let _ = cr.save();
     rounded(cr, x, top, cap_w, cap_h, radius);
     let _ = cr.clip();
@@ -680,22 +683,17 @@ pub fn paint_fader(
         fill(cr, accent(), 1.0);
     }
     let _ = cr.restore();
-    // Snap points below 100% are dots, so they never read as the 100% line.
     if snaps {
-        for point in crate::config::FADER_SNAPS {
-            let mark = point * 100.0;
-            if (mark - 100.0).abs() < 0.5 {
-                continue;
-            }
-            let dot_y = top + cap_h - cap_h * (mark / 150.0);
-            let filled = mark <= percent + 0.01;
+        for mark in [6.0, -6.0, -12.0, -24.0, -48.0] {
+            let dot_y = top + cap_h - cap_h * crate::config::db_to_t(mark);
+            let filled = db.is_finite() && db + 0.05 >= mark;
             let (c, a) = if filled { (on_accent(), 0.6) } else { (TEXT, 0.45) };
             let _ = cr.arc(cx, dot_y, 2.5, 0.0, 2.0 * PI);
             fill(cr, c, a);
         }
     }
-    let notch_y = top + cap_h - cap_h * (100.0 / 150.0);
-    let notch_c = if percent >= 100.0 { on_accent() } else { TEXT };
+    let notch_y = top + cap_h - cap_h * crate::config::db_to_t(0.0);
+    let notch_c = if db.is_finite() && db >= -0.05 { on_accent() } else { TEXT };
     cr.set_source_rgba(notch_c.r, notch_c.g, notch_c.b, 0.85);
     cr.set_line_width(2.0);
     cr.set_line_cap(cairo::LineCap::Round);
@@ -703,9 +701,8 @@ pub fn paint_fader(
     cr.line_to(x + cap_w - 7.0, notch_y);
     let _ = cr.stroke();
 
-    let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
+    let post = if muted || !db.is_finite() { 0.0 } else { peak * crate::config::db_to_lin(db) as f32 };
     let amplitude = post as f64;
-    let db = if post <= 1e-6 { -120.0 } else { 20.0 * (post as f64).log10() };
     let meter_right = if meters {
         let mx = x + cap_w + 4.0;
         paint_led_column(cr, fonts, mx, top, 8.0, cap_h, amplitude, true)
@@ -713,8 +710,8 @@ pub fn paint_fader(
         x + cap_w
     };
 
-    let pct = format!("{:.0}%", percent);
-    let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
+    let pct = crate::config::format_db(db);
+    let pct_color = if db.abs() < 0.05 { accent() } else { TEXT };
     let tw = text_width(cr, fonts, true, 13.0, &pct);
     label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + FADER_PCT_Y, &pct);
 
@@ -722,7 +719,6 @@ pub fn paint_fader(
     let icon_x = cx - icon_s / 2.0;
     let icon_y = top + cap_h + FADER_ICON_Y - icon_s / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
-    let _ = db;
     FaderGeom {
         capsule_x: x,
         capsule_y: top,
@@ -735,8 +731,7 @@ pub fn paint_fader(
     }
 }
 
-/// A sideways fader: the mute icon, then the track growing to the right, then the percent.
-/// The 100% mark stays a line.
+/// A sideways fader. The 0 dB mark stays a line.
 pub fn paint_side_fader(
     cr: &Context,
     fonts: &Fonts,
@@ -744,7 +739,7 @@ pub fn paint_side_fader(
     y: f64,
     w: f64,
     h: f64,
-    percent: f64,
+    db: f64,
     peak: f32,
     meters: bool,
     muted: bool,
@@ -754,12 +749,12 @@ pub fn paint_side_fader(
     let track_h = 24.0;
     let icon_box = 28.0;
     let icon_s = 22.0;
-    let pct_w = 48.0;
+    let pct_w = 64.0;
     let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
     let track_x = x + icon_box + 8.0;
     let track_y = y + (h - track_h) / 2.0;
     let radius = track_h / 2.0;
-    let fraction = (percent / 150.0).clamp(0.0, 1.0);
+    let fraction = crate::config::db_to_t(db);
     let _ = cr.save();
     rounded(cr, track_x, track_y, track_w, track_h, radius);
     let _ = cr.clip();
@@ -771,20 +766,16 @@ pub fn paint_side_fader(
     }
     let _ = cr.restore();
     if snaps {
-        for point in crate::config::FADER_SNAPS {
-            let mark = point * 100.0;
-            if (mark - 100.0).abs() < 0.5 {
-                continue;
-            }
-            let dot_x = track_x + track_w * (mark / 150.0);
-            let filled = mark <= percent + 0.01;
+        for mark in [6.0, -6.0, -12.0, -24.0, -48.0] {
+            let dot_x = track_x + track_w * crate::config::db_to_t(mark);
+            let filled = db.is_finite() && db + 0.05 >= mark;
             let (c, a) = if filled { (on_accent(), 0.6) } else { (TEXT, 0.45) };
             let _ = cr.arc(dot_x, track_y + track_h / 2.0, 2.5, 0.0, 2.0 * PI);
             fill(cr, c, a);
         }
     }
-    let notch_x = track_x + track_w * (100.0 / 150.0);
-    let notch_c = if percent >= 100.0 { on_accent() } else { TEXT };
+    let notch_x = track_x + track_w * crate::config::db_to_t(0.0);
+    let notch_c = if db.is_finite() && db >= -0.05 { on_accent() } else { TEXT };
     cr.set_source_rgba(notch_c.r, notch_c.g, notch_c.b, 0.85);
     cr.set_line_width(2.0);
     cr.set_line_cap(cairo::LineCap::Round);
@@ -792,14 +783,14 @@ pub fn paint_side_fader(
     cr.line_to(notch_x, track_y + track_h - 6.0);
     let _ = cr.stroke();
 
-    let post = if muted { 0.0 } else { peak * (percent / 100.0) as f32 };
+    let post = if muted || !db.is_finite() { 0.0 } else { peak * crate::config::db_to_lin(db) as f32 };
     if meters {
         let my = (track_y - 10.0).max(y);
         paint_led_strip(cr, fonts, track_x + 6.0, my, track_w - 12.0, 5.0, post as f64);
     }
 
-    let pct = format!("{:.0}%", percent);
-    let pct_color = if (percent - 100.0).abs() < 0.5 { accent() } else { TEXT };
+    let pct = crate::config::format_db(db);
+    let pct_color = if db.abs() < 0.05 { accent() } else { TEXT };
     let pw = text_width(cr, fonts, true, 13.0, &pct);
     label_mid(cr, fonts, true, 13.0, pct_color, x + w - pw, track_y + track_h / 2.0, &pct);
 

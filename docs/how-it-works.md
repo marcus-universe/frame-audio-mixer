@@ -6,63 +6,54 @@
 
 ```mermaid
 flowchart LR
-    mic["Microphone<br/>(after Frame Mic Tuner)"] --> from_mic[frame_amix_from_mic]
-    from_mic --> mic_fader["frame_amix_mic_virtual_sink<br/>microphone fader"]
-    mic_fader --> bus[frame_amix_bus]
-    app["App"] --> sink["frame_amix_chN<br/>channel name"]
-    sink --> phones["…_virtual_sink_playback<br/>headset fader"] --> out["Headset output"]
-    sink --> to_bus["…_virtual_sink_to_bus<br/>PC fader"] --> bus
-    bus --> source["frame_amix_source<br/>Frame Mix"]
-    source --> vrlink["VRLink<br/>Steam Streaming Microphone on the PC"]
+  appA[App] --> chSink["frame_amix_chN"]
+  micSrc["Mic after Valve filters"] --> micStrip["Mic strip"]
+  chSink --> chStrip["Strip"]
+  chStrip --> busA["A1 to A4"]
+  chStrip --> busB["B1 to B4"]
+  micStrip --> busB
+  busA --> speakers["Speakers or another sink"]
+  busB --> frameMix["frame_amix_source"]
+  frameMix --> vrlink["VRLink"]
 ```
 
 ## The microphone
 
-The mix starts with the microphone you chose in the panel. **System default** follows the default source. On the Frame that is the built-in microphone after Valve's filters (noise suppression, echo cancellation and the mic EQ), which Frame Mic Tuner controls. This app never changes those filters and never changes the system default.
+The mix starts with the microphone you chose in the panel. **System default** follows the default source. **Frame built-in mic** is the microphone after Valve's filters (noise suppression, echo cancellation and the mic EQ), which Frame Mic Tuner controls. This app never changes those filters and never changes the system default.
 
-## The core graph
+## The engine
 
-`frame-audio-mixer-graph.service` builds the core:
+`frame-audio-mixer-engine.service` owns the graph. The mix keeps running when the panel closes.
 
-- `frame_amix_from_mic` records the chosen microphone.
-- `frame_amix_mic_virtual_sink` is the microphone fader. It plays into `frame_amix_bus`.
-- `frame_amix_source` (**Frame Mix**) is the microphone input that carries the whole mix. Apps on the headset can record it. VRLink records it while PC streaming is on.
+- Each channel is a sink named `frame_amix_chN`. Apps see it by the channel name (`DJ`).
+- The strip applies inserts, the fader, mute, solo and the meter, then routes to the A and B buses you turned on.
+- A1 plays on the headset speakers. A2–A4 play on the sink you pick.
+- B1 is `frame_amix_source` (**Frame Mix**). B2–B4 are more virtual microphones.
+- The microphone strip defaults to B1. Its capture is not virtual, so Valve's noise suppression stays on while Mix is on.
 
-The microphone mute in the panel mutes `frame_amix_mic_virtual_sink` only. The system microphone and the channels are not muted.
+Adding or removing a channel only creates or destroys that channel's nodes. PipeWire and WirePlumber keep running.
 
-## Channels
-
-Each channel is its own `frame-audio-mixer-channel@chN.service`, from `ch1` to `ch32`:
-
-- `frame_amix_chN` is the output that apps select. Its name is the channel name (`DJ`), with no prefix.
-- `frame_amix_chN_virtual_sink_playback` plays it in the headset. This is the headset fader.
-- `frame_amix_chN_virtual_sink_to_bus` sends the same audio into the mix bus. This is the PC fader.
-
-Adding or removing a channel starts or stops only that unit. PipeWire and WirePlumber keep running.
-
-The internal playback names contain both `virtual` and `sink`. Because of that, SteamOS's spatial audio does not wrap them and send the mix to the speakers a second time. Channel outputs are not named `alsa_output` or `bluez_output`, so they stay out of Frame Mic Tuner's output list.
+Internal node names contain both `virtual` and `sink`, so SteamOS spatial audio does not wrap them and play the mix on the speakers a second time. Channel sinks are not named `alsa_output` or `bluez_output`, so they stay out of Frame Mic Tuner's output list.
 
 ## Routing to the PC
 
-While Mix is on (`frame-audio-mixer.enabled` is true), the WirePlumber component `custom.frame-audio-mixer` points the VRLink capture stream at `frame_amix_source`. The same switch is in App settings, labeled as the PC streaming microphone. Turning it off leaves the channel outputs and the Frame Mix input in place. It writes that source's `object.serial` into the default metadata, because a node name there does not move the stream. If the source is missing, VRLink keeps the normal default microphone. Other apps that record the microphone are not moved.
+While Mix is on (`frame-audio-mixer.enabled` is true), the WirePlumber component `custom.frame-audio-mixer` points the VRLink capture stream at `frame_amix_source`. The same switch is in App settings. Turning it off leaves the channel outputs and Frame Mix in place. It writes that source's `object.serial` into the default metadata, because a node name there does not move the stream. If the source is missing, VRLink keeps the normal default microphone.
 
-`frame-audio-mixer.vrlink-gain` defaults to `1.0`, which leaves VRLink's volume as it is. Any other value is applied while Mix is on, and the previous volume comes back when Mix turns off.
+`frame-audio-mixer.vrlink-gain` defaults to `1.0`, which leaves VRLink's volume as it is.
 
 ## Routing apps to channels
 
-An app that chooses a channel by name still goes through spatial audio, and a node name as its target is ignored. So Frame Audio Mixer pins the stream to the channel by the output's `object.serial`. The WirePlumber script and the panel both do this. The serial changes when a channel restarts, and the pin is written again when the output comes back. When an output is removed, the pin is cleared so the app falls back to the normal output.
-
-A channel made from a running app also remembers that app. While Mix is on, its streams are pinned to the channel even when the app has no output setting.
+An app that chooses a channel by name still goes through spatial audio, and a node name as its target is ignored. The panel pins the stream by the output's `object.serial`. The serial changes when a channel restarts, and the pin is written again when the output comes back.
 
 Nothing in this app calls `wpctl set-default`.
 
 ## Mix Check
 
-Mix Check records `frame_amix_source` by its `object.serial`, with `node.dont-fallback` so a missed serial cannot capture the default microphone. The level under the timer is that mix, not the headset mic alone.
+Mix Check records B1 inside the engine, up to 10 seconds, and plays it on A1. While it records or plays, the microphone is held out of the mix and headset effect returns are muted, so the take is not monitored and cannot feed back.
 
-## Effect buses
+## Effects
 
-The right rail opens Mix Check or one of two effect buses. Each fader has two send buttons. A send leaves the dry path and comes back through that bus, at the same fader level. Both buses on means bus 1 then bus 2. Each bus holds up to three effects, processed in the mixer at 48 kHz. Headset sends stay in the headset. PC sends stay on the stream the PC records.
+Each strip has inserts. The equalizer is parametric: 3, 6, 8 or 12 points, with a response curve. The first and last points can be a bell, a shelf, a high-pass or a low-pass. FX1 and FX2 are shared sends. A send is a copy; the dry routes stay. Each return has a fader and the same A/B buttons as a strip.
 
 ## Echo cancellation
 

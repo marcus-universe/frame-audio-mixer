@@ -11,8 +11,7 @@ Die Installation mit einer Zeile führt [`scripts/get.sh`](../scripts/get.sh) au
 `install.sh` schreibt nur ins Home-Verzeichnis und nutzt kein `sudo`:
 
 - Programm `~/.local/bin/frame-audio-mixer`
-- Runner `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- Benutzer-Units `frame-audio-mixer.service`, `frame-audio-mixer-graph.service` und `frame-audio-mixer-channel@.service`
+- Benutzer-Units `frame-audio-mixer.service` und `frame-audio-mixer-engine.service`
 - WirePlumber-Skript `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` und `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf` (Komponente `custom.frame-audio-mixer`)
 - Desktop-Eintrag und Icons unter `~/.local/share`
 - Einstellungen in `~/.config/frame-audio-mixer/` und Kanalnamen in `~/.config/pipewire/frame-audio-mixer/<id>.name`
@@ -27,7 +26,7 @@ Aus einem Git-Checkout baut `./install.sh` mit `cargo` und installiert. `./insta
 
 ## Kanäle
 
-- Bis zu 32 Kanäle, `ch1` bis `ch32`. Jeder ist eine systemd-Instanz mit zwei `pw-loopback`-Prozessen.
+- Bis zu 32 Kanäle, `ch1` bis `ch32`. Anlegen oder Entfernen erzeugt oder löscht nur die Nodes dieses Kanals in `frame-audio-mixer-engine.service`.
 - Ein Name ist eine Zeile, höchstens 32 Zeichen, und ohne Groß-/Kleinschreibung eindeutig.
 - Ein Kanal aus einer laufenden App bekommt den Namen der App, pinnt die App auf sich und zeigt das Icon der App aus ihrem `.desktop`-Eintrag. Ohne Icon zeigt er den ersten Buchstaben.
 - Ist die Reihe breiter als das Panel, mit dem Stick des Controllers scrollen oder die Leiste unter den Kanälen ziehen.

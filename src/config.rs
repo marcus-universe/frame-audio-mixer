@@ -6,9 +6,11 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Each channel is one systemd instance with two `pw-loopback` processes.
+/// Each channel is one virtual sink inside the engine process.
 pub const MAX_CHANNELS: usize = 32;
 pub const NAME_MAX_CHARS: usize = 32;
+/// How many output buses a setting may ask for. Split evenly into A and B.
+pub const OUTPUT_CHOICES: [u8; 4] = [2, 4, 6, 8];
 /// Linear gain on `frame_amix_mic_virtual_sink` at a fader of 1.0.
 /// The filtered Frame mic sits well below a mix bus; 100% is this
 /// trim, not digital unity. 4.0 is +12 dB.
@@ -21,26 +23,22 @@ pub const FADER_SNAPS: [f64; 4] = [0.2, 0.5, 0.8, 1.0];
 pub struct Channel {
     pub id: String,
     pub name: String,
-    #[serde(default = "default_to_mic")]
-    pub to_mic: f64,
-    #[serde(default = "default_phones")]
-    pub phones: f64,
+    /// Strip fader. Negative infinity is stored as a non-finite value and means silence.
     #[serde(default)]
-    pub to_mic_muted: bool,
+    pub gain_db: f64,
     #[serde(default)]
-    pub phones_muted: bool,
+    pub muted: bool,
     #[serde(default)]
-    pub to_mic_solo: bool,
+    pub solo: bool,
+    /// Bit 0..3 is A1..A4, bit 4..7 is B1..B4.
+    #[serde(default = "default_routes")]
+    pub routes: u8,
     #[serde(default)]
-    pub phones_solo: bool,
+    pub send_fx1: bool,
     #[serde(default)]
-    pub to_mic_fx_a: bool,
+    pub send_fx2: bool,
     #[serde(default)]
-    pub to_mic_fx_b: bool,
-    #[serde(default)]
-    pub phones_fx_a: bool,
-    #[serde(default)]
-    pub phones_fx_b: bool,
+    pub inserts: Vec<EffectSlot>,
     /// Set when the channel was created from a running app. Only used to find its icon.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub app: String,
@@ -53,20 +51,47 @@ impl Channel {
         Self {
             id: id.into(),
             name: name.into(),
-            to_mic: default_to_mic(),
-            phones: default_phones(),
-            to_mic_muted: false,
-            phones_muted: false,
-            to_mic_solo: false,
-            phones_solo: false,
-            to_mic_fx_a: false,
-            to_mic_fx_b: false,
-            phones_fx_a: false,
-            phones_fx_b: false,
+            gain_db: 0.0,
+            muted: false,
+            solo: false,
+            routes: default_routes(),
+            send_fx1: false,
+            send_fx2: false,
+            inserts: Vec::new(),
             app: String::new(),
             binary: String::new(),
         }
     }
+}
+
+/// A1 and B1. A fresh channel is heard in the headset and on the PC.
+pub fn default_routes() -> u8 {
+    route_bit(true, 0) | route_bit(false, 0)
+}
+
+/// The microphone goes to the PC only, so the speakers do not howl.
+pub fn default_mic_routes() -> u8 {
+    route_bit(false, 0)
+}
+
+pub fn route_bit(a_side: bool, index: usize) -> u8 {
+    if index > 3 {
+        return 0;
+    }
+    1 << (index + if a_side { 0 } else { 4 })
+}
+
+pub fn route_on(routes: u8, a_side: bool, index: usize) -> bool {
+    routes & route_bit(a_side, index) != 0
+}
+
+pub fn output_count(outputs: u8) -> u8 {
+    if OUTPUT_CHOICES.contains(&outputs) { outputs } else { 2 }
+}
+
+/// How many A buses (and the same number of B buses) the current setting shows.
+pub fn side_count(outputs: u8) -> usize {
+    (output_count(outputs) / 2) as usize
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,16 +108,23 @@ pub struct Config {
     pub check_updates: bool,
     #[serde(default)]
     pub mix_on: bool,
-    #[serde(default = "default_unity")]
-    pub mic_volume: f64,
+    /// 2, 4, 6 or 8. Split evenly into A (listen) and B (send) buses.
+    #[serde(default = "default_outputs")]
+    pub outputs: u8,
+    #[serde(default)]
+    pub mic_gain_db: f64,
     #[serde(default)]
     pub mic_muted: bool,
     #[serde(default)]
     pub mic_solo: bool,
+    #[serde(default = "default_mic_routes")]
+    pub mic_routes: u8,
     #[serde(default)]
-    pub mic_fx_a: bool,
+    pub mic_send_fx1: bool,
     #[serde(default)]
-    pub mic_fx_b: bool,
+    pub mic_send_fx2: bool,
+    #[serde(default)]
+    pub mic_inserts: Vec<EffectSlot>,
     /// Applied to VRLink only while Mix is on, and only when it is not 1.0.
     #[serde(default = "default_unity")]
     pub vrlink_gain: f64,
@@ -122,9 +154,15 @@ pub struct Config {
     #[serde(default)]
     pub wide: bool,
     #[serde(default)]
+    pub a: [Bus; 4],
+    #[serde(default)]
+    pub b: [Bus; 4],
+    #[serde(default)]
     pub fx_a: FxBus,
     #[serde(default)]
     pub fx_b: FxBus,
+    #[serde(default = "default_version")]
+    pub version: u32,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -194,11 +232,14 @@ pub struct EffectSlot {
     /// Pitcher drag snaps to whole semitones. Other effects ignore it.
     #[serde(default = "default_pitch_snap")]
     pub pitch_snap: bool,
+    /// Set for a parametric EQ. Absent means the three legacy Low/Mid/High knobs.
+    #[serde(default)]
+    pub eq: Option<ParamEq>,
 }
 
 impl EffectSlot {
     pub fn new(kind: EffectKind) -> Self {
-        Self { kind, params: kind.defaults(), pitch_snap: true }
+        Self { kind, params: kind.defaults(), pitch_snap: true, eq: None }
     }
 }
 
@@ -235,22 +276,222 @@ fn default_effect_params() -> [f64; 3] {
     [0.5, 0.5, 0.5]
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Bus {
+    #[serde(default)]
+    pub gain_db: f64,
+    #[serde(default)]
+    pub muted: bool,
+    /// Hardware sink `node.name` for A2..A4. Empty follows the current speakers.
+    #[serde(default)]
+    pub target: String,
+    /// Display name for B2..B4.
+    #[serde(default)]
+    pub name: String,
+}
+
+impl Default for Bus {
+    fn default() -> Self {
+        Self { gain_db: 0.0, muted: false, target: String::new(), name: String::new() }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FxBus {
     #[serde(default)]
     pub chain: Vec<EffectSlot>,
+    #[serde(default)]
+    pub gain_db: f64,
+    #[serde(default)]
+    pub muted: bool,
+    /// Where the effect return plays. A fresh return is heard on A1 and B1.
+    #[serde(default = "default_routes")]
+    pub routes: u8,
+}
+
+impl Default for FxBus {
+    fn default() -> Self {
+        Self { chain: Vec::new(), gain_db: 0.0, muted: false, routes: default_routes() }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum BandType {
+    Bell,
+    Shelf,
+    HighPass,
+    LowPass,
+}
+
+impl BandType {
+    pub fn key(self) -> &'static str {
+        match self {
+            BandType::Bell => "bell",
+            BandType::Shelf => "shelf",
+            BandType::HighPass => "highpass",
+            BandType::LowPass => "lowpass",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "bell" => BandType::Bell,
+            "shelf" => BandType::Shelf,
+            "highpass" => BandType::HighPass,
+            "lowpass" => BandType::LowPass,
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EqBand {
+    #[serde(default = "default_eq_freq")]
+    pub freq: f64,
+    #[serde(default)]
+    pub gain_db: f64,
+    #[serde(default = "default_eq_q")]
+    pub q: f64,
+    #[serde(default = "default_true")]
+    pub on: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ParamEq {
+    #[serde(default = "default_eq_points")]
+    pub points: u8,
+    #[serde(default)]
+    pub bands: Vec<EqBand>,
+    #[serde(default = "default_low_type")]
+    pub low: BandType,
+    #[serde(default = "default_high_type")]
+    pub high: BandType,
+    #[serde(default)]
+    pub bypass: bool,
+}
+
+fn default_eq_freq() -> f64 {
+    1000.0
+}
+fn default_eq_q() -> f64 {
+    0.71
+}
+fn default_eq_points() -> u8 {
+    6
+}
+fn default_low_type() -> BandType {
+    BandType::Bell
+}
+fn default_high_type() -> BandType {
+    BandType::Bell
+}
+fn default_outputs() -> u8 {
+    2
+}
+fn default_version() -> u32 {
+    2
+}
+
+impl ParamEq {
+    pub fn new(points: u8) -> Self {
+        let points = snap_points(points);
+        Self {
+            points,
+            bands: spaced_bands(points),
+            low: BandType::Bell,
+            high: BandType::Bell,
+            bypass: false,
+        }
+    }
+
+    /// Change the band count. Each new frequency keeps the nearest old band.
+    pub fn set_points(&mut self, points: u8) {
+        let points = snap_points(points);
+        if points == self.points && self.bands.len() == points as usize {
+            return;
+        }
+        let old = self.bands.clone();
+        let mut bands = spaced_bands(points);
+        for band in &mut bands {
+            if let Some(near) = old.iter().min_by(|a, b| {
+                (a.freq.ln() - band.freq.ln()).abs().total_cmp(&(b.freq.ln() - band.freq.ln()).abs())
+            }) {
+                band.gain_db = near.gain_db;
+                band.q = near.q;
+                band.on = near.on;
+            }
+        }
+        self.points = points;
+        self.bands = bands;
+    }
+}
+
+pub fn snap_points(points: u8) -> u8 {
+    for choice in [3u8, 6, 8, 12] {
+        if points <= choice {
+            return choice;
+        }
+    }
+    12
+}
+
+fn spaced_bands(points: u8) -> Vec<EqBand> {
+    let n = points.max(1) as usize;
+    let lo = 30.0_f64.ln();
+    let hi = 16_000.0_f64.ln();
+    (0..n)
+        .map(|i| {
+            let t = if n == 1 { 0.5 } else { i as f64 / (n - 1) as f64 };
+            EqBand { freq: (lo + (hi - lo) * t).exp(), gain_db: 0.0, q: default_eq_q(), on: true }
+        })
+        .collect()
+}
+
+/// Fader travel. 0 is silence, 1 is +12 dB, and 0 dB sits on the scale.
+pub const FADER_DB_MIN: f64 = -60.0;
+pub const FADER_DB_MAX: f64 = 12.0;
+const FADER_T_FLOOR: f64 = 0.04;
+
+pub fn t_to_db(t: f64) -> f64 {
+    if t <= FADER_T_FLOOR {
+        return f64::NEG_INFINITY;
+    }
+    let u = ((t - FADER_T_FLOOR) / (1.0 - FADER_T_FLOOR)).clamp(0.0, 1.0);
+    FADER_DB_MIN + u * (FADER_DB_MAX - FADER_DB_MIN)
+}
+
+pub fn db_to_t(db: f64) -> f64 {
+    if !db.is_finite() {
+        return 0.0;
+    }
+    let u = ((db.clamp(FADER_DB_MIN, FADER_DB_MAX) - FADER_DB_MIN) / (FADER_DB_MAX - FADER_DB_MIN)).clamp(0.0, 1.0);
+    FADER_T_FLOOR + u * (1.0 - FADER_T_FLOOR)
+}
+
+pub fn db_to_lin(db: f64) -> f64 {
+    if !db.is_finite() { 0.0 } else { 10f64.powf(db / 20.0) }
+}
+
+pub fn format_db(db: f64) -> String {
+    if !db.is_finite() || db < FADER_DB_MIN {
+        return "-inf".into();
+    }
+    if db.abs() < 0.05 {
+        return "0.0".into();
+    }
+    format!("{db:+.1}")
+}
+
+/// Old faders were `wpctl` cubic volumes. Amplitude is the cube, so dB is `60 log10(v)`.
+pub fn cubic_to_db(value: f64) -> f64 {
+    if value <= 0.001 { f64::NEG_INFINITY } else { 60.0 * value.max(1e-6).log10() }
 }
 
 fn default_language() -> String {
     "auto".to_string()
 }
 fn default_unity() -> f64 {
-    1.0
-}
-fn default_to_mic() -> f64 {
-    0.5
-}
-fn default_phones() -> f64 {
     1.0
 }
 fn default_true() -> bool {
@@ -266,11 +507,14 @@ impl Default for Config {
             language: default_language(),
             check_updates: false,
             mix_on: false,
-            mic_volume: 1.0,
+            outputs: 2,
+            mic_gain_db: 0.0,
             mic_muted: false,
             mic_solo: false,
-            mic_fx_a: false,
-            mic_fx_b: false,
+            mic_routes: default_mic_routes(),
+            mic_send_fx1: false,
+            mic_send_fx2: false,
+            mic_inserts: Vec::new(),
             vrlink_gain: 1.0,
             channels: Vec::new(),
             pins: Vec::new(),
@@ -280,8 +524,11 @@ impl Default for Config {
             snap: true,
             list: false,
             wide: false,
+            a: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
+            b: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
             fx_a: FxBus::default(),
             fx_b: FxBus::default(),
+            version: 2,
         }
     }
 }
@@ -297,13 +544,130 @@ pub fn load(path: &Path) -> Config {
         Ok(text) => text,
         Err(_) => return Config::default(),
     };
-    match serde_json::from_str(&text) {
-        Ok(config) => sanitize(config),
+    let value: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(value) => value,
         Err(err) => {
             eprintln!("frame-audio-mixer: ignoring unreadable config ({err})");
-            Config::default()
+            return Config::default();
+        }
+    };
+    let config = if value.get("version").and_then(|v| v.as_u64()) == Some(2) {
+        match serde_json::from_value(value) {
+            Ok(config) => config,
+            Err(err) => {
+                eprintln!("frame-audio-mixer: ignoring unreadable config ({err})");
+                return Config::default();
+            }
+        }
+    } else {
+        migrate_v1(&value)
+    };
+    sanitize(config)
+}
+
+/// v1 stored two cubic faders per channel and two effect buses named A and B.
+fn migrate_v1(value: &serde_json::Value) -> Config {
+    let mut config = Config::default();
+    let get = |key: &str| value.get(key);
+    if let Some(lang) = get("language").and_then(|v| v.as_str()) {
+        config.language = lang.to_string();
+    }
+    config.check_updates = get("check_updates").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mix_on = get("mix_on").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mic_gain_db = cubic_to_db(get("mic_volume").and_then(|v| v.as_f64()).unwrap_or(1.0));
+    config.mic_muted = get("mic_muted").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mic_solo = get("mic_solo").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mic_send_fx1 = get("mic_fx_a").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mic_send_fx2 = get("mic_fx_b").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.mic_routes = default_mic_routes();
+    config.vrlink_gain = get("vrlink_gain").and_then(|v| v.as_f64()).unwrap_or(1.0);
+    config.mic_source = get("mic_source").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    config.meters = get("meters").and_then(|v| v.as_bool()).unwrap_or(true);
+    config.accent = get("accent").and_then(|v| v.as_str()).unwrap_or("blue").to_string();
+    config.snap = get("snap").and_then(|v| v.as_bool()).unwrap_or(true);
+    config.list = get("list").and_then(|v| v.as_bool()).unwrap_or(false);
+    config.wide = get("wide").and_then(|v| v.as_bool()).unwrap_or(false);
+    if let Some(channels) = get("channels").and_then(|v| v.as_array()) {
+        for item in channels {
+            let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
+            let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let mut channel = Channel::new(id, name);
+            let to_mic = item.get("to_mic").and_then(|v| v.as_f64()).unwrap_or(0.5);
+            let phones = item.get("phones").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let to_mic_muted = item.get("to_mic_muted").and_then(|v| v.as_bool()).unwrap_or(false);
+            let phones_muted = item.get("phones_muted").and_then(|v| v.as_bool()).unwrap_or(false);
+            channel.gain_db = cubic_to_db(to_mic);
+            channel.muted = to_mic_muted && phones_muted;
+            channel.solo = item.get("to_mic_solo").and_then(|v| v.as_bool()).unwrap_or(false)
+                || item.get("phones_solo").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut routes = 0u8;
+            if phones > 0.02 && !phones_muted {
+                routes |= route_bit(true, 0);
+            }
+            if to_mic > 0.02 && !to_mic_muted {
+                routes |= route_bit(false, 0);
+            }
+            channel.routes = routes;
+            channel.send_fx1 = item.get("to_mic_fx_a").and_then(|v| v.as_bool()).unwrap_or(false)
+                || item.get("phones_fx_a").and_then(|v| v.as_bool()).unwrap_or(false);
+            channel.send_fx2 = item.get("to_mic_fx_b").and_then(|v| v.as_bool()).unwrap_or(false)
+                || item.get("phones_fx_b").and_then(|v| v.as_bool()).unwrap_or(false);
+            channel.app = item.get("app").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            channel.binary = item.get("binary").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            config.channels.push(channel);
         }
     }
+    if let Some(pins) = get("pins").and_then(|v| v.as_array()) {
+        for item in pins {
+            let app = item.get("app").and_then(|v| v.as_str()).unwrap_or("");
+            let channel = item.get("channel").and_then(|v| v.as_str()).unwrap_or("");
+            if !app.is_empty() && !channel.is_empty() {
+                config.pins.push(Pin { app: app.to_string(), channel: channel.to_string() });
+            }
+        }
+    }
+    config.fx_a = migrate_bus(get("fx_a"));
+    config.fx_b = migrate_bus(get("fx_b"));
+    config.version = 2;
+    config
+}
+
+fn migrate_bus(value: Option<&serde_json::Value>) -> FxBus {
+    let mut bus = FxBus::default();
+    let Some(chain) = value.and_then(|v| v.get("chain")).and_then(|v| v.as_array()) else {
+        return bus;
+    };
+    for item in chain {
+        let Some(kind) = item.get("kind").and_then(|v| v.as_str()).and_then(EffectKind::parse) else { continue };
+        let mut slot = EffectSlot::new(kind);
+        if let Some(params) = item.get("params").and_then(|v| v.as_array()) {
+            for (index, value) in params.iter().take(3).enumerate() {
+                if let Some(number) = value.as_f64() {
+                    slot.params[index] = number;
+                }
+            }
+        }
+        if kind == EffectKind::Eq {
+            slot.eq = Some(eq_from_legacy(slot.params));
+        }
+        bus.chain.push(slot);
+    }
+    bus
+}
+
+/// The old EQ was a low shelf, a mid bell and a high shelf, each ±12 dB.
+fn eq_from_legacy(params: [f64; 3]) -> ParamEq {
+    let mut eq = ParamEq::new(3);
+    eq.low = BandType::Shelf;
+    eq.high = BandType::Shelf;
+    let gains = [(params[0] - 0.5) * 24.0, (params[1] - 0.5) * 24.0, (params[2] - 0.5) * 24.0];
+    let freqs = [120.0, 1000.0, 8000.0];
+    for (band, (freq, gain)) in eq.bands.iter_mut().zip(freqs.into_iter().zip(gains)) {
+        band.freq = freq;
+        band.gain_db = gain;
+        band.q = 0.8;
+    }
+    eq
 }
 
 pub fn save(path: &Path, config: &Config) -> Result<(), String> {
@@ -315,7 +679,9 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
 }
 
 fn sanitize(mut config: Config) -> Config {
-    config.mic_volume = clamp_volume(config.mic_volume);
+    config.version = 2;
+    config.outputs = output_count(config.outputs);
+    config.mic_gain_db = clamp_db(config.mic_gain_db);
     config.vrlink_gain = clamp_volume(config.vrlink_gain);
     config.channels.truncate(MAX_CHANNELS);
     let mut seen = Vec::new();
@@ -330,8 +696,16 @@ fn sanitize(mut config: Config) -> Config {
         true
     });
     for channel in &mut config.channels {
-        channel.to_mic = clamp_volume(channel.to_mic);
-        channel.phones = clamp_volume(channel.phones);
+        channel.gain_db = clamp_db(channel.gain_db);
+        sanitize_chain(&mut channel.inserts);
+    }
+    sanitize_chain(&mut config.mic_inserts);
+    for bus in config.a.iter_mut().chain(config.b.iter_mut()) {
+        bus.gain_db = clamp_db(bus.gain_db);
+        bus.target = sanitize_mic_source(&bus.target);
+        if bus.name.chars().count() > NAME_MAX_CHARS {
+            bus.name = bus.name.chars().take(NAME_MAX_CHARS).collect();
+        }
     }
     sanitize_bus(&mut config.fx_a);
     sanitize_bus(&mut config.fx_b);
@@ -354,23 +728,66 @@ pub fn sanitize_mic_source(value: &str) -> String {
 }
 
 fn sanitize_bus(bus: &mut FxBus) {
-    bus.chain.truncate(3);
-    for slot in &mut bus.chain {
+    bus.gain_db = clamp_db(bus.gain_db);
+    sanitize_chain(&mut bus.chain);
+}
+
+fn sanitize_chain(chain: &mut Vec<EffectSlot>) {
+    chain.truncate(3);
+    for slot in chain.iter_mut() {
         for value in &mut slot.params {
             *value = value.clamp(0.0, 1.0);
         }
         if slot.kind == EffectKind::Pitcher {
             slot.params[1] = 0.0;
             slot.params[2] = 0.0;
+            slot.eq = None;
             if slot.pitch_snap {
                 slot.params[0] = pitch_snapped(slot.params[0]);
             }
         }
+        if slot.kind == EffectKind::Eq {
+            if slot.eq.is_none() {
+                slot.eq = Some(eq_from_legacy(slot.params));
+            }
+            if let Some(eq) = slot.eq.as_mut() {
+                sanitize_eq(eq);
+            }
+        } else {
+            slot.eq = None;
+        }
+    }
+}
+
+fn sanitize_eq(eq: &mut ParamEq) {
+    eq.points = snap_points(eq.points);
+    if eq.bands.len() != eq.points as usize {
+        eq.set_points(eq.points);
+    }
+    eq.low = match eq.low {
+        BandType::LowPass => BandType::Bell,
+        other => other,
+    };
+    eq.high = match eq.high {
+        BandType::HighPass => BandType::Bell,
+        other => other,
+    };
+    for band in &mut eq.bands {
+        band.freq = band.freq.clamp(20.0, 20_000.0);
+        band.gain_db = band.gain_db.clamp(-18.0, 18.0);
+        band.q = band.q.clamp(0.1, 10.0);
     }
 }
 
 pub fn clamp_volume(value: f64) -> f64 {
     value.clamp(0.0, 1.5)
+}
+
+pub fn clamp_db(value: f64) -> f64 {
+    if !value.is_finite() {
+        return f64::NEG_INFINITY;
+    }
+    value.clamp(FADER_DB_MIN, FADER_DB_MAX)
 }
 
 /// Linear gain for the microphone fader, including the speaking-level trim.
@@ -513,9 +930,8 @@ pub fn self_test() -> Result<(), String> {
     config.mic_source = "builtin".into();
     config.meters = false;
     let mut game = Channel::new("ch3", "Game");
-    game.to_mic = 0.25;
-    game.phones = 1.2;
-    game.to_mic_muted = true;
+    game.gain_db = -12.0;
+    game.muted = true;
     game.app = "Zen".into();
     game.binary = "zen".into();
     config.channels.push(game);
@@ -538,6 +954,29 @@ pub fn self_test() -> Result<(), String> {
     let fx = sanitize(fx);
     if fx.fx_a.chain.len() != 3 || fx.fx_a.chain[0].params[0] > 1.0 {
         return Err("fx chain".into());
+    }
+    if fx.fx_a.chain.iter().find(|slot| slot.kind == EffectKind::Eq).and_then(|slot| slot.eq.as_ref()).map(|eq| eq.points) != Some(3) {
+        return Err("legacy eq".into());
+    }
+    let mut resized = ParamEq::new(3);
+    resized.bands[1].gain_db = 4.0;
+    resized.set_points(6);
+    if resized.points != 6 || resized.bands.len() != 6 {
+        return Err("eq points".into());
+    }
+    if resized.bands.iter().all(|band| band.gain_db.abs() < 0.01) {
+        return Err("eq resize dropped the boost".into());
+    }
+    let legacy = r#"{"channels":[{"id":"ch1","name":"DJ","to_mic":1.0,"phones":0.0,"phones_muted":true}],"mic_volume":1.0}"#;
+    let path_v1 = dir.join("v1.json");
+    fs::write(&path_v1, legacy).map_err(|e| e.to_string())?;
+    let migrated = load(&path_v1);
+    let dj = migrated.channels.iter().find(|channel| channel.id == "ch1").ok_or("migrate")?;
+    if dj.gain_db.abs() > 0.05 || route_on(dj.routes, true, 0) || !route_on(dj.routes, false, 0) {
+        return Err(format!("migrate {} {:08b}", dj.gain_db, dj.routes));
+    }
+    if migrated.version != 2 || migrated.outputs != 2 {
+        return Err("version".into());
     }
     let _ = fs::remove_dir_all(&dir);
     Ok(())

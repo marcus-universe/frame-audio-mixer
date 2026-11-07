@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -32,13 +32,13 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## Features
 
-- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The whole mix is also a microphone input named `Frame Mix`.
+- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The mix also creates virtual microphones. B1 is `Frame Mix`, which the PC hears as Steam Streaming Microphone.
+- **Routing**: one fader per strip, in dB, with Mute, Solo and Inserts. A buttons are what you hear (A1 is the headset). B buttons are virtual microphones. App Settings chooses 2, 4, 6 or 8 outputs.
+- **Parametric EQ**: 3, 6, 8 or 12 points, with a response curve. The outer points can be a bell, a shelf, a high-pass or a low-pass. FX1 and FX2 are shared sends.
 - **App channels**: make a channel from a running app. Its icon is shown next to the name.
-- **PC streaming microphone mix**: the PC hears your microphone plus the channels.
-- **Two faders per channel**: one for the headset, one for the PC, each with Mute and Solo. Faders snap to 20, 50, 80 and 100 %.
 - **Microphone**: choose the microphone for the mix. The system default microphone does not change.
 - **Level meters** on every fader. They can be turned off.
-- **Mix Check**: record up to 10 seconds of what the PC hears and play it back. It sits on the right rail, next to two effect buses.
+- **Mix Check**: record up to 10 seconds of what the PC hears and play it back. The right rail is Outputs, FX1, FX2 and Mix Check.
 - Seven languages, and a blue or pink color theme.
 
 <table>
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Turn **Mix** on.
 3. Press **+** to add a channel: a suggestion, your own name, or a running app.
 4. In that app, choose the output named after the channel (`DJ`). Open the app again if it was already running: it keeps the device list it read at startup.
-5. The speaker fader sets how loud the channel is in your headset. The microphone fader sets how much of it the PC hears.
+5. The fader sets the strip level. A1 plays it in the headset. B1 sends it to the PC. The Outputs drawer sets the other buses.
 
 If you use the Frame's speakers, turn echo cancellation on in Frame Mic Tuner. Otherwise the PC can hear the app audio twice.
 

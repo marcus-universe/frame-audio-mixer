@@ -70,6 +70,7 @@ remove_legacy_mix() {
 stop_mixer() {
     systemctl --user disable --now frame-audio-mixer.service >/dev/null 2>&1 || true
     systemctl --user disable --now frame-audio-mixer-graph.service >/dev/null 2>&1 || true
+    systemctl --user disable --now frame-audio-mixer-engine.service >/dev/null 2>&1 || true
     systemctl --user disable --now 'frame-audio-mixer-channel@*.service' >/dev/null 2>&1 || true
     systemctl --user disable --now 'frame-audio-mixer-fx@*.service' >/dev/null 2>&1 || true
     pkill -TERM -x frame-audio-mixer >/dev/null 2>&1 || true
@@ -79,6 +80,7 @@ if [[ $uninstall -eq 1 ]]; then
     stop_mixer
     rm -f "$bin" "$desktop" "$old_update" \
         "$unit_dir/frame-audio-mixer.service" \
+        "$unit_dir/frame-audio-mixer-engine.service" \
         "$unit_dir/frame-audio-mixer-graph.service" \
         "$unit_dir/frame-audio-mixer-channel@.service" \
         "$unit_dir/frame-audio-mixer-fx@.service" \
@@ -144,8 +146,7 @@ else
 fi
 
 install -Dm755 "$built_bin" "$bin"
-rm -f "$old_update"
-install -Dm755 contrib/frame-audio-mixer-graph.sh "$lib_dir/frame-audio-mixer-graph.sh"
+rm -f "$old_update" "$lib_dir/frame-audio-mixer-graph.sh"
 for size in 48 128 256; do
     icon_src="assets/icons/blue-$size.png"
     if [[ ! -f "$icon_src" ]]; then
@@ -158,9 +159,10 @@ sed "s|@BINARY@|$bin|" contrib/frame-audio-mixer.desktop > "$desktop.tmp"
 chmod 644 "$desktop.tmp"
 mv "$desktop.tmp" "$desktop"
 install -Dm644 contrib/frame-audio-mixer.service "$unit_dir/frame-audio-mixer.service"
-install -Dm644 contrib/frame-audio-mixer-graph.service "$unit_dir/frame-audio-mixer-graph.service"
-install -Dm644 contrib/frame-audio-mixer-channel@.service "$unit_dir/frame-audio-mixer-channel@.service"
-install -Dm644 contrib/frame-audio-mixer-fx@.service "$unit_dir/frame-audio-mixer-fx@.service"
+install -Dm644 contrib/frame-audio-mixer-engine.service "$unit_dir/frame-audio-mixer-engine.service"
+rm -f "$unit_dir/frame-audio-mixer-graph.service" \
+    "$unit_dir/frame-audio-mixer-channel@.service" \
+    "$unit_dir/frame-audio-mixer-fx@.service"
 systemctl --user daemon-reload
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$desktop" || true

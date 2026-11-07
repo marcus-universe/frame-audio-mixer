@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -35,7 +35,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Virtuelle Audiogeräte**: bis zu 32 benannte Kanäle. Jeder Kanal ist ein Ausgang (`Frame Mix: <name>`), den jede App wählen kann.
 - **App-Kanäle**: einen Kanal aus einer laufenden App anlegen. Ihr Icon steht neben dem Namen.
 - **Mischung für das Streaming-Mikrofon am PC**: der PC hört das Mikrofon und die Kanäle.
-- **Zwei Fader pro Kanal**: einer für das Headset, einer für den PC, jeder mit eigener Stummschaltung. Die Fader rasten bei 20, 50, 80 und 100 % ein.
+- **Ein Fader pro Kanal**, in dB, mit Stumm, Solo und Inserts. A ist das, was du hörst. B sind virtuelle Mikrofone. In den Einstellungen: 2, 4, 6 oder 8 Ausgänge. Parametrischer EQ mit 3, 6, 8 oder 12 Punkten.
 - **Mikrofon**: das Mikrofon für die Mischung wählen. Das Standardmikrofon des Systems ändert sich nicht.
 - **Pegelanzeigen** an jedem Fader. Sie lassen sich ausschalten.
 - **Mix-Check**: bis zu 10 Sekunden von dem aufnehmen, was der PC hört, und wieder abspielen.
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. **Mix** einschalten.
 3. Mit **+** einen Kanal hinzufügen: einen Vorschlag, einen eigenen Namen oder eine laufende App.
 4. In dieser App den Ausgang `Frame Mix: <name>` wählen.
-5. Der Lautsprecher-Fader stellt ein, wie laut der Kanal im Headset ist. Der Mikrofon-Fader stellt ein, wie viel davon der PC hört.
+5. Der Fader stellt den Pegel der Spur ein. A1 spielt im Headset. B1 geht an den PC. Die anderen Busse sitzen in der Ausgänge-Schublade.
 
 Bei den Lautsprechern der Frame die Echounterdrückung in Frame Mic Tuner einschalten. Sonst kann der PC den App-Ton doppelt hören.
 

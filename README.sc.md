@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -35,7 +35,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **虚拟音频设备**：最多 32 个命名通道。每个通道都是一个输出（`Frame Mix: <name>`），任何应用都可以选择它。
 - **应用通道**：用正在运行的应用创建通道。名称旁边会显示它的图标。
 - **PC 串流麦克风混音**：PC 听到的是你的麦克风加上各个通道。
-- **每个通道两个推子**：一个用于头显，一个用于 PC，各自有静音。推子会吸附到 20、50、80 和 100 %。
+- **每个通道一个推子**，以 dB 显示，带静音、独奏和插入效果。A 是你听到的，B 是虚拟麦克风。设置里可选 2、4、6 或 8 个输出。参量均衡为 3、6、8 或 12 个点。
 - **麦克风**：选择用于混音的麦克风。系统默认麦克风不会改变。
 - 每个推子上都有 **电平表**。可以关闭。
 - **混音检查**：录制 PC 听到的声音，最多 10 秒，然后播放。
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. 打开 **混音**。
 3. 按 **+** 添加通道：可以选建议、自己起的名称，或者正在运行的应用。
 4. 在那个应用里选择输出 `Frame Mix: <name>`。
-5. 扬声器推子决定这个通道在头显里有多响。麦克风推子决定 PC 能听到它多少。
+5. 推子决定这条通道的电平。A1 在头显里播放。B1 送到 PC。其他总线在输出抽屉里。
 
 如果使用 Frame 的扬声器，请在 Frame Mic Tuner 里打开回声消除。否则 PC 可能听到两遍应用的声音。
 

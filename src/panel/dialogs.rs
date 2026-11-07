@@ -113,7 +113,7 @@ fn mic_rows(panel: &Panel, t: &Text, snap: &Snapshot) -> Vec<(String, String, St
 
 pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
-    let (x, y, w, h) = panel.dialog_rect(640.0, 324.0, 24.0);
+    let (x, y, w, h) = panel.dialog_rect(640.0, if panel.color_open { 560.0 } else { 460.0 }, 24.0);
     sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
     draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.settings);
@@ -134,13 +134,24 @@ pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text)
     draw::chevron(cr, drop.0 + drop.2 - 28.0, drop.1 + 22.0, 12.0, MUTED, false, panel.color_open);
     panel.hot("color-open", drop.0, drop.1, drop.2, drop.3);
 
-    let meters_y = color_y + 64.0;
+    let menu_h = if panel.color_open { 108.0 } else { 0.0 };
+    let meters_y = color_y + 64.0 + menu_h;
     draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, meters_y + 24.0, t.meters);
     pill_toggle(panel, cr, fonts, seg_x, meters_y, 168.0, 48.0, panel.config.meters, (t.on, t.off), ("meters-on", "meters-off"));
 
     let stream_y = meters_y + 64.0;
     draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, stream_y + 24.0, t.pc_stream);
     pill_toggle(panel, cr, fonts, seg_x, stream_y, 168.0, 48.0, panel.config.mix_on, (t.on, t.off), ("mix-on", "mix-off"));
+
+    let out_y = stream_y + 64.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, out_y + 24.0, t.outputs);
+    let count = panel.config.outputs.to_string();
+    let drop_o = (seg_x, out_y, 168.0, 48.0);
+    let look_o = panel.look(drop_o.0, drop_o.1, drop_o.2, drop_o.3);
+    fill_round(cr, drop_o.0, drop_o.1, drop_o.2, drop_o.3, R_CONTROL, if look_o == draw::Look::Rest { CONTROL } else { draw::CONTROL_HOVER });
+    draw::label_mid(cr, fonts, true, 15.0, TEXT, drop_o.0 + 16.0, drop_o.1 + 24.0, &count);
+    draw::chevron(cr, drop_o.0 + drop_o.2 - 28.0, drop_o.1 + 22.0, 12.0, MUTED, false, panel.outputs_open);
+    panel.hot("outputs-open", drop_o.0, drop_o.1, drop_o.2, drop_o.3);
     if panel.color_open {
         let menu_y = drop.1 + drop.3 + 6.0;
         fill_round(cr, drop.0, menu_y, drop.2, 96.0, R_CONTROL + 4.0, CONTROL);
@@ -152,6 +163,19 @@ pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text)
             }
             draw::label_mid(cr, fonts, selected, 15.0, if selected { draw::accent() } else { TEXT }, drop.0 + 16.0, row + 20.0, label);
             panel.hot(id, drop.0, row, drop.2, 40.0);
+        }
+    }
+    if panel.outputs_open {
+        let menu_y = drop_o.1 + drop_o.3 + 6.0;
+        fill_round(cr, drop_o.0, menu_y, drop_o.2, 168.0, R_CONTROL + 4.0, CONTROL);
+        for (index, count) in [2u8, 4, 6, 8].into_iter().enumerate() {
+            let row = menu_y + 4.0 + index as f64 * 40.0;
+            let selected = panel.config.outputs == count;
+            if selected {
+                fill_round(cr, drop_o.0 + 6.0, row + 2.0, drop_o.2 - 12.0, 36.0, 10.0, draw::accent_tint());
+            }
+            draw::label_mid(cr, fonts, selected, 15.0, if selected { draw::accent() } else { TEXT }, drop_o.0 + 16.0, row + 20.0, &count.to_string());
+            panel.hot(&format!("outputs:{count}"), drop_o.0, row, drop_o.2, 40.0);
         }
     }
 }
@@ -226,7 +250,7 @@ pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
         draw::label_fit(cr, fonts, false, 13.0, draw::DANGER_TEXT, x + 28.0, y + 164.0, w - 56.0, t.name_rejected);
     }
 
-    let renaming = matches!(panel.overlay, super::Overlay::Name(super::NameEdit::Rename(_)));
+    let renaming = matches!(panel.overlay, super::Overlay::Name(super::NameEdit::Rename(_)) | super::Overlay::Name(super::NameEdit::Bus(_)));
     let by = y + h - 76.0;
     panel.button(cr, fonts, x + 28.0, by, 180.0, 48.0, t.cancel, ButtonKind::Plain);
     panel.hot("dismiss", x + 28.0, by, 180.0, 48.0);

@@ -33,7 +33,7 @@ impl Processor {
             self.stages = kinds.into_iter().map(Stage::new).collect();
         }
         for (stage, slot) in self.stages.iter_mut().zip(chain) {
-            stage.set_params(slot.params);
+            stage.apply(slot);
         }
     }
 
@@ -41,19 +41,23 @@ impl Processor {
         if self.stages.is_empty() {
             return;
         }
-        let mut left = [0.0f32; FRAMES];
-        let mut right = [0.0f32; FRAMES];
-        let frames = (interleaved.len() / 2).min(FRAMES);
-        for i in 0..frames {
-            left[i] = interleaved[i * 2];
-            right[i] = interleaved[i * 2 + 1];
-        }
-        for stage in &mut self.stages {
-            stage.process(&mut left[..frames], &mut right[..frames]);
-        }
-        for i in 0..frames {
-            interleaved[i * 2] = soft_ceiling(left[i]);
-            interleaved[i * 2 + 1] = soft_ceiling(right[i]);
+        let mut offset = 0;
+        while offset + 1 < interleaved.len() {
+            let frames = ((interleaved.len() - offset) / 2).min(FRAMES);
+            let mut left = [0.0f32; FRAMES];
+            let mut right = [0.0f32; FRAMES];
+            for i in 0..frames {
+                left[i] = interleaved[offset + i * 2];
+                right[i] = interleaved[offset + i * 2 + 1];
+            }
+            for stage in &mut self.stages {
+                stage.process(&mut left[..frames], &mut right[..frames]);
+            }
+            for i in 0..frames {
+                interleaved[offset + i * 2] = soft_ceiling(left[i]);
+                interleaved[offset + i * 2 + 1] = soft_ceiling(right[i]);
+            }
+            offset += frames * 2;
         }
     }
 }
@@ -96,15 +100,15 @@ impl Stage {
         }
     }
 
-    fn set_params(&mut self, params: [f64; 3]) {
+    fn apply(&mut self, slot: &EffectSlot) {
         match self {
-            Stage::Reverb(fx) => fx.set(params),
-            Stage::Comp(fx) => fx.set(params),
-            Stage::Eq(fx) => fx.set(params),
-            Stage::Pitcher(fx) => fx.set(params),
-            Stage::Flanger(fx) => fx.set(params),
-            Stage::Phaser(fx) => fx.set(params),
-            Stage::Delay(fx) => fx.set(params),
+            Stage::Reverb(fx) => fx.set(slot.params),
+            Stage::Comp(fx) => fx.set(slot.params),
+            Stage::Eq(fx) => fx.apply(slot),
+            Stage::Pitcher(fx) => fx.set(slot.params),
+            Stage::Flanger(fx) => fx.set(slot.params),
+            Stage::Phaser(fx) => fx.set(slot.params),
+            Stage::Delay(fx) => fx.set(slot.params),
         }
     }
 
@@ -161,6 +165,32 @@ impl Biquad {
         Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, z1: 0.0, z2: 0.0 }
     }
 
+    fn lowpass(freq: f64, q: f64) -> Self {
+        let w = 2.0 * std::f64::consts::PI * freq / RATE;
+        let alpha = w.sin() / (2.0 * q.max(0.05));
+        let cos = w.cos();
+        let b0 = (1.0 - cos) / 2.0;
+        let b1 = 1.0 - cos;
+        let b2 = (1.0 - cos) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos;
+        let a2 = 1.0 - alpha;
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, z1: 0.0, z2: 0.0 }
+    }
+
+    fn highpass(freq: f64, q: f64) -> Self {
+        let w = 2.0 * std::f64::consts::PI * freq / RATE;
+        let alpha = w.sin() / (2.0 * q.max(0.05));
+        let cos = w.cos();
+        let b0 = (1.0 + cos) / 2.0;
+        let b1 = -(1.0 + cos);
+        let b2 = (1.0 + cos) / 2.0;
+        let a0 = 1.0 + alpha;
+        let a1 = -2.0 * cos;
+        let a2 = 1.0 - alpha;
+        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0, z1: 0.0, z2: 0.0 }
+    }
+
     fn highshelf(freq: f64, gain_db: f64) -> Self {
         let a = 10f64.powf(gain_db / 40.0);
         let w = 2.0 * std::f64::consts::PI * freq / RATE;
@@ -183,6 +213,24 @@ impl Biquad {
         Self { b0: a1, b1: 1.0, b2: 0.0, a1, a2: 0.0, z1: 0.0, z2: 0.0 }
     }
 
+    fn mag_db(&self, freq: f64) -> f64 {
+        let w = 2.0 * std::f64::consts::PI * freq / RATE;
+        let c1 = w.cos();
+        let s1 = w.sin();
+        let c2 = (2.0 * w).cos();
+        let s2 = (2.0 * w).sin();
+        let num_re = self.b0 + self.b1 * c1 + self.b2 * c2;
+        let num_im = -(self.b1 * s1 + self.b2 * s2);
+        let den_re = 1.0 + self.a1 * c1 + self.a2 * c2;
+        let den_im = -(self.a1 * s1 + self.a2 * s2);
+        let num = num_re * num_re + num_im * num_im;
+        let den = den_re * den_re + den_im * den_im;
+        if den <= 1e-24 || num <= 0.0 {
+            return -120.0;
+        }
+        10.0 * (num / den).log10()
+    }
+
     fn tick(&mut self, x: f64) -> f64 {
         let y = self.b0 * x + self.z1;
         self.z1 = self.b1 * x - self.a1 * y + self.z2;
@@ -200,45 +248,134 @@ impl Biquad {
     }
 }
 
+const EQ_BANDS: usize = 12;
+
 struct Eq {
-    low_l: Biquad,
-    low_r: Biquad,
-    mid_l: Biquad,
-    mid_r: Biquad,
-    high_l: Biquad,
-    high_r: Biquad,
+    left: [Biquad; EQ_BANDS],
+    right: [Biquad; EQ_BANDS],
+    count: usize,
+    bypass: bool,
+    /// Last design, so a repeated set does not rebuild identical coefficients.
+    design: Vec<(f64, f64, f64, u8)>,
 }
 
 impl Eq {
     fn new() -> Self {
         Self {
-            low_l: Biquad::lowshelf(120.0, 0.0),
-            low_r: Biquad::lowshelf(120.0, 0.0),
-            mid_l: Biquad::peaking(1000.0, 0.8, 0.0),
-            mid_r: Biquad::peaking(1000.0, 0.8, 0.0),
-            high_l: Biquad::highshelf(8000.0, 0.0),
-            high_r: Biquad::highshelf(8000.0, 0.0),
+            left: std::array::from_fn(|_| Biquad::peaking(1000.0, 0.71, 0.0)),
+            right: std::array::from_fn(|_| Biquad::peaking(1000.0, 0.71, 0.0)),
+            count: 0,
+            bypass: false,
+            design: Vec::new(),
         }
     }
 
-    fn set(&mut self, params: [f64; 3]) {
-        let low = (params[0] - 0.5) * 24.0;
-        let mid = (params[1] - 0.5) * 24.0;
-        let high = (params[2] - 0.5) * 24.0;
-        self.low_l.apply_coeffs(Biquad::lowshelf(120.0, low));
-        self.low_r.apply_coeffs(Biquad::lowshelf(120.0, low));
-        self.mid_l.apply_coeffs(Biquad::peaking(1000.0, 0.8, mid));
-        self.mid_r.apply_coeffs(Biquad::peaking(1000.0, 0.8, mid));
-        self.high_l.apply_coeffs(Biquad::highshelf(8000.0, high));
-        self.high_r.apply_coeffs(Biquad::highshelf(8000.0, high));
+    fn apply(&mut self, slot: &EffectSlot) {
+        let eq = slot.eq.clone().unwrap_or_else(|| legacy_eq(slot.params));
+        self.bypass = eq.bypass;
+        let mut design = Vec::with_capacity(eq.bands.len());
+        for (index, band) in eq.bands.iter().enumerate() {
+            let kind = if index == 0 {
+                eq.low
+            } else if index + 1 == eq.bands.len() {
+                eq.high
+            } else {
+                crate::config::BandType::Bell
+            };
+            let tag = match kind {
+                crate::config::BandType::Bell => 0,
+                crate::config::BandType::Shelf => 1,
+                crate::config::BandType::HighPass => 2,
+                crate::config::BandType::LowPass => 3,
+            };
+            design.push((band.freq, band.gain_db, band.q, if band.on { tag } else { 9 }));
+        }
+        if design == self.design {
+            return;
+        }
+        self.count = design.len().min(EQ_BANDS);
+        for (index, (freq, gain, q, tag)) in design.iter().take(EQ_BANDS).enumerate() {
+            let coeff = band_coeff(index, design.len(), *freq, *gain, *q, *tag);
+            self.left[index].apply_coeffs(coeff);
+            self.right[index].apply_coeffs(band_coeff(index, design.len(), *freq, *gain, *q, *tag));
+        }
+        self.design = design;
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        if self.bypass || self.count == 0 {
+            return;
+        }
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            *l = self.high_l.tick(self.mid_l.tick(self.low_l.tick(*l as f64))) as f32;
-            *r = self.high_r.tick(self.mid_r.tick(self.low_r.tick(*r as f64))) as f32;
+            let mut sample_l = *l as f64;
+            let mut sample_r = *r as f64;
+            for index in 0..self.count {
+                sample_l = self.left[index].tick(sample_l);
+                sample_r = self.right[index].tick(sample_r);
+            }
+            *l = sample_l as f32;
+            *r = sample_r as f32;
         }
     }
+}
+
+fn legacy_eq(params: [f64; 3]) -> crate::config::ParamEq {
+    let mut eq = crate::config::ParamEq::new(3);
+    eq.low = crate::config::BandType::Shelf;
+    eq.high = crate::config::BandType::Shelf;
+    let gains = [(params[0] - 0.5) * 24.0, (params[1] - 0.5) * 24.0, (params[2] - 0.5) * 24.0];
+    let freqs = [120.0, 1000.0, 8000.0];
+    for (band, (freq, gain)) in eq.bands.iter_mut().zip(freqs.into_iter().zip(gains)) {
+        band.freq = freq;
+        band.gain_db = gain;
+        band.q = 0.8;
+    }
+    eq
+}
+
+fn band_coeff(index: usize, count: usize, freq: f64, gain: f64, q: f64, tag: u8) -> Biquad {
+    if tag == 9 {
+        return Biquad::peaking(1000.0, 0.71, 0.0);
+    }
+    let freq = freq.clamp(20.0, 20_000.0);
+    let q = q.clamp(0.1, 10.0);
+    match tag {
+        2 => Biquad::highpass(freq, q),
+        3 => Biquad::lowpass(freq, q),
+        1 if index == 0 => Biquad::lowshelf(freq, gain),
+        1 => Biquad::highshelf(freq, gain),
+        _ if count == 1 => Biquad::peaking(freq, q, gain),
+        _ => Biquad::peaking(freq, q, gain),
+    }
+}
+
+/// Magnitude in dB of a parametric EQ at one frequency. Used by the curve.
+pub fn eq_response_db(eq: &crate::config::ParamEq, freq: f64) -> f64 {
+    if eq.bypass {
+        return 0.0;
+    }
+    let mut sum = 0.0;
+    let count = eq.bands.len();
+    for (index, band) in eq.bands.iter().enumerate() {
+        if !band.on {
+            continue;
+        }
+        let kind = if index == 0 {
+            eq.low
+        } else if index + 1 == count {
+            eq.high
+        } else {
+            crate::config::BandType::Bell
+        };
+        let tag = match kind {
+            crate::config::BandType::Bell => 0,
+            crate::config::BandType::Shelf => 1,
+            crate::config::BandType::HighPass => 2,
+            crate::config::BandType::LowPass => 3,
+        };
+        sum += band_coeff(index, count, band.freq, band.gain_db, band.q, tag).mag_db(freq);
+    }
+    sum
 }
 
 struct Comp {
@@ -558,48 +695,84 @@ impl Phaser {
     }
 }
 
+/// Delay-line pitch shifter. The read delay moves at `1 - ratio` samples per
+/// sample, so the read head itself moves at `ratio`. Two grains a half window
+/// apart crossfade with complementary sin² windows, which is what keeps a
+/// jump from clicking. At 0 semitones the delay stays put and the signal
+/// passes through a fixed delay.
 struct Pitcher {
     buf_l: Vec<f32>,
     buf_r: Vec<f32>,
     write: usize,
-    ratio: f32,
+    /// 0..1 position inside the grain. Starts mid-window so the first samples
+    /// are not faded to silence.
+    phasor: f64,
+    ratio: f64,
 }
+
+const PITCH_LEN: usize = 8192;
+/// 40 ms at 48 kHz. Long enough that the splice is hard to hear, short enough
+/// that a +12 jump does not lag the phrase.
+const PITCH_WINDOW: f64 = 1920.0;
 
 impl Pitcher {
     fn new() -> Self {
-        Self { buf_l: vec![0.0; 4096], buf_r: vec![0.0; 4096], write: 0, ratio: 1.0 }
+        Self {
+            buf_l: vec![0.0; PITCH_LEN],
+            buf_r: vec![0.0; PITCH_LEN],
+            write: 0,
+            phasor: 0.25,
+            ratio: 1.0,
+        }
     }
 
     fn set(&mut self, params: [f64; 3]) {
         let semitones = (params[0] - 0.5) * 24.0;
-        self.ratio = 2f32.powf(semitones as f32 / 12.0);
+        self.ratio = 2f64.powf(semitones / 12.0);
+    }
+
+    fn read_at(buf: &[f32], write: usize, delay: f64) -> f32 {
+        let pos = write as f64 - delay;
+        let base = pos.floor();
+        let frac = (pos - base) as f32;
+        let at = |offset: i64| -> f32 {
+            let i = (base as i64 + offset).rem_euclid(buf.len() as i64) as usize;
+            buf[i]
+        };
+        // Catmull-Rom through the four samples around the fractional read.
+        let y0 = at(-1);
+        let y1 = at(0);
+        let y2 = at(1);
+        let y3 = at(2);
+        let c0 = y1;
+        let c1 = 0.5 * (y2 - y0);
+        let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
+        let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
+        ((c3 * frac + c2) * frac + c1) * frac + c0
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let len = self.buf_l.len();
-        let grain = 1024.0;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             self.buf_l[self.write] = *l;
             self.buf_r[self.write] = *r;
             let mut acc_l = 0.0;
             let mut acc_r = 0.0;
-            let mut wsum = 0.0;
-            for grain_i in 0..2 {
-                let phase = (self.write as f32 / grain + grain_i as f32 * 0.5).fract();
-                let pos = self.write as f32 - phase * grain * self.ratio;
-                let i0 = ((pos as i32).rem_euclid(len as i32)) as usize;
-                let i1 = (i0 + 1) % len;
-                let frac = pos.fract().abs();
-                let window = 0.5 - 0.5 * (std::f32::consts::TAU * phase).cos();
-                acc_l += (self.buf_l[i0] * (1.0 - frac) + self.buf_l[i1] * frac) * window;
-                acc_r += (self.buf_r[i0] * (1.0 - frac) + self.buf_r[i1] * frac) * window;
-                wsum += window;
+            for tap in 0..2 {
+                let phase = (self.phasor + tap as f64 * 0.5).fract();
+                // +2 keeps the cubic kernel behind the write head.
+                let delay = phase * PITCH_WINDOW + 2.0;
+                let rise = (std::f64::consts::PI * phase).sin();
+                let weight = (rise * rise) as f32;
+                acc_l += Self::read_at(&self.buf_l, self.write, delay) * weight;
+                acc_r += Self::read_at(&self.buf_r, self.write, delay) * weight;
             }
-            if wsum > 1e-6 {
-                *l = acc_l / wsum;
-                *r = acc_r / wsum;
-            }
+            *l = acc_l;
+            *r = acc_r;
             self.write = (self.write + 1) % len;
+            // ratio 2 reads twice as fast, so the delay shrinks by one sample
+            // per sample. ratio 1 holds the delay. ratio 0.5 lets it grow.
+            self.phasor = (self.phasor + (1.0 - self.ratio) / PITCH_WINDOW).rem_euclid(1.0);
         }
     }
 }
@@ -645,7 +818,85 @@ pub fn self_test() -> Result<(), String> {
     if first[0] != comb_len(1116, size) {
         return Err(format!("reverb length {} size {size}", first[0]));
     }
+
+    // +12 used to play the buffer backwards at the original speed, so it
+    // sounded lower than the dry signal. Measure the shifted tone.
+    let mut bell = crate::config::ParamEq::new(3);
+    bell.bands[1].freq = 1000.0;
+    bell.bands[1].gain_db = 6.0;
+    bell.bands[1].q = 2.0;
+    bell.bands[0].on = false;
+    bell.bands[2].on = false;
+    let at = eq_response_db(&bell, 1000.0);
+    if (at - 6.0).abs() > 0.75 {
+        return Err(format!("bell response {at}"));
+    }
+    let mut hipass = crate::config::ParamEq::new(3);
+    hipass.low = crate::config::BandType::HighPass;
+    hipass.bands[0].freq = 1000.0;
+    hipass.bands[0].q = std::f64::consts::FRAC_1_SQRT_2;
+    hipass.bands[1].on = false;
+    hipass.bands[2].on = false;
+    let cut = eq_response_db(&hipass, 1000.0);
+    if (cut + 3.0).abs() > 1.5 {
+        return Err(format!("highpass response {cut}"));
+    }
+
+    for (semitones, expect) in [(12.0, 880.0), (0.0, 440.0), (-12.0, 220.0)] {
+        let hz = pitched_hz(semitones);
+        if (hz - expect).abs() / expect > 0.03 {
+            return Err(format!("pitch {semitones:+} measured {hz:.1} Hz, expected {expect}"));
+        }
+    }
     Ok(())
+}
+
+/// One second of 440 Hz through the pitcher, then the frequency of the tail.
+fn pitched_hz(semitones: f64) -> f64 {
+    let mut proc = Processor::new();
+    let mut slot = EffectSlot::new(EffectKind::Pitcher);
+    slot.params[0] = crate::config::pitch_param(semitones);
+    proc.set_chain(std::slice::from_ref(&slot));
+    let rate = 48_000.0;
+    let total = rate as usize;
+    let mut out = Vec::with_capacity(total);
+    let mut n = 0;
+    while n < total {
+        let frames = FRAMES.min(total - n);
+        let mut block = vec![0.0f32; frames * 2];
+        for i in 0..frames {
+            let t = (n + i) as f64 / rate;
+            let sample = (std::f64::consts::TAU * 440.0 * t).sin() as f32;
+            block[i * 2] = sample;
+            block[i * 2 + 1] = sample;
+        }
+        proc.process(&mut block);
+        out.extend(block.iter().step_by(2).copied());
+        n += frames;
+    }
+    let start = (0.25 * rate) as usize;
+    let mut last: Option<f64> = None;
+    let mut periods = Vec::new();
+    for i in (start + 1)..out.len() {
+        if out[i - 1] <= 0.0 && out[i] > 0.0 {
+            let prev = f64::from(out[i - 1]);
+            let cur = f64::from(out[i]);
+            let delta = cur - prev;
+            let frac = if delta.abs() < 1e-9 { 0.0 } else { -prev / delta };
+            let at = (i - 1) as f64 + frac;
+            if let Some(prev) = last {
+                let period = at - prev;
+                if period > 8.0 {
+                    periods.push(period);
+                }
+            }
+            last = Some(at);
+        }
+    }
+    if periods.is_empty() {
+        return 0.0;
+    }
+    rate / (periods.iter().sum::<f64>() / periods.len() as f64)
 }
 
 fn reverb_comb_lengths(proc: &Processor) -> Vec<usize> {

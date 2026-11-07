@@ -66,6 +66,22 @@ impl Meter {
         }
     }
 
+    /// Decayed linear peaks from the engine, 0 to 1.
+    pub fn ingest(&mut self, raw: &HashMap<String, f32>) {
+        let dt = self.last.elapsed().as_secs_f32().min(1.0);
+        self.last = Instant::now();
+        let decay = (-dt / 0.12).exp();
+        self.shown.retain(|key, _| raw.contains_key(key));
+        for (key, value) in raw {
+            let prev = self.shown.get(key).copied().unwrap_or(0.0);
+            self.shown.insert(key.clone(), value.max(prev * decay));
+        }
+    }
+
+    pub fn live(&self) -> &HashMap<String, f32> {
+        &self.shown
+    }
+
     /// Decayed linear peaks, 0 to 1, keyed like the targets.
     /// The map is reused so a frame does not allocate a new one.
     pub fn peaks(&mut self) -> &HashMap<String, f32> {

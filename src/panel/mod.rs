@@ -6,9 +6,11 @@
 mod apps;
 mod check;
 mod dialogs;
+mod eq;
 mod footer;
 mod fx;
 mod mix;
+mod outputs;
 mod rail;
 
 use crate::apps::Entry;
@@ -31,6 +33,7 @@ enum Page {
 enum NameEdit {
     Add,
     Rename(String),
+    Bus(usize),
 }
 
 enum Overlay {
@@ -41,6 +44,8 @@ enum Overlay {
     AppsList,
     Confirm(String),
     Name(NameEdit),
+    Inserts(String),
+    Eq(String),
 }
 
 struct Hot {
@@ -89,6 +94,7 @@ enum Drawer {
     Check,
     FxA,
     FxB,
+    Outputs,
 }
 
 /// Window margin, the gap between cards, and the header and footer bands.
@@ -115,6 +121,10 @@ pub struct Panel {
     overlay: Overlay,
     language_open: bool,
     color_open: bool,
+    outputs_open: bool,
+    eq_band: usize,
+    eq_graph: Option<(f64, f64, f64, f64)>,
+    sink_names: Vec<String>,
     quit_until: Option<Instant>,
     delete_until: Option<(String, Instant)>,
     scroll: f64,
@@ -186,6 +196,10 @@ impl Panel {
             overlay: Overlay::None,
             language_open: false,
             color_open: false,
+            outputs_open: false,
+            eq_band: 0,
+            eq_graph: None,
+            sink_names: Vec::new(),
             quit_until: None,
             delete_until: None,
             scroll: 0.0,
@@ -213,8 +227,8 @@ impl Panel {
             record_at: None,
             seen_epoch: 0,
             levels_sent: None,
-            drawer: Drawer::Check,
-            drawer_target: Drawer::Check,
+            drawer: Drawer::Outputs,
+            drawer_target: Drawer::Outputs,
             drawer_progress: 1.0,
             anim_at: Instant::now(),
             fx_edit: None,
@@ -228,13 +242,12 @@ impl Panel {
         config.mix_on = true;
         config.channels.push(config::Channel::new("ch1", "Music"));
         let mut game = config::Channel::new("ch2", "Game");
-        game.to_mic = 0.8;
-        game.phones = 0.6;
+        game.gain_db = -2.0;
         config.channels.push(game);
         let mut zen = config::Channel::new("ch3", "Zen");
         zen.app = "Zen".into();
         zen.binary = "zen".into();
-        zen.to_mic = 0.2;
+        zen.gain_db = -8.0;
         config.channels.push(zen);
         for (n, name) in ["Video", "Browser", "Discord", "Soundboard", "Voice", "Alerts", "Radio"].iter().enumerate() {
             config.channels.push(config::Channel::new(format!("ch{}", n + 4), *name));
@@ -296,6 +309,10 @@ impl Panel {
             0 => self.drawer_target == Drawer::FxA,
             _ => self.drawer_target == Drawer::FxB,
         }
+    }
+
+    pub(crate) fn drawer_shows_outputs(&self) -> bool {
+        self.drawer_target == Drawer::Outputs
     }
 
     fn set_drawer(&mut self, next: Drawer) {
@@ -406,7 +423,19 @@ impl Panel {
         let except = match &mode {
             NameEdit::Rename(id) => Some(id.as_str()),
             NameEdit::Add => None,
+            NameEdit::Bus(_) => None,
         };
+        if matches!(mode, NameEdit::Bus(_)) {
+            if let NameEdit::Bus(index) = mode {
+                if index < 4 {
+                    self.config.b[index].name = name;
+                }
+            }
+            self.overlay = Overlay::None;
+            self.name_draft.clear();
+            self.name_keyboard = false;
+            return Action::Save;
+        }
         if config::name_taken(&self.config.channels, &name, except) {
             self.name_rejected = true;
             return Action::None;
@@ -422,6 +451,7 @@ impl Panel {
                 self.name_draft.clear();
                 Action::Save
             }
+            NameEdit::Bus(_) => Action::None,
         }
     }
 
@@ -496,6 +526,13 @@ impl Panel {
                     self.pan_at = Some((x, y));
                 } else if id.starts_with("fxgrip:") {
                     self.fx_reorder(y);
+                } else if let Some(rest) = id.strip_prefix("eqband:") {
+                    if let Overlay::Eq(who) = &self.overlay {
+                        let who = who.clone();
+                        let index = rest.parse().unwrap_or(0);
+                        eq::drag_handle(self, &who, index, x, y);
+                    }
+                    return self.live_levels();
                 } else {
                     self.set_fader(&id, x, y);
                     return self.live_levels();
@@ -518,7 +555,11 @@ impl Panel {
             let delta = if use_y { y } else { x };
             // A controller notch is about ±1, which used to move the row by one pixel.
             let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
-            if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {
+            if let Overlay::Eq(who) = &self.overlay {
+                let who = who.clone();
+                eq::nudge_q(self, &who, delta);
+                return Action::Levels;
+            } else if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {
                 self.dialog_scroll = (self.dialog_scroll - step * 0.45).max(0.0);
             } else {
                 self.scroll = (self.scroll - step).max(0.0);
@@ -732,6 +773,52 @@ impl Panel {
             self.set_drawer(Drawer::FxB);
             return Action::None;
         }
+        if id == "rail-out" {
+            self.set_drawer(Drawer::Outputs);
+            return Action::None;
+        }
+        if let Some(who) = id.strip_prefix("inserts:") {
+            self.overlay = Overlay::Inserts(who.to_string());
+            return Action::None;
+        }
+        if let Some(action) = self.handle_eq(id) {
+            return action;
+        }
+        if let Some(rest) = id.strip_prefix("bmute:") {
+            self.toggle_bus_mute(rest);
+            return Action::Save;
+        }
+        if let Some(rest) = id.strip_prefix("adev:") {
+            let index: usize = rest.parse().unwrap_or(9);
+            if index < 4 && !self.sink_names.is_empty() {
+                let current = self.config.a[index].target.clone();
+                let pos = self.sink_names.iter().position(|name| name == &current).map(|pos| pos + 1).unwrap_or(0);
+                self.config.a[index].target = self.sink_names[pos % self.sink_names.len()].clone();
+                return Action::Save;
+            }
+            return Action::None;
+        }
+        if let Some(rest) = id.strip_prefix("bname:") {
+            let index: usize = rest.parse().unwrap_or(9);
+            if index < 4 {
+                let existing = self.config.b[index].name.clone();
+                return self.begin_name(NameEdit::Bus(index), existing);
+            }
+        }
+        if id == "outputs-open" {
+            self.outputs_open = !self.outputs_open;
+            self.color_open = false;
+            return Action::None;
+        }
+        if let Some(rest) = id.strip_prefix("outputs:") {
+            if let Ok(count) = rest.parse::<u8>() {
+                if matches!(count, 2 | 4 | 6 | 8) {
+                    self.config.outputs = count;
+                    self.outputs_open = false;
+                    return Action::Save;
+                }
+            }
+        }
         if let Some(action) = self.handle_fader_toggle(id) {
             return action;
         }
@@ -785,6 +872,14 @@ impl Panel {
     }
 
     fn handle_fader_toggle(&mut self, id: &str) -> Option<Action> {
+        if let Some(rest) = id.strip_prefix("route:") {
+            self.toggle_route(rest);
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("send:") {
+            self.toggle_send(rest);
+            return Some(Action::Save);
+        }
         if let Some(rest) = id.strip_prefix("mute:") {
             self.toggle_mute(rest);
             return Some(Action::Save);
@@ -804,49 +899,59 @@ impl Panel {
         None
     }
 
+    fn toggle_route(&mut self, id: &str) {
+        let mut parts = id.split(':');
+        let who = parts.next().unwrap_or("");
+        let side = parts.next().unwrap_or("");
+        let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(9);
+        let bit = config::route_bit(side == "a", index);
+        if bit == 0 {
+            return;
+        }
+        let routes =         if who == "mic" {
+            Some(&mut self.config.mic_routes)
+        } else if who == "fx1" {
+            Some(&mut self.config.fx_a.routes)
+        } else if who == "fx2" {
+            Some(&mut self.config.fx_b.routes)
+        } else {
+            self.config.channels.iter_mut().find(|channel| channel.id == who).map(|channel| &mut channel.routes)
+        };
+        if let Some(routes) = routes {
+            *routes ^= bit;
+        }
+    }
+
+    fn toggle_send(&mut self, id: &str) {
+        let Some((who, which)) = id.split_once(':') else { return };
+        let second = which == "2";
+        if who == "mic" {
+            if second { self.config.mic_send_fx2 = !self.config.mic_send_fx2; } else { self.config.mic_send_fx1 = !self.config.mic_send_fx1; }
+            return;
+        }
+        if let Some(channel) = self.config.channels.iter_mut().find(|channel| channel.id == who) {
+            if second { channel.send_fx2 = !channel.send_fx2; } else { channel.send_fx1 = !channel.send_fx1; }
+        }
+    }
+
     fn toggle_mute(&mut self, id: &str) {
         if id == "mic" {
             self.config.mic_muted = !self.config.mic_muted;
-        } else if let Some(channel) = id.strip_prefix("tomic:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.to_mic_muted = !item.to_mic_muted;
-            }
-        } else if let Some(channel) = id.strip_prefix("phones:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.phones_muted = !item.phones_muted;
-            }
+        } else if let Some(item) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
+            item.muted = !item.muted;
         }
     }
 
     fn toggle_solo(&mut self, id: &str) {
         if id == "mic" {
             self.config.mic_solo = !self.config.mic_solo;
-        } else if let Some(channel) = id.strip_prefix("tomic:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.to_mic_solo = !item.to_mic_solo;
-            }
-        } else if let Some(channel) = id.strip_prefix("phones:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                item.phones_solo = !item.phones_solo;
-            }
+        } else if let Some(item) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
+            item.solo = !item.solo;
         }
     }
 
     fn toggle_fx(&mut self, id: &str, bus_a: bool) {
-        let flag = |a: &mut bool, b: &mut bool| {
-            if bus_a { *a = !*a; } else { *b = !*b; }
-        };
-        if id == "mic" {
-            flag(&mut self.config.mic_fx_a, &mut self.config.mic_fx_b);
-        } else if let Some(channel) = id.strip_prefix("tomic:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                flag(&mut item.to_mic_fx_a, &mut item.to_mic_fx_b);
-            }
-        } else if let Some(channel) = id.strip_prefix("phones:") {
-            if let Some(item) = self.config.channels.iter_mut().find(|c| c.id == channel) {
-                flag(&mut item.phones_fx_a, &mut item.phones_fx_b);
-            }
-        }
+        let _ = (id, bus_a);
     }
 
     fn handle_fx(&mut self, id: &str) -> Option<Action> {
@@ -940,22 +1045,108 @@ impl Panel {
             }
             return;
         }
-        let mut value = config::clamp_volume(t * 1.5);
-        if self.config.snap {
-            let reach = if span > 0.0 { SNAP_REACH_PX / span * 1.5 } else { 0.0 };
-            value = config::snap_volume(value, reach);
+        let mut db = config::t_to_db(t);
+        if self.config.snap && db.is_finite() {
+            let reach = if span > 0.0 { SNAP_REACH_PX / span * (config::FADER_DB_MAX - config::FADER_DB_MIN) } else { 0.8 };
+            for mark in [12.0, 6.0, 0.0, -6.0, -12.0, -24.0, -48.0] {
+                if (db - mark).abs() <= reach.max(0.8) {
+                    db = mark;
+                    break;
+                }
+            }
         }
         if id == "mic" {
-            self.config.mic_volume = value;
-        } else if let Some(rest) = id.strip_prefix("phones:") {
-            if let Some(channel) = self.config.channels.iter_mut().find(|c| c.id == rest) {
-                channel.phones = value;
+            self.config.mic_gain_db = db;
+        } else if let Some(channel) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
+            channel.gain_db = db;
+        } else if let Some(rest) = id.strip_prefix("bus:") {
+            let mut parts = rest.split(':');
+            let side = parts.next().unwrap_or("");
+            let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(9);
+            if index < 4 {
+                let bus = if side == "a" { &mut self.config.a[index] } else { &mut self.config.b[index] };
+                bus.gain_db = db;
             }
-        } else if let Some(rest) = id.strip_prefix("tomic:") {
-            if let Some(channel) = self.config.channels.iter_mut().find(|c| c.id == rest) {
-                channel.to_mic = value;
+        } else if let Some(rest) = id.strip_prefix("fxret:") {
+            let index: usize = rest.parse().unwrap_or(9);
+            let bus = if index == 0 { &mut self.config.fx_a } else { &mut self.config.fx_b };
+            bus.gain_db = db;
+        } else if let Some(which) = id.strip_prefix("eq-") {
+            if let Overlay::Eq(who) = &self.overlay {
+                let who = who.clone();
+                eq::set_slider(self, &who, which, t);
             }
         }
+    }
+
+    fn toggle_bus_mute(&mut self, id: &str) {
+        let mut parts = id.split(':');
+        let side = parts.next().unwrap_or("");
+        let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(9);
+        if index < 4 {
+            let bus = if side == "a" { &mut self.config.a[index] } else { &mut self.config.b[index] };
+            bus.muted = !bus.muted;
+        }
+    }
+
+    fn handle_eq(&mut self, id: &str) -> Option<Action> {
+        let who = match &self.overlay {
+            Overlay::Inserts(who) | Overlay::Eq(who) => who.clone(),
+            _ => return None,
+        };
+        if id == "add-eq" {
+            eq::add_eq(self, &who);
+            self.overlay = Overlay::Eq(who);
+            return Some(Action::Save);
+        }
+        if let Some(rest) = id.strip_prefix("open-eq:") {
+            let _ = rest;
+            self.eq_band = 0;
+            self.overlay = Overlay::Eq(who);
+            return Some(Action::None);
+        }
+        if let Some(rest) = id.strip_prefix("rm-insert:") {
+            if let Ok(index) = rest.parse::<usize>() {
+                eq::remove_insert(self, &who, index);
+                return Some(Action::Save);
+            }
+        }
+        if let Some(rest) = id.strip_prefix("eqband:") {
+            let index = rest.parse().unwrap_or(0);
+            self.eq_band = index;
+            self.drag = Some(id.to_string());
+            if let Some((x, y)) = self.pointer {
+                eq::drag_handle(self, &who, index, x, y);
+            }
+            return Some(Action::Levels);
+        }
+        if let Some(rest) = id.strip_prefix("eq-points:") {
+            if let Ok(points) = rest.parse::<u8>() {
+                eq::set_points(self, &who, points);
+                return Some(Action::Save);
+            }
+        }
+        if id == "eq-reset" {
+            eq::reset(self, &who);
+            return Some(Action::Save);
+        }
+        if id == "eq-bypass" {
+            eq::toggle_bypass(self, &who);
+            return Some(Action::Save);
+        }
+        if id == "eq-done" {
+            self.overlay = Overlay::None;
+            return Some(Action::Save);
+        }
+        if id == "eq-type" {
+            eq::cycle_type(self, &who);
+            return Some(Action::Save);
+        }
+        if id == "eq-on" {
+            eq::toggle_band(self, &who);
+            return Some(Action::Save);
+        }
+        None
     }
 
     fn fx_reorder(&mut self, y: f64) {
@@ -1070,6 +1261,7 @@ impl Panel {
         } else {
             mix::draw(self, cr, fonts, t, snap, peaks);
             match self.drawer {
+                Drawer::Outputs => outputs::draw(self, cr, fonts, t, &snap.graph),
                 Drawer::FxA => fx::draw(self, cr, fonts, t, 0),
                 Drawer::FxB => fx::draw(self, cr, fonts, t, 1),
                 _ => check::draw(self, cr, fonts, t, snap, peaks),
@@ -1088,8 +1280,14 @@ impl Panel {
             Overlay::AppsList => 4,
             Overlay::Confirm(_) => 5,
             Overlay::Name(_) => 6,
+            Overlay::Inserts(_) => 7,
+            Overlay::Eq(_) => 8,
         };
         let confirm_key = if let Overlay::Confirm(key) = &self.overlay { key.clone() } else { String::new() };
+        let eq_who = match &self.overlay {
+            Overlay::Inserts(who) | Overlay::Eq(who) => who.clone(),
+            _ => String::new(),
+        };
         match overlay {
             1 => dialogs::add(self, cr, fonts, t, snap),
             2 => dialogs::mic(self, cr, fonts, t, snap),
@@ -1097,6 +1295,8 @@ impl Panel {
             4 => apps::list(self, cr, fonts, t, snap),
             5 => apps::confirm(self, cr, fonts, t, snap, &confirm_key),
             6 => dialogs::name(self, cr, fonts, t),
+            7 => eq::inserts(self, cr, fonts, t, &eq_who),
+            8 => eq::sheet(self, cr, fonts, t, &eq_who),
             _ => {}
         }
     }

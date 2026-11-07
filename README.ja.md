@@ -3,7 +3,7 @@
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
-  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-1.1.0-33C4FF?style=flat-square" alt="Version 1.1.0"></a>
+  <a href="Cargo.toml"><img src="https://img.shields.io/badge/version-2.0.0-33C4FF?style=flat-square" alt="Version 2.0.0"></a>
   <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="https://img.shields.io/badge/Website-33C4FF?style=flat-square" alt="Website"></a>
   <a href="https://github.com/marcus-universe/frame-audio-mixer/stargazers"><img src="https://img.shields.io/github/stars/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="GitHub stars"></a>
 </p>
@@ -35,7 +35,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **仮想オーディオデバイス**: 名前付きのチャンネルを最大 32 個作れます。それぞれが出力（`Frame Mix: <name>`）になり、どのアプリからも選べます。
 - **アプリのチャンネル**: 実行中のアプリからチャンネルを作れます。名前の横にそのアプリのアイコンが表示されます。
 - **PC 配信マイクのミックス**: PC にはマイクとチャンネルの音が届きます。
-- **チャンネルごとに 2 本のフェーダー**: ヘッドセット用と PC 用があり、それぞれにミュートがあります。フェーダーは 20、50、80、100 % に吸着します。
+- **チャンネルごとに 1 本のフェーダー**（dB）。ミュート、ソロ、インサート付き。A は聞く側、B は仮想マイクです。設定で出力数を 2、4、6、8 から選びます。パラメトリック EQ は 3、6、8、12 ポイントです。
 - **マイク**: ミックスに使うマイクを選べます。システムの既定マイクは変わりません。
 - **レベルメーター**をすべてのフェーダーに表示します。オフにもできます。
 - **ミックス確認**: PC に届く音を最大 10 秒録音して再生します。
@@ -58,7 +58,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. **ミックス** をオンにします。
 3. **+** を押してチャンネルを追加します。候補、自分で付けた名前、実行中のアプリから選べます。
 4. そのアプリで、出力 `Frame Mix: <name>` を選びます。
-5. スピーカーのフェーダーは、そのチャンネルをヘッドセットでどのくらいの音量で聞くかを決めます。マイクのフェーダーは、PC にどれだけ届くかを決めます。
+5. フェーダーはストリップの音量です。A1 はヘッドセット、B1 は PC です。ほかのバスは Outputs ドロワーで設定します。
 
 Frame のスピーカーを使う場合は、Frame Mic Tuner でエコー除去をオンにしてください。オフのままだと、PC にアプリの音が二重に届くことがあります。
 

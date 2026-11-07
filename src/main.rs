@@ -6,6 +6,7 @@ mod apps;
 mod brand;
 mod config;
 mod draw;
+mod engine;
 mod fx;
 mod graph;
 mod i18n;
@@ -46,8 +47,16 @@ fn main() {
         }
         return;
     }
+    if args.first().map(String::as_str) == Some("engine") {
+        let spike = args.iter().any(|arg| arg == "--spike");
+        if let Err(err) = engine::serve(spike) {
+            eprintln!("frame-audio-mixer: {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if args.iter().any(|arg| arg == "--help") {
-        println!("frame-audio-mixer [--version] [--self-test] [--dump-png PATH] [--language CODE] [--update-install]");
+        println!("frame-audio-mixer [--version] [--self-test] [--dump-png PATH] [--language CODE] [--update-install] [engine [--spike]]");
         return;
     }
     if args.iter().any(|arg| arg == "--self-test") {
@@ -161,11 +170,9 @@ fn main() {
         ui.tick();
         let visible = session.dashboard_visible();
         let snap = worker.snapshot();
-        // With Mix on the taps stay up while the dashboard is hidden, so opening the
-        // Steam menu does not add capture streams on the same edge as its own sounds.
-        let targets = if visible || ui.config.mix_on { ui.meter_targets(&snap) } else { Vec::new() };
-        levels.sync(&targets);
-        let meters_live = visible && !targets.is_empty();
+        let empty_meters = std::collections::HashMap::new();
+        levels.ingest(if visible { &snap.meters } else { &empty_meters });
+        let meters_live = visible && !snap.meters.is_empty();
         let interval = if ui.animating() {
             Duration::from_millis(16)
         } else if meters_live {
@@ -182,7 +189,7 @@ fn main() {
                 eprintln!("frame-audio-mixer: {err}");
             }
             let pixels = {
-                let peaks = levels.peaks();
+                let peaks = levels.live();
                 ui.render(&fonts, &snap, peaks)
             };
             let accent = ui.config.accent.clone();
@@ -229,6 +236,7 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
 fn self_test() -> Result<(), String> {
     config::self_test()?;
     graph::self_test()?;
+    engine::self_test()?;
     i18n::self_test()?;
     draw::self_test_paths()?;
     fx::self_test()?;

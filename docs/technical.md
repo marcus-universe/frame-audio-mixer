@@ -11,15 +11,14 @@ The one-line install runs [`scripts/get.sh`](../scripts/get.sh). It downloads th
 `install.sh` writes only under the home directory and does not use `sudo`:
 
 - binary `~/.local/bin/frame-audio-mixer`
-- runner `~/.local/lib/frame-audio-mixer/frame-audio-mixer-graph.sh`
-- user units `frame-audio-mixer.service`, `frame-audio-mixer-graph.service`, `frame-audio-mixer-channel@.service` and `frame-audio-mixer-fx@.service`
+- user units `frame-audio-mixer.service` and `frame-audio-mixer-engine.service`
 - WirePlumber script `~/.local/share/wireplumber/scripts/frame-audio-mixer.lua` and `~/.config/wireplumber/wireplumber.conf.d/91-frame-audio-mixer.conf` (component `custom.frame-audio-mixer`)
 - desktop entry and icons under `~/.local/share`
-- settings in `~/.config/frame-audio-mixer/` and channel names in `~/.config/pipewire/frame-audio-mixer/<id>.name`
+- settings in `~/.config/frame-audio-mixer/`
 
-At runtime the app adds PipeWire nodes named `frame_amix_*`, the WirePlumber settings `frame-audio-mixer.enabled`, `frame-audio-mixer.vrlink-gain` and `frame-audio-mixer.mic-source`, and the dashboard overlay `marcus-universe.frame-audio-mixer`.
+The engine unit replaces the older graph, channel and effect-bus units. `install.sh` stops those units and deletes them. It never restarts PipeWire or WirePlumber. A new WirePlumber script loads the next time WirePlumber starts. Restart the headset only when you are not in a VR session.
 
-`install.sh` never restarts PipeWire or WirePlumber. A new or changed WirePlumber script loads the next time WirePlumber starts. Restart the headset only when you are not in a VR session: restarting PipeWire or WirePlumber while playing drops SteamVR and Steam Link audio. Channels still work before that, because the panel also pins their streams while it runs.
+At runtime the engine adds PipeWire nodes named `frame_amix_*`. The panel talks to it on a Unix socket at `$XDG_RUNTIME_DIR/frame-audio-mixer/engine.sock`. The WirePlumber settings are `frame-audio-mixer.enabled` and `frame-audio-mixer.vrlink-gain`. The overlay key is `marcus-universe.frame-audio-mixer`.
 
 If an older experiment left `frame-mic-mix` units behind, `install.sh` removes them. The only `frame-mic.*` value it touches is a leftover `frame-mic.mix`. It does not overwrite Frame Mic Tuner's `frame-mic-tracker.lua` or `90-frame-mic.conf`.
 
@@ -27,11 +26,21 @@ From a git checkout, `./install.sh` builds with `cargo` and installs. `./install
 
 ## Channels
 
-- Up to 32 channels, `ch1` to `ch32`. Each is one systemd instance with two `pw-loopback` processes.
-- A name is one line, at most 32 characters, and unique ignoring case.
+- Up to 32 channels, `ch1` to `ch32`. Adding or removing one creates or destroys only that channel's nodes inside `frame-audio-mixer-engine.service`. There is no per-channel process.
+- A name is one line, at most 32 characters, and unique ignoring case. Apps see the channel as an output with that name (`DJ`).
 - A channel made from a running app is named after the app, pins the app to it, and shows the app's icon from its `.desktop` entry. Without an icon it shows the first letter.
 - When the row is wider than the panel, scroll it with the controller stick or drag the bar under the channels.
-- Faders go from 0 to 150 %. A drag snaps to 20, 50, 80 and 100 % when it comes within 8 pixels. The dots on a fader mark 20, 50 and 80 %. The line marks 100 %.
+- Each strip has one fader, from silence to +12 dB, with a detent at 0 dB. Mute, Solo and Inserts sit under it. The route buttons send the strip to A1–A4 (what you hear) and B1–B4 (virtual microphones), and to FX1 and FX2.
+
+## Outputs
+
+App Settings chooses 2, 4, 6 or 8 outputs. 2 is A1 and B1. 8 is A1–A4 and B1–B4. A lower count keeps the stored routes and does not link them.
+
+- A1 is the headset speakers. A2–A4 can be any other sink, such as Bluetooth.
+- B1 is `frame_amix_source`, shown as **Frame Mix**. VRLink records it, so the PC sees Steam Streaming Microphone.
+- B2–B4 are extra virtual microphones. Each has a name.
+
+Each output has a master fader and Mute in the Outputs drawer.
 
 ## Microphone
 
@@ -41,17 +50,17 @@ The microphone choice is only for the mix. Nothing in this app calls `wpctl set-
 - **Frame built-in mic** is `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`, the end of Valve's chain after noise suppression, echo cancellation and the mic EQ.
 - Any other listed source is stored by its `node.name`.
 
-The choice is saved as `frame-audio-mixer.mic-source` (`""`, `builtin`, or a node name). The script resolves `builtin` to the loopback above, falls back to the system default if that node is missing, and never uses `frame_amix_source`. A changed value takes effect after WirePlumber's next start.
+The engine captures that source with a loopback that is not virtual, so Valve's noise suppression stays on while Mix is on. The mic strip adds 12 dB of trim at the 0 dB fader. Its default route is B1 only.
 
 ## Level meters
 
-Meter taps stay up while Mix is on, including while the dashboard is hidden, so opening the Steam menu does not add capture streams on the same edge as its own sounds. App Settings can still turn meters off. Only the channels you can see on screen are metered. Each meter is a `pw-record` tap with `node.virtual=true`, so it does not turn Valve's mic filters on. Channel taps are passive. The microphone tap is not. The panel redraws at about 30 fps while meters run and about 60 fps while a drawer is moving. It still does not draw while the dashboard is hidden.
+Meters are peaks kept in the engine and read over the socket. The panel asks for them at about 30 fps only while the dashboard is visible. App Settings can turn them off. There is no `pw-record` process per meter.
 
-Mute and Solo sit under every fader. Solo is per destination: the microphone and PC faders solo against each other, and headset faders solo against the other headset faders. The worker applies that with `wpctl` and does not change the saved mute flags.
+Mute and Solo sit under every fader. Solo is one group: a soloed strip is the only one that passes, and the saved mute flags stay as they are.
 
-## Effect buses
+## Effects
 
-Two shared buses. Each fader can send to either or both. A send leaves the dry path and returns through the bus, so the fader level stays what you hear. Both buses on means bus 1, then bus 2. An empty chain is a bypass. Each bus has two process instances (PC and headset) that share one parameter set. Processing is float32 at 48 kHz in the mixer process, 512 frames, with no LADSPA packages. `frame-audio-mixer-fx@.service` only adds the mix sinks; toggling a send or a parameter does not restart PipeWire, WirePlumber, or the channel units.
+Each strip has an insert chain. EQ is a parametric equalizer with 3, 6, 8 or 12 points. The outer points can be a bell, a shelf, or a high-pass (low point) or low-pass (high point). FX1 and FX2 are shared sends. A send leaves the dry path. Each return has its own fader and A/B routes. Processing is float32 at 48 kHz and 480 frames inside the engine. Toggling a send does not restart PipeWire or WirePlumber.
 
 ## Apps and updates
 

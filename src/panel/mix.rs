@@ -78,7 +78,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
         mic_x + MIC_W / 2.0,
         strip_top + cap_top,
         cap_h,
-        panel.config.mic_volume * 100.0,
+        panel.config.mic_gain_db,
         mic_peak,
         panel.config.meters,
         panel.config.mic_muted,
@@ -87,7 +87,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     );
     panel.fader_hit("mic", geom.capsule_x - 4.0, geom.capsule_y, geom.meter_right - geom.capsule_x + 8.0, geom.capsule_h, false);
     let mic_cx = geom.capsule_x + geom.capsule_w / 2.0;
-    fader_sends(panel, cr, mic_cx, strip_top + cap_top - draw::FADER_HEAD, "mic", panel.config.mic_fx_a, panel.config.mic_fx_b, None);
+    route_grid(panel, cr, fonts, mic_x + 8.0, strip_top + 40.0, MIC_W - 16.0, "mic", panel.config.mic_routes, panel.config.mic_send_fx1, panel.config.mic_send_fx2, None, None);
     fader_buttons(
         panel,
         cr,
@@ -142,63 +142,33 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
                 view.hot(panel, &format!("rm:{}", channel.id), cx + CHAN_W - 40.0, strip_top + 8.0, REMOVE_S, REMOVE_S);
             }
             let peak = peaks.get(&channel.id).copied().unwrap_or(0.0);
-            let col = (CHAN_W - 16.0) / 2.0;
-            let left = draw::paint_fader(
+            let geom = draw::paint_fader(
                 cr,
                 fonts,
-                cx + 8.0 + col / 2.0,
+                cx + CHAN_W / 2.0,
                 strip_top + cap_top,
                 cap_h,
-                channel.to_mic * 100.0,
+                channel.gain_db,
                 peak,
                 panel.config.meters,
-                channel.to_mic_muted,
-                draw::FaderGlyph::Mic,
-                panel.config.snap,
-            );
-            view.fader(panel, &format!("tomic:{}", channel.id), left.capsule_x - 2.0, left.capsule_y, left.meter_right - left.capsule_x + 4.0, left.capsule_h);
-            let left_cx = left.capsule_x + left.capsule_w / 2.0;
-            fader_sends(panel, cr, left_cx, strip_top + cap_top - draw::FADER_HEAD, &format!("tomic:{}", channel.id), channel.to_mic_fx_a, channel.to_mic_fx_b, Some(&view));
-            fader_buttons(
-                panel,
-                cr,
-                fonts,
-                t,
-                left_cx,
-                strip_top + cap_top + cap_h,
-                col - 4.0,
-                &format!("tomic:{}", channel.id),
-                channel.to_mic_muted,
-                channel.to_mic_solo,
-                Some(&view),
-            );
-            let right = draw::paint_fader(
-                cr,
-                fonts,
-                cx + 8.0 + col + col / 2.0,
-                strip_top + cap_top,
-                cap_h,
-                channel.phones * 100.0,
-                peak,
-                panel.config.meters,
-                channel.phones_muted,
+                channel.muted,
                 draw::FaderGlyph::Speaker,
                 panel.config.snap,
             );
-            view.fader(panel, &format!("phones:{}", channel.id), right.capsule_x - 2.0, right.capsule_y, right.meter_right - right.capsule_x + 4.0, right.capsule_h);
-            let right_cx = right.capsule_x + right.capsule_w / 2.0;
-            fader_sends(panel, cr, right_cx, strip_top + cap_top - draw::FADER_HEAD, &format!("phones:{}", channel.id), channel.phones_fx_a, channel.phones_fx_b, Some(&view));
+            view.fader(panel, &channel.id, geom.capsule_x - 2.0, geom.capsule_y, geom.meter_right - geom.capsule_x + 4.0, geom.capsule_h);
+            let center = geom.capsule_x + geom.capsule_w / 2.0;
+            route_grid(panel, cr, fonts, cx + 8.0, strip_top + 40.0, CHAN_W - 16.0, &channel.id, channel.routes, channel.send_fx1, channel.send_fx2, Some(&view), None);
             fader_buttons(
                 panel,
                 cr,
                 fonts,
                 t,
-                right_cx,
+                center,
                 strip_top + cap_top + cap_h,
-                col - 4.0,
-                &format!("phones:{}", channel.id),
-                channel.phones_muted,
-                channel.phones_solo,
+                CHAN_W - 16.0,
+                &channel.id,
+                channel.muted,
+                channel.solo,
                 Some(&view),
             );
         }
@@ -290,16 +260,17 @@ fn draw_list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peaks: &H
 
 fn list_mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peak: f32, x: f64, y: f64, w: f64, view: &VClip) {
     fill_round(cr, x, y, w, ROW_H, R_SURFACE, INSET);
-    draw::label_fit(cr, fonts, true, 15.0, TEXT, x + ROW_PAD, y + TITLE_Y, w - 2.0 * ROW_PAD - 72.0, t.mic);
-    list_sends(panel, cr, x + ROW_PAD, y + LIST_FX_Y, w - 2.0 * ROW_PAD, "mic", panel.config.mic_fx_a, panel.config.mic_fx_b, view);
+    draw::label_fit(cr, fonts, true, 15.0, TEXT, x + ROW_PAD, y + TITLE_Y, 160.0, t.mic);
+    let grid_w = 220.0_f64.min(w * 0.42);
+    route_grid(panel, cr, fonts, x + w - ROW_PAD - grid_w, y + 8.0, grid_w, "mic", panel.config.mic_routes, panel.config.mic_send_fx1, panel.config.mic_send_fx2, None, Some(view));
     let mic = draw::paint_side_fader(
         cr,
         fonts,
         x + ROW_PAD - 4.0,
-        y + SLOT_Y,
-        w - 2.0 * ROW_PAD + 4.0,
+        y + 36.0,
+        w - grid_w - 36.0,
         SLOT_H,
-        panel.config.mic_volume * 100.0,
+        panel.config.mic_gain_db,
         peak,
         panel.config.meters,
         panel.config.mic_muted,
@@ -307,7 +278,7 @@ fn list_mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peak: f32,
         panel.config.snap,
     );
     view.fader(panel, "mic", mic.capsule_x, mic.capsule_y, mic.capsule_w, mic.capsule_h);
-    list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + SLOT_Y + SLOT_H, w - 2.0 * ROW_PAD, "mic", panel.config.mic_muted, panel.config.mic_solo, view);
+    list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, w - grid_w - 36.0, "mic", panel.config.mic_muted, panel.config.mic_solo, view);
 }
 
 fn list_channel(
@@ -334,49 +305,31 @@ fn list_channel(
         if with_icon {
             super::paint_desktop_icon(panel, cr, fonts, &channel.app, &channel.binary, x + ROW_PAD, y + TITLE_Y - 15.0, ICON_S);
         }
-        draw::label_fit(cr, fonts, true, 15.0, draw::accent(), x + ROW_PAD + icon_room, y + TITLE_Y, w - 72.0 - icon_room, &channel.name);
-        view.hot(panel, &format!("name:{}", channel.id), x + 8.0, y + 4.0, w - 56.0, 30.0);
+        draw::label_fit(cr, fonts, true, 15.0, draw::accent(), x + ROW_PAD + icon_room, y + TITLE_Y, 180.0, &channel.name);
+        view.hot(panel, &format!("name:{}", channel.id), x + 8.0, y + 4.0, 220.0, 30.0);
     }
     remove_glyph(panel, cr, x + w - 40.0, y + 4.0);
     view.hot(panel, &format!("rm:{}", channel.id), x + w - 40.0, y + 4.0, REMOVE_S, REMOVE_S);
-    let gap = 16.0;
-    let slot_w = (w - 2.0 * ROW_PAD + 4.0 - gap) / 2.0;
-    let slot_y = y + SLOT_Y;
-    let left = draw::paint_side_fader(
+    let grid_w = 220.0_f64.min(w * 0.42);
+    route_grid(panel, cr, fonts, x + w - ROW_PAD - grid_w, y + 36.0, grid_w, &channel.id, channel.routes, channel.send_fx1, channel.send_fx2, None, Some(view));
+    let fader = draw::paint_side_fader(
         cr,
         fonts,
         x + ROW_PAD - 4.0,
-        slot_y,
-        slot_w,
+        y + 36.0,
+        w - grid_w - 36.0,
         SLOT_H,
-        channel.to_mic * 100.0,
+        channel.gain_db,
         peak,
         panel.config.meters,
-        channel.to_mic_muted,
-        draw::FaderGlyph::Mic,
-        panel.config.snap,
-    );
-    view.fader(panel, &format!("tomic:{}", channel.id), left.capsule_x, left.capsule_y, left.capsule_w, left.capsule_h);
-    list_sends(panel, cr, x + ROW_PAD - 4.0, y + LIST_FX_Y, slot_w, &format!("tomic:{}", channel.id), channel.to_mic_fx_a, channel.to_mic_fx_b, view);
-    list_buttons(panel, cr, fonts, t, x + ROW_PAD - 4.0, slot_y + SLOT_H, slot_w, &format!("tomic:{}", channel.id), channel.to_mic_muted, channel.to_mic_solo, view);
-    let right = draw::paint_side_fader(
-        cr,
-        fonts,
-        x + ROW_PAD - 4.0 + slot_w + gap,
-        slot_y,
-        slot_w,
-        SLOT_H,
-        channel.phones * 100.0,
-        peak,
-        panel.config.meters,
-        channel.phones_muted,
+        channel.muted,
         draw::FaderGlyph::Speaker,
         panel.config.snap,
     );
-    view.fader(panel, &format!("phones:{}", channel.id), right.capsule_x, right.capsule_y, right.capsule_w, right.capsule_h);
-    list_sends(panel, cr, x + ROW_PAD - 4.0 + slot_w + gap, y + LIST_FX_Y, slot_w, &format!("phones:{}", channel.id), channel.phones_fx_a, channel.phones_fx_b, view);
-    list_buttons(panel, cr, fonts, t, x + ROW_PAD - 4.0 + slot_w + gap, slot_y + SLOT_H, slot_w, &format!("phones:{}", channel.id), channel.phones_muted, channel.phones_solo, view);
+    view.fader(panel, &channel.id, fader.capsule_x, fader.capsule_y, fader.capsule_w, fader.capsule_h);
+    list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, w - grid_w - 36.0, &channel.id, channel.muted, channel.solo, view);
 }
+
 
 /// The visible part of the channel row. Hit areas of a half-hidden channel stop at its
 /// edge, so they cannot catch a click meant for Mix Check or the microphone strip.
@@ -485,6 +438,74 @@ fn header_tools(panel: &mut Panel, cr: &Context, x: f64, y: f64) {
     tool_button(panel, cr, x + step * 2.0, y, view_path, 512.0, view_on, view_id);
 }
 
+fn route_grid(
+    panel: &mut Panel,
+    cr: &Context,
+    fonts: &Fonts,
+    x: f64,
+    y: f64,
+    w: f64,
+    id: &str,
+    routes: u8,
+    fx1: bool,
+    fx2: bool,
+    clip: Option<&Clip>,
+    vclip: Option<&VClip>,
+) {
+    let sides = crate::config::side_count(panel.config.outputs).max(1);
+    let gap = 4.0;
+    let bw = ((w - gap * (sides as f64 - 1.0)) / sides as f64).clamp(28.0, 64.0);
+    let bh = 26.0;
+    for index in 0..sides {
+        let bx = x + index as f64 * (bw + gap);
+        let a_on = crate::config::route_on(routes, true, index);
+        let b_on = crate::config::route_on(routes, false, index);
+        route_cell(panel, cr, fonts, bx, y, bw, bh, &format!("A{}", index + 1), &format!("route:{id}:a:{index}"), a_on, 0, clip, vclip);
+        route_cell(panel, cr, fonts, bx, y + bh + 3.0, bw, bh, &format!("B{}", index + 1), &format!("route:{id}:b:{index}"), b_on, 1, clip, vclip);
+    }
+    let fy = y + (bh + 3.0) * 2.0;
+    let fw = ((w - gap) / 2.0).max(28.0);
+    route_cell(panel, cr, fonts, x, fy, fw, bh, "FX1", &format!("send:{id}:1"), fx1, 2, clip, vclip);
+    route_cell(panel, cr, fonts, x + fw + gap, fy, fw, bh, "FX2", &format!("send:{id}:2"), fx2, 3, clip, vclip);
+}
+
+fn route_cell(
+    panel: &mut Panel,
+    cr: &Context,
+    fonts: &Fonts,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    caption: &str,
+    id: &str,
+    on: bool,
+    kind: u8,
+    clip: Option<&Clip>,
+    vclip: Option<&VClip>,
+) {
+    let (fill, ink) = if on {
+        match kind {
+            0 => (TEXT, draw::BG),
+            1 => (draw::accent(), draw::on_accent()),
+            2 => (draw::FX1, draw::BG),
+            _ => (draw::FX2, draw::BG),
+        }
+    } else {
+        (INSET, MUTED)
+    };
+    fill_round(cr, x, y, w, h, 8.0, fill);
+    let tw = draw::text_width(cr, fonts, true, 12.0, caption);
+    draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);
+    if let Some(clip) = clip {
+        clip.hot(panel, id, x, y, w, h);
+    } else if let Some(view) = vclip {
+        view.hot(panel, id, x, y, w, h);
+    } else {
+        panel.hot(id, x, y, w, h);
+    }
+}
+
 fn fader_sends(panel: &mut Panel, cr: &Context, cx: f64, y: f64, id: &str, fx_a: bool, fx_b: bool, clip: Option<&Clip>) {
     let fx_s = draw::FADER_FX_S;
     let fx_x = cx - fx_s - 2.0;
@@ -507,12 +528,13 @@ fn fader_buttons(
 ) {
     let mute_y = foot + draw::FADER_MUTE_Y;
     let btn_h = draw::FADER_MUTE_H;
-    let pair_w = max_w.min(96.0);
+    let pair_w = max_w.min(168.0);
     let gap = 4.0;
-    let btn_w = (pair_w - gap) / 2.0;
+    let btn_w = (pair_w - gap * 2.0) / 3.0;
     let x0 = cx - pair_w / 2.0;
     pill(panel, cr, fonts, t.mute, &format!("mute:{id}"), x0, mute_y, btn_w, btn_h, muted, true, clip);
     pill(panel, cr, fonts, t.solo, &format!("solo:{id}"), x0 + btn_w + gap, mute_y, btn_w, btn_h, soloed, false, clip);
+    pill(panel, cr, fonts, t.inserts, &format!("inserts:{id}"), x0 + (btn_w + gap) * 2.0, mute_y, btn_w, btn_h, false, false, clip);
 }
 
 fn list_sends(panel: &mut Panel, cr: &Context, x: f64, y: f64, w: f64, id: &str, fx_a: bool, fx_b: bool, view: &VClip) {
@@ -538,9 +560,10 @@ fn list_buttons(
 ) {
     let btn_h = 24.0;
     let gap = 4.0;
-    let mute_w = ((w - gap) / 2.0).max(36.0);
+    let mute_w = ((w - gap * 2.0) / 3.0).max(28.0);
     pill_clip(panel, cr, fonts, t.mute, &format!("mute:{id}"), x, y + 4.0, mute_w, btn_h, muted, true, view);
     pill_clip(panel, cr, fonts, t.solo, &format!("solo:{id}"), x + mute_w + gap, y + 4.0, mute_w, btn_h, soloed, false, view);
+    pill_clip(panel, cr, fonts, t.inserts, &format!("inserts:{id}"), x + (mute_w + gap) * 2.0, y + 4.0, mute_w, btn_h, false, false, view);
 }
 
 fn pill(
@@ -558,15 +581,11 @@ fn pill(
     clip: Option<&Clip>,
 ) {
     let fill = if on {
-        if danger { draw::DANGER } else { draw::accent() }
+        if danger { draw::DANGER } else { draw::SOLO }
     } else {
         INSET
     };
-    let ink = if on {
-        if danger { draw::on_accent() } else { draw::on_accent() }
-    } else {
-        MUTED
-    };
+    let ink = if on { draw::BG } else { MUTED };
     fill_round(cr, x, y, w, h, 12.0, fill);
     let tw = draw::text_width(cr, fonts, true, 12.0, caption);
     draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);

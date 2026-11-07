@@ -6,41 +6,34 @@
 
 ```mermaid
 flowchart LR
-    mic["マイク<br/>(Frame Mic Tuner の後)"] --> from_mic[frame_amix_from_mic]
-    from_mic --> mic_fader["frame_amix_mic_virtual_sink<br/>マイクのフェーダー"]
-    mic_fader --> bus[frame_amix_bus]
-    app["アプリ"] --> sink["frame_amix_chN<br/>Frame Mix: name"]
-    sink --> phones["…_virtual_sink_playback<br/>ヘッドセットのフェーダー"] --> out["ヘッドセットの出力"]
-    sink --> to_bus["…_virtual_sink_to_bus<br/>PC のフェーダー"] --> bus
-    bus --> source["frame_amix_source<br/>Frame Mic + Mix"]
-    source --> vrlink["VRLink<br/>PC の Steam Streaming Microphone"]
+  appA[アプリ] --> chSink["frame_amix_chN"]
+  micSrc["Valve フィルタ後のマイク"] --> micStrip["マイクストリップ"]
+  chSink --> chStrip["ストリップ"]
+  chStrip --> busA["A1 から A4"]
+  chStrip --> busB["B1 から B4"]
+  micStrip --> busB
+  busA --> speakers["スピーカーまたは別のシンク"]
+  busB --> frameMix["frame_amix_source"]
+  frameMix --> vrlink["VRLink"]
 ```
 
 ## マイク
 
-ミックスは、パネルで選んだマイクから始まります。**システムの既定** は既定のソースに従います。Frame では、Valve のフィルタ（ノイズ抑制、エコー除去、マイク EQ）を通った後の内蔵マイクです。これらのフィルタは Frame Mic Tuner が制御します。このアプリは、これらのフィルタもシステムの既定も変えません。
+ミックスは、パネルで選んだマイクから始まります。**システムの既定** は既定のソースに従います。**Frame の内蔵マイク** は、Valve のフィルタ（ノイズ抑制、エコー除去、マイク EQ）の後です。これらのフィルタは Frame Mic Tuner が制御します。このアプリは、これらのフィルタもシステムの既定も変えません。
 
-## 中核のグラフ
+## エンジン
 
-`frame-audio-mixer-graph.service` が中核を作ります:
+`frame-audio-mixer-engine.service` がグラフを持ちます。パネルを閉じてもミックスは続きます。
 
-- `frame_amix_from_mic` が、選んだマイクを録音します。
-- `frame_amix_mic_virtual_sink` はマイクのフェーダーです。`frame_amix_bus` へ再生します。
-- `frame_amix_source`（**Frame Mic + Mix**）は、VRLink が録音するソースです。
+- 各チャンネルは `frame_amix_chN` というシンクです。アプリにはチャンネル名（`DJ`）で見えます。
+- ストリップはインサート、フェーダー、ミュート、ソロ、メーターを適用し、オンにした A と B のバスへ送ります。
+- A1 はヘッドセットのスピーカーです。A2 から A4 は選んだシンクです。
+- B1 は `frame_amix_source`（**Frame Mix**）です。B2 から B4 は追加の仮想マイクです。
+- マイクストリップの既定の行き先は B1 です。キャプチャは仮想ではないので、Mix がオンのあいだ Valve のノイズ抑制は動いたままです。
 
-パネルのマイクのミュートは、`frame_amix_mic_virtual_sink` だけをミュートします。システムのマイクとチャンネルはミュートされません。
+チャンネルの追加や削除は、そのチャンネルのノードだけを作ります。PipeWire と WirePlumber は再起動しません。
 
-## チャンネル
-
-各チャンネルは独立した `frame-audio-mixer-channel@chN.service` で、`ch1` から `ch32` まであります:
-
-- `frame_amix_chN` は、アプリが選ぶ出力です（`Frame Mix: <name>`）。
-- `frame_amix_chN_virtual_sink_playback` は、それをヘッドセットで再生します。これがヘッドセットのフェーダーです。
-- `frame_amix_chN_virtual_sink_to_bus` は、同じ音をミックスバスへ送ります。これが PC のフェーダーです。
-
-チャンネルを追加または削除すると、起動または停止するのはそのユニットだけです。PipeWire と WirePlumber は動いたままです。
-
-内部の再生ノードの名前には、`virtual` と `sink` の両方が入っています。そのため、SteamOS の空間オーディオがそれらを包み込んで、ミックスをもう一度スピーカーへ送ることはありません。チャンネルの出力は `alsa_output` や `bluez_output` という名前ではないので、Frame Mic Tuner の出力一覧には出ません。
+内部ノードの名前には `virtual` と `sink` の両方が入るので、空間オーディオがミックスをスピーカーへ二重に出しません。
 
 ## PC への経路
 

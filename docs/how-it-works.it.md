@@ -6,41 +6,34 @@
 
 ```mermaid
 flowchart LR
-    mic["Microfono<br/>(dopo Frame Mic Tuner)"] --> from_mic[frame_amix_from_mic]
-    from_mic --> mic_fader["frame_amix_mic_virtual_sink<br/>fader del microfono"]
-    mic_fader --> bus[frame_amix_bus]
-    app["App"] --> sink["frame_amix_chN<br/>Frame Mix: name"]
-    sink --> phones["…_virtual_sink_playback<br/>fader del visore"] --> out["Uscita del visore"]
-    sink --> to_bus["…_virtual_sink_to_bus<br/>fader del PC"] --> bus
-    bus --> source["frame_amix_source<br/>Frame Mic + Mix"]
-    source --> vrlink["VRLink<br/>Steam Streaming Microphone sul PC"]
+  appA[App] --> chSink["frame_amix_chN"]
+  micSrc["Microfono dopo i filtri Valve"] --> micStrip["Strip del microfono"]
+  chSink --> chStrip["Strip"]
+  chStrip --> busA["A1 a A4"]
+  chStrip --> busB["B1 a B4"]
+  micStrip --> busB
+  busA --> speakers["Altoparlanti o un'altra uscita"]
+  busB --> frameMix["frame_amix_source"]
+  frameMix --> vrlink["VRLink"]
 ```
 
 ## Il microfono
 
-Il mix parte dal microfono che hai scelto nel pannello. **Predefinito di sistema** segue la sorgente predefinita. Sul Frame è il microfono interno dopo i filtri Valve (riduzione del rumore, cancellazione dell'eco ed EQ del microfono), che Frame Mic Tuner controlla. Questa app non cambia mai quei filtri e non cambia mai il predefinito di sistema.
+Il mix parte dal microfono scelto nel pannello. **Predefinito di sistema** segue la sorgente predefinita. **Microfono del Frame** è quello interno dopo i filtri Valve. Li controlla Frame Mic Tuner. Questa app non li cambia e non cambia il predefinito di sistema.
 
-## Il grafo principale
+## Il motore
 
-`frame-audio-mixer-graph.service` costruisce il nucleo:
+`frame-audio-mixer-engine.service` possiede il grafo. Il mix continua quando il pannello si chiude.
 
-- `frame_amix_from_mic` registra il microfono scelto.
-- `frame_amix_mic_virtual_sink` è il fader del microfono. Riproduce in `frame_amix_bus`.
-- `frame_amix_source` (**Frame Mic + Mix**) è la sorgente che VRLink registra.
+- Ogni canale è un sink `frame_amix_chN`. Le app lo vedono con il nome del canale (`DJ`).
+- La strip applica insert, fader, mute, solo e il livello, poi manda ai bus A e B accesi.
+- A1 sono gli altoparlanti del visore. Da A2 ad A4 è l'uscita scelta.
+- B1 è `frame_amix_source` (**Frame Mix**). Da B2 a B4 sono altri microfoni virtuali.
+- La strip del microfono va di default solo su B1. La cattura non è virtuale, quindi la riduzione del rumore resta attiva mentre Mix è acceso.
 
-Il mute del microfono nel pannello silenzia solo `frame_amix_mic_virtual_sink`. Il microfono di sistema e i canali non vengono silenziati.
+Aggiungere o togliere un canale crea o distrugge solo i suoi nodi. PipeWire e WirePlumber non vengono riavviati.
 
-## Canali
-
-Ogni canale è il proprio `frame-audio-mixer-channel@chN.service`, da `ch1` a `ch32`:
-
-- `frame_amix_chN` è l'uscita che le app scelgono (`Frame Mix: <name>`).
-- `frame_amix_chN_virtual_sink_playback` la riproduce nel visore. È il fader del visore.
-- `frame_amix_chN_virtual_sink_to_bus` manda lo stesso audio nel bus del mix. È il fader del PC.
-
-Aggiungere o rimuovere un canale avvia o ferma solo quell'unità. PipeWire e WirePlumber continuano a girare.
-
-I nomi interni di riproduzione contengono sia `virtual` sia `sink`. Per questo l'audio spaziale di SteamOS non li avvolge e non manda il mix una seconda volta agli altoparlanti. Le uscite dei canali non si chiamano `alsa_output` né `bluez_output`, quindi non compaiono nell'elenco uscite di Frame Mic Tuner.
+I nomi interni contengono `virtual` e `sink`, quindi l'audio spaziale non li avvolge.
 
 ## Instradamento verso il PC
 

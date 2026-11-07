@@ -1,6 +1,6 @@
 //! Effect-bus drawer: up to three chained effects, drag to reorder.
 
-use super::{fill_round, fmt_token, Panel};
+use super::{fill_round, Panel};
 use crate::config::{EffectKind, EffectSlot, FxBus};
 use crate::draw::{self, ButtonKind, Fonts, INSET, MUTED, R_CONTROL, TEXT};
 use crate::i18n::{self, Text};
@@ -17,17 +17,16 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus
     if w < 80.0 {
         return;
     }
-    let color = draw::bus_color(bus);
-    fill_round(cr, x + 20.0, y + 32.0, 8.0, 24.0, 4.0, color);
-    let first = if panel.config.accent == "pink" { t.color_pink } else { t.color_blue };
-    let second = if panel.config.accent == "pink" { t.color_blue } else { t.color_pink };
-    let title = fmt_token(t.bus_fmt, "color", if bus == 0 { first } else { second });
-    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 40.0, y + 44.0, &title);
+    let color = if bus == 0 { draw::FX1 } else { draw::FX2 };
+    fill_round(cr, x + 20.0, y + 28.0, 8.0, 20.0, 4.0, color);
+    let title = if bus == 0 { t.fx1 } else { t.fx2 };
+    draw::label(cr, fonts, true, 18.0, TEXT, x + 36.0, y + 44.0, title);
+    return_row(panel, cr, fonts, t, bus, x + 16.0, y + 56.0, w - 32.0);
 
     let chain = if bus == 0 { panel.config.fx_a.chain.clone() } else { panel.config.fx_b.chain.clone() };
     let left = x + 20.0;
     let row_w = w - 40.0;
-    let mut ry = y + 80.0;
+    let mut ry = y + 148.0;
     let list_bottom = y + h - 16.0;
     for (index, slot) in chain.iter().enumerate() {
         if ry + ROW_H > list_bottom {
@@ -150,6 +149,35 @@ fn grip(cr: &Context, x: f64, y: f64) {
             draw::fill_circle(cr, x + col as f64 * 6.0, y + 6.0 + row as f64 * 7.0, 1.6, MUTED);
         }
     }
+}
+
+fn return_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, x: f64, y: f64, w: f64) {
+    let fx = if bus == 0 { panel.config.fx_a.clone() } else { panel.config.fx_b.clone() };
+    let who = if bus == 0 { "fx1" } else { "fx2" };
+    let sides = crate::config::side_count(panel.config.outputs);
+    let mut bx = x;
+    for index in 0..sides {
+        let on = crate::config::route_on(fx.routes, true, index);
+        let fill = if on { draw::TEXT } else { INSET };
+        let ink = if on { draw::BG } else { MUTED };
+        fill_round(cr, bx, y, 36.0, 28.0, 8.0, fill);
+        draw::label_mid(cr, fonts, true, 11.0, ink, bx, y + 14.0, &format!("A{}", index + 1));
+        panel.hot(&format!("route:{who}:a:{index}"), bx, y, 36.0, 28.0);
+        bx += 40.0;
+    }
+    bx = x;
+    for index in 0..sides {
+        let on = crate::config::route_on(fx.routes, false, index);
+        let fill = if on { draw::accent() } else { INSET };
+        let ink = if on { draw::on_accent() } else { MUTED };
+        fill_round(cr, bx, y + 32.0, 36.0, 28.0, 8.0, fill);
+        draw::label_mid(cr, fonts, true, 11.0, ink, bx, y + 46.0, &format!("B{}", index + 1));
+        panel.hot(&format!("route:{who}:b:{index}"), bx, y + 32.0, 36.0, 28.0);
+        bx += 40.0;
+    }
+    let fader = draw::paint_side_fader(cr, fonts, x + w - 150.0, y + 20.0, 140.0, 36.0, fx.gain_db, 0.0, false, fx.muted, draw::FaderGlyph::Speaker, false);
+    panel.fader_hit(&format!("fxret:{bus}"), fader.capsule_x, fader.capsule_y, fader.capsule_w, fader.capsule_h, true);
+    let _ = t;
 }
 
 pub(crate) fn bus_mut(config: &mut crate::config::Config, bus: usize) -> &mut FxBus {

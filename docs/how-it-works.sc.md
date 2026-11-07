@@ -6,41 +6,34 @@
 
 ```mermaid
 flowchart LR
-    mic["麦克风<br/>(Frame Mic Tuner 之后)"] --> from_mic[frame_amix_from_mic]
-    from_mic --> mic_fader["frame_amix_mic_virtual_sink<br/>麦克风推子"]
-    mic_fader --> bus[frame_amix_bus]
-    app["应用"] --> sink["frame_amix_chN<br/>Frame Mix: name"]
-    sink --> phones["…_virtual_sink_playback<br/>耳机推子"] --> out["头显输出"]
-    sink --> to_bus["…_virtual_sink_to_bus<br/>PC 推子"] --> bus
-    bus --> source["frame_amix_source<br/>Frame Mic + Mix"]
-    source --> vrlink["VRLink<br/>PC 上的 Steam Streaming Microphone"]
+  appA[应用] --> chSink["frame_amix_chN"]
+  micSrc["Valve 滤波器之后的麦克风"] --> micStrip["麦克风条"]
+  chSink --> chStrip["通道条"]
+  chStrip --> busA["A1 到 A4"]
+  chStrip --> busB["B1 到 B4"]
+  micStrip --> busB
+  busA --> speakers["扬声器或其他输出"]
+  busB --> frameMix["frame_amix_source"]
+  frameMix --> vrlink["VRLink"]
 ```
 
 ## 麦克风
 
-混音从你在面板里选择的麦克风开始。**系统默认** 跟随默认源。在 Frame 上，这就是经过 Valve 滤波器（噪声抑制、回声消除和麦克风 EQ）之后的内置麦克风，这些滤波器由 Frame Mic Tuner 控制。本应用从不改动这些滤波器，也从不改变系统默认。
+混音从面板里选择的麦克风开始。**系统默认**跟随默认源。**Frame 麦克风**是经过 Valve 滤波器之后的内置麦克风。这些滤波器由 Frame Mic Tuner 控制。本应用不改动它们，也不改变系统默认。
 
-## 核心音频图
+## 引擎
 
-`frame-audio-mixer-graph.service` 建立核心：
+`frame-audio-mixer-engine.service` 持有整张图。面板关闭后混音继续。
 
-- `frame_amix_from_mic` 采集所选的麦克风。
-- `frame_amix_mic_virtual_sink` 是麦克风推子。它送入 `frame_amix_bus`。
-- `frame_amix_source`（**Frame Mic + Mix**）是 VRLink 录制的源。
+- 每个通道是一个名为 `frame_amix_chN` 的 sink。应用看到的是通道名（`DJ`）。
+- 通道条应用插入效果、推子、静音、独奏和电平，然后送到打开的 A 和 B 总线。
+- A1 是头显扬声器。A2 到 A4 是你选择的输出。
+- B1 是 `frame_amix_source`（**Frame Mix**）。B2 到 B4 是更多虚拟麦克风。
+- 麦克风条默认只送到 B1。采集端不是虚拟节点，所以 Mix 打开时 Valve 的噪声抑制保持开启。
 
-面板里的麦克风静音只静音 `frame_amix_mic_virtual_sink`。系统麦克风和各个通道不会被静音。
+添加或删除通道只创建或销毁该通道的节点。PipeWire 和 WirePlumber 不会重启。
 
-## 通道
-
-每个通道都是自己的 `frame-audio-mixer-channel@chN.service`，从 `ch1` 到 `ch32`：
-
-- `frame_amix_chN` 是应用选择的输出（`Frame Mix: <name>`）。
-- `frame_amix_chN_virtual_sink_playback` 把它播放到头显。这是耳机推子。
-- `frame_amix_chN_virtual_sink_to_bus` 把同样的声音送进混音总线。这是 PC 推子。
-
-添加或删除通道时，只启动或停止那一个单元。PipeWire 和 WirePlumber 保持运行。
-
-内部播放节点的名字同时包含 `virtual` 和 `sink`。因此 SteamOS 的空间音频不会把它们包起来，再把混音送一次到扬声器。通道输出不叫 `alsa_output` 或 `bluez_output`，所以不会出现在 Frame Mic Tuner 的输出列表里。
+内部节点名同时包含 `virtual` 和 `sink`，所以空间音频不会把混音再送到扬声器。
 
 ## 路由到 PC
 
