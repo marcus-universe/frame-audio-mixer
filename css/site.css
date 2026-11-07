@@ -106,6 +106,20 @@ a:hover { color: var(--soft); }
 
 .nav a.quiet:hover { background: var(--control); color: var(--text); }
 
+.nav a.icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  color: var(--soft);
+  text-decoration: none;
+  border-radius: 999px;
+}
+
+.nav a.icon:hover { background: var(--control); color: var(--text); }
+
+.nav a.icon svg { display: block; }
+
 select, button {
   font: inherit;
   color: var(--text);
