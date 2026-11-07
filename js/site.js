@@ -10,9 +10,9 @@
 
   function command(kind) {
     var url = installUrl();
-    var line = "curl -fsSL " + url + " -o frame-audio-mixer-install && sh frame-audio-mixer-install";
-    if (kind === "autostart") return line + " --autostart";
-    if (kind === "uninstall") return line + " --uninstall";
+    var line = "curl -fsSL " + url + " | sh";
+    if (kind === "autostart") return "curl -fsSL " + url + " | sh -s -- --autostart";
+    if (kind === "uninstall") return "curl -fsSL " + url + " | sh -s -- --uninstall";
     return line;
   }
 
