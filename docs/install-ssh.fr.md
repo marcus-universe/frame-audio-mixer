@@ -29,17 +29,17 @@ Remplacez `<headset-ip>` par l'adresse notée plus haut. La première fois, conf
 Dans cette session, lancez :
 
 ```sh
-curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install
+curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
-- Pour démarrer aussi le panneau avec SteamVR, ajoutez `--autostart` à la fin.
-- Pour mettre à jour, relancez la même commande. Pour désinstaller, ajoutez `--uninstall` à la fin.
+- Pour démarrer aussi le panneau avec SteamVR, remplacez `| sh` par `| sh -s -- --autostart`.
+- Pour mettre à jour, relancez la même commande. Pour désinstaller, remplacez `| sh` par `| sh -s -- --uninstall`.
 - L'installation n'utilise pas `sudo` et n'écrit que dans le répertoire personnel du casque. Elle ne redémarre jamais PipeWire ni WirePlumber, donc une session VR en cours garde son son.
 
 Vous pouvez aussi envoyer la commande en une ligne, sans rester dans la session. Sous macOS, Linux ou Windows Terminal :
 
 ```sh
-ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i -o frame-audio-mixer-install && sh frame-audio-mixer-install"
+ssh steamos@<headset-ip> "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh"
 ```
 
 Le programme d'installation ne s'exécute que sur le Steam Frame. Une session SSH est déjà sur le casque, donc cette vérification réussit.
