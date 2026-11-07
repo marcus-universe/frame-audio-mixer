@@ -2,7 +2,7 @@
 //! Nothing in this module calls `wpctl set-default`. The Microphone fader
 //! writes only `frame_amix_mic_virtual_sink`.
 
-use crate::config::{Channel, Config, is_channel_id};
+use crate::config::{self, Channel, Config, is_channel_id};
 use crate::fx::{Engine, InstanceKey};
 use crate::graph::{AudioNode, Graph, parse_dump};
 use crate::apps::{self, Entry};
@@ -43,6 +43,8 @@ pub struct Snapshot {
     pub playing_id: u64,
     pub clips: Vec<MixClip>,
     pub message: String,
+    /// Bumps when a Mix Check attempt finishes without staying in Recording.
+    pub check_epoch: u64,
     pub apps: Vec<Entry>,
     pub menu_busy: bool,
 }
@@ -61,6 +63,7 @@ impl Default for Snapshot {
             playing_id: 0,
             clips: Vec::new(),
             message: String::new(),
+            check_epoch: 0,
             apps: Vec::new(),
             menu_busy: false,
         }
@@ -140,6 +143,9 @@ struct State {
     next_clip: u64,
     playing_id: u64,
     record_path: Option<PathBuf>,
+    /// Immediate exits of `pw-record` retry once. A second miss is reported.
+    record_tries: u8,
+    check_epoch: u64,
     booted: bool,
     engine: Engine,
     /// Playback node name to (node id, target serial). `None` means the pin was deleted.
@@ -178,6 +184,8 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         next_clip: 0,
         playing_id: 0,
         record_path: None,
+        record_tries: 0,
+        check_epoch: 0,
         booted: false,
         engine: Engine::new(),
         fx_pins: HashMap::new(),
@@ -293,7 +301,7 @@ fn refresh_facts(state: &mut State, force: bool) {
     state.facts_at = Some(Instant::now());
 }
 
-fn check_fields(state: &State) -> (CheckPhase, f64, u64, Vec<MixClip>, String) {
+fn check_fields(state: &State) -> (CheckPhase, f64, u64, Vec<MixClip>, String, u64) {
     let clips = state
         .clips
         .iter()
@@ -305,17 +313,18 @@ fn check_fields(state: &State) -> (CheckPhase, f64, u64, Vec<MixClip>, String) {
         })
         .collect();
     let secs = state.check_started.map(|start| start.elapsed().as_secs_f64()).unwrap_or(0.0);
-    (state.check_phase, secs, state.playing_id, clips, state.message.clone())
+    (state.check_phase, secs, state.playing_id, clips, state.message.clone(), state.check_epoch)
 }
 
 fn publish_check(snap: &Mutex<Snapshot>, state: &State) {
     let Ok(mut guard) = snap.lock() else { return };
-    let (phase, secs, playing, clips, message) = check_fields(state);
+    let (phase, secs, playing, clips, message, epoch) = check_fields(state);
     guard.check = phase;
     guard.check_secs = secs;
     guard.playing_id = playing;
     guard.clips = clips;
     guard.message = message;
+    guard.check_epoch = epoch;
 }
 
 fn publish(snap: &Mutex<Snapshot>, state: &State) {
@@ -323,7 +332,7 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    let (phase, secs, playing, clips, message) = check_fields(state);
+    let (phase, secs, playing, clips, message, epoch) = check_fields(state);
     *guard = Snapshot {
         graph: state.graph.clone(),
         mix_active: state.mix_active,
@@ -336,6 +345,7 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         playing_id: playing,
         clips,
         message,
+        check_epoch: epoch,
         apps: state.apps.entries().to_vec(),
         menu_busy: state.apps.menu_busy(),
     };
@@ -343,14 +353,10 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
 
 fn apply_config(state: &mut State, config: Config) {
     let was = state.config.mix_on;
-    let old_mic = state.config.mic_source.clone();
     let old_accent = state.config.accent.clone();
     let old_ids: Vec<String> = state.config.channels.iter().map(|c| c.id.clone()).collect();
     let old_names: Vec<(String, String)> = state.config.channels.iter().map(|c| (c.id.clone(), c.name.clone())).collect();
     state.config = config;
-    if state.config.mic_source != old_mic {
-        save_setting("frame-audio-mixer.mic-source", &state.config.mic_source);
-    }
     if state.config.accent != old_accent {
         install_icons(&state.config.accent);
     }
@@ -369,7 +375,6 @@ fn apply_config(state: &mut State, config: Config) {
     // WirePlumber's copy of the switch is written anyway.
     if state.config.mix_on && (first || !was) {
         save_setting("frame-audio-mixer.enabled", "true");
-        save_setting("frame-audio-mixer.vrlink-gain", &format!("{:.3}", state.config.vrlink_gain));
     } else if !state.config.mix_on && (first || was) {
         save_setting("frame-audio-mixer.enabled", "false");
         restore_vrlink();
@@ -453,17 +458,46 @@ fn solo_mute(saved: bool, this_solo: bool, any_solo: bool) -> bool {
     if any_solo { saved || !this_solo } else { saved }
 }
 
+/// Dry copies of the mix bus and the four effect sinks. `node.mute` on the
+/// loopback command does not stick, and with no target these streams follow
+/// the speakers. That is the mic the user hears after arming an effect, and
+/// the loop that howls.
+fn mute_discards(state: &mut State, graph: &Graph) {
+    set_mute(state, "frame_amix_bus_virtual_sink_discard", true, graph);
+    for key in InstanceKey::ALL {
+        let name = format!("{}_virtual_sink_discard", key.sink());
+        set_mute(state, &name, true, graph);
+    }
+}
+
 fn sync_levels(state: &mut State) {
     let graph = state.graph.clone();
     let pc_any = state.config.mic_solo || state.config.channels.iter().any(|channel| channel.to_mic_solo);
     let ph_any = state.config.channels.iter().any(|channel| channel.phones_solo);
-    apply_level(state, "frame_amix_mic_virtual_sink", state.config.mic_volume, &graph);
+    apply_level(
+        state,
+        "frame_amix_mic_virtual_sink",
+        config::mic_pipewire_volume(state.config.mic_volume),
+        &graph,
+    );
+    // Loopback playback follows the speakers unless it is muted. The bus copy
+    // and each effect sink's dry copy are muted, so a send is not monitored
+    // locally. The wet signal leaves through the effect return onto the bus.
+    mute_discards(state, &graph);
+    // Reviewing a clip plays on the speakers. Hold the mic out of the mix so
+    // that playback cannot re-enter the effect returns and howl.
+    let reviewing = state.check_phase == CheckPhase::Playing;
     set_mute(
         state,
         "frame_amix_mic_virtual_sink",
-        solo_mute(state.config.mic_muted, state.config.mic_solo, pc_any),
+        reviewing || solo_mute(state.config.mic_muted, state.config.mic_solo, pc_any),
         &graph,
     );
+    // A headset effect return is the local monitor for a channel. Mute it while
+    // Mix Check records or plays. PC returns stay on the bus, which is the take.
+    let hold_phones = matches!(state.check_phase, CheckPhase::Recording | CheckPhase::Playing);
+    set_mute(state, "frame_amix_fx_a_phones_virtual_sink_return", hold_phones, &graph);
+    set_mute(state, "frame_amix_fx_b_phones_virtual_sink_return", hold_phones, &graph);
     let channel_levels: Vec<(String, f64, f64, bool, bool)> = state
         .config
         .channels
@@ -537,6 +571,10 @@ fn unpin_vrlink(state: &mut State) {
 
 fn apply_level(state: &mut State, name: &str, volume: f64, graph: &Graph) {
     let Some(node) = graph.node_by_name(name) else { return };
+    // The mic fader is a linear gain (unity at the +12 dB trim). wpctl's number
+    // is cubic, so 4.0 linear is 1.587 here and channelVolumes stays near 4.
+    // Channel faders are already on wpctl's cubic scale and are passed through.
+    let volume = if name == "frame_amix_mic_virtual_sink" { config::wpctl_cubic(volume) } else { volume };
     let printed = format!("{volume:.3}");
     if state.levels.get(name).is_some_and(|prev| prev.0 == node.id && prev.1 == printed) {
         return;
@@ -703,6 +741,8 @@ fn sync_fx(state: &mut State) {
     }
     if started {
         refresh_facts(state, true);
+        // The sink can register just after this dump. Look again next turn.
+        state.facts_at = None;
     }
     let graph = state.graph.clone();
     let wanted = fx_play_targets(&state.config, &graph);
@@ -710,6 +750,8 @@ fn sync_fx(state: &mut State) {
     let fx_b = state.config.fx_b.clone();
     state.engine.sync(&graph, &fx_a, &fx_b, &wanted);
     pin_fx_sends(state, &graph);
+    let graph = state.graph.clone();
+    mute_discards(state, &graph);
 }
 
 fn stop_fx(state: &mut State) {
@@ -827,7 +869,7 @@ fn touch_vrlink(state: &State, graph: &Graph) {
     }
     if fs::write(&path, current).is_ok() {
         let _ = Command::new("wpctl")
-            .args(["set-volume", &node.id.to_string(), &format!("{:.3}", state.config.vrlink_gain)])
+            .args(["set-volume", &node.id.to_string(), &format!("{:.3}", config::wpctl_cubic(state.config.vrlink_gain))])
             .status();
     }
 }
@@ -849,22 +891,54 @@ fn get_volume(id: u32) -> String {
     text.split_whitespace().nth(1).unwrap_or("1.000").to_string()
 }
 
+/// `pw-cat --latency` is a sample count on this PipeWire. A fraction is rejected
+/// ("bad unit"). 480 samples is the speaker period, 10 ms at 48 kHz.
+const GRAPH_LATENCY: &str = "480";
+const TAKE_MISSED: &str = "Mix Check could not open Frame Mix.";
+
+fn bump_check(state: &mut State) {
+    state.check_epoch = state.check_epoch.wrapping_add(1);
+}
+
+/// Object serial of Frame Mix. A node name is not a target on this headset.
+fn mix_serial(state: &State) -> Option<String> {
+    let node = state.graph.node_by_name("frame_amix_source")?;
+    (node.serial != 0).then(|| node.serial.to_string())
+}
+
 fn start_record(state: &mut State) {
     if state.check_phase == CheckPhase::Recording {
         finish_recording(state);
         return;
     }
+    begin_record(state, true);
+}
+
+fn begin_record(state: &mut State, reset_tries: bool) {
     stop_child(state);
     state.playing_id = 0;
     state.check_phase = CheckPhase::Idle;
+    state.check_started = None;
+    if reset_tries {
+        state.record_tries = 0;
+    }
     let path = check_dir().join(format!("mix-{}.wav", state.next_clip + 1));
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    if state.graph.node_by_name("frame_amix_source").is_some_and(|node| node.serial == 0) || state.graph.nodes.is_empty() {
+    // The first try uses the serial already in hand. A retry always re-reads it,
+    // because an immediate exit means that serial was stale.
+    if !reset_tries || mix_serial(state).is_none() {
         refresh_facts(state, true);
     }
-    let target = record_target(state);
+    let Some(target) = mix_serial(state) else {
+        if let Some(path) = state.record_path.take() {
+            let _ = fs::remove_file(path);
+        }
+        state.message = TAKE_MISSED.into();
+        bump_check(state);
+        return;
+    };
     let path_arg = path.to_string_lossy().to_string();
     let child = Command::new("pw-record")
         .args(check_record_args(&target, &path_arg))
@@ -879,7 +953,11 @@ fn start_record(state: &mut State) {
             state.check_started = Some(Instant::now());
             state.message.clear();
         }
-        Err(err) => state.message = err.to_string(),
+        Err(err) => {
+            state.record_path = None;
+            state.message = err.to_string();
+            bump_check(state);
+        }
     }
 }
 
@@ -891,8 +969,11 @@ fn finish_recording(state: &mut State) {
     let (seconds, wave) = wav_peaks(&path, 36);
     if seconds < 0.2 {
         let _ = fs::remove_file(&path);
+        state.message = TAKE_MISSED.into();
+        bump_check(state);
         return;
     }
+    state.message.clear();
     state.next_clip += 1;
     state.clips.insert(
         0,
@@ -926,7 +1007,12 @@ fn play_clip(state: &mut State, id: u64) {
         return;
     };
     stop_child(state);
-    let child = Command::new("pw-play").arg(&path).stdout(Stdio::null()).stderr(Stdio::null()).spawn();
+    let sink = state.graph.link_target(&state.graph.default_sink);
+    let child = Command::new("pw-play")
+        .args(check_play_args(&sink, &path.to_string_lossy()))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
     match child {
         Ok(child) => {
             state.check = Some(child);
@@ -941,7 +1027,7 @@ fn play_clip(state: &mut State, id: u64) {
 
 fn stop_child(state: &mut State) {
     if let Some(mut child) = state.check.take() {
-        let _ = Command::new("kill").args(["-TERM", &child.id().to_string()]).status();
+        let _ = Command::new("kill").args(["-INT", &child.id().to_string()]).status();
         let _ = child.wait();
     }
 }
@@ -950,6 +1036,20 @@ fn tick_check(state: &mut State) {
     let finished = state.check.as_mut().is_some_and(|child| child.try_wait().ok().flatten().is_some());
     let timed_out = state.check_phase == CheckPhase::Recording
         && state.check_started.is_some_and(|start| start.elapsed() >= Duration::from_secs(10));
+    if state.check_phase == CheckPhase::Recording && finished && !timed_out && state.record_tries == 0 {
+        // Polling can be late (a fact refresh sits in front of it). Judge the take
+        // by the file, not by how long the button has been down.
+        let short = state.record_path.as_ref().is_none_or(|path| wav_peaks(path, 1).0 < 0.2);
+        if short {
+            state.record_tries = 1;
+            begin_record(state, false);
+            let died = state.check.as_mut().is_some_and(|child| child.try_wait().ok().flatten().is_some());
+            if state.check_phase != CheckPhase::Recording || died {
+                finish_recording(state);
+            }
+            return;
+        }
+    }
     if state.check_phase == CheckPhase::Recording && (timed_out || finished) {
         finish_recording(state);
     } else if state.check_phase == CheckPhase::Playing && finished {
@@ -960,7 +1060,29 @@ fn tick_check(state: &mut State) {
     }
 }
 
-/// Stereo 48 kHz, the same rate the mix graph uses. 16 kHz mono is what made Mix Check sound dull.
+/// Play a finished clip on the headset speakers only. The name contains
+/// `virtual` and `sink`, so the spatializer does not wrap it, and the target
+/// is the current output rather than the mix bus.
+pub fn check_play_args(target: &str, path: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    if !target.is_empty() {
+        args.extend([
+            "--target".into(),
+            target.into(),
+            "--rate".into(),
+            "48000".into(),
+            "--latency".into(),
+            GRAPH_LATENCY.into(),
+            "-P".into(),
+            "{ node.name = frame_amix_check_virtual_sink_play node.virtual = true node.dont-fallback = true }".into(),
+        ]);
+    }
+    args.push(path.into());
+    args
+}
+
+/// Stereo float32 at 48 kHz, the same format and quantum as the mix graph.
+/// 16-bit clipped the +12 dB mic trim, and 20 ms moved the quantum (the short crackle).
 /// `--target` follows an object serial on this headset. `node.dont-fallback` keeps a stale
 /// serial from silently recording the default microphone. The stream stays non-virtual,
 /// like VRLink, so Valve's mic filters run while recording, as they do while streaming.
@@ -973,30 +1095,13 @@ pub fn check_record_args(target: &str, path: &str) -> Vec<String> {
         "--channels".into(),
         "2".into(),
         "--format".into(),
-        "s16".into(),
+        "f32".into(),
         "--latency".into(),
-        "20ms".into(),
+        GRAPH_LATENCY.into(),
         "-P".into(),
-        "{ node.virtual=true node.dont-fallback=true }".into(),
+        "{ node.dont-fallback=true }".into(),
         path.into(),
     ]
-}
-
-fn record_target(state: &State) -> String {
-    let graph = &state.graph;
-    if graph.node_by_name("frame_amix_source").is_some() {
-        return graph.link_target("frame_amix_source");
-    }
-    if state.config.mic_source.is_empty() {
-        if !graph.default_source.is_empty() {
-            return graph.default_source.clone();
-        }
-        return Graph::BUILTIN_SOURCE.to_string();
-    }
-    if state.config.mic_source == "builtin" {
-        return Graph::BUILTIN_SOURCE.to_string();
-    }
-    state.config.mic_source.clone()
 }
 
 fn clock_now() -> String {
@@ -1011,6 +1116,8 @@ struct WavInfo {
     rate: u32,
     channels: u16,
     bits: u16,
+    /// 1 is integer PCM, 3 is IEEE float. Extensible files keep the subtype.
+    format: u16,
     data_off: usize,
     data_len: usize,
 }
@@ -1023,6 +1130,7 @@ fn wav_info(bytes: &[u8]) -> Option<WavInfo> {
     let mut rate = 0u32;
     let mut channels = 0u16;
     let mut bits = 0u16;
+    let mut format = 0u16;
     let mut data_off = 0usize;
     let mut data_len = 0usize;
     let mut saw_fmt = false;
@@ -1031,9 +1139,14 @@ fn wav_info(bytes: &[u8]) -> Option<WavInfo> {
         let len = u32::from_le_bytes(bytes[cursor + 4..cursor + 8].try_into().ok()?) as usize;
         let body = cursor + 8;
         if id == b"fmt " && body + 16 <= bytes.len() {
+            format = u16::from_le_bytes([bytes[body], bytes[body + 1]]);
             channels = u16::from_le_bytes([bytes[body + 2], bytes[body + 3]]);
             rate = u32::from_le_bytes(bytes[body + 4..body + 8].try_into().ok()?);
             bits = u16::from_le_bytes([bytes[body + 14], bytes[body + 15]]);
+            // WAVE_FORMAT_EXTENSIBLE: the real subtype is the first field of the GUID.
+            if format == 0xFFFE && len >= 26 && body + 26 <= bytes.len() {
+                format = u16::from_le_bytes([bytes[body + 24], bytes[body + 25]]);
+            }
             saw_fmt = true;
         } else if id == b"data" {
             data_off = body;
@@ -1049,7 +1162,7 @@ fn wav_info(bytes: &[u8]) -> Option<WavInfo> {
     if !saw_fmt || rate == 0 || channels == 0 || bits < 8 || data_off == 0 {
         return None;
     }
-    Some(WavInfo { rate, channels, bits, data_off, data_len })
+    Some(WavInfo { rate, channels, bits, format, data_off, data_len })
 }
 
 fn wav_peaks(path: &std::path::Path, bars: usize) -> (f64, Vec<f32>) {
@@ -1082,15 +1195,12 @@ pub fn wav_peaks_bytes(bytes: &[u8], bars: usize) -> (f64, Vec<f32>) {
         }
         let stop = ((bar + 1) * per).min(frames);
         let mut peak = 0.0f32;
-        if info.bits == 16 {
-            for frame in start..stop {
-                let base = frame * width;
-                for channel in 0..info.channels as usize {
-                    let offset = base + channel * 2;
-                    if offset + 2 > pcm.len() {
-                        break;
-                    }
-                    let value = i16::from_le_bytes([pcm[offset], pcm[offset + 1]]).unsigned_abs() as f32 / 32768.0;
+        let sample_bytes = (info.bits as usize / 8).max(1);
+        for frame in start..stop {
+            let base = frame * width;
+            for channel in 0..info.channels as usize {
+                let offset = base + channel * sample_bytes;
+                if let Some(value) = sample_abs(pcm, offset, info.format, info.bits) {
                     peak = peak.max(value);
                 }
             }
@@ -1100,14 +1210,42 @@ pub fn wav_peaks_bytes(bytes: &[u8], bars: usize) -> (f64, Vec<f32>) {
     (seconds, wave)
 }
 
+fn sample_abs(pcm: &[u8], offset: usize, format: u16, bits: u16) -> Option<f32> {
+    if format == 3 && bits == 32 {
+        if offset + 4 > pcm.len() {
+            return None;
+        }
+        let value = f32::from_le_bytes([pcm[offset], pcm[offset + 1], pcm[offset + 2], pcm[offset + 3]]);
+        return value.is_finite().then_some(value.abs());
+    }
+    if format == 1 && bits == 16 {
+        if offset + 2 > pcm.len() {
+            return None;
+        }
+        let value = i16::from_le_bytes([pcm[offset], pcm[offset + 1]]).unsigned_abs() as f32 / 32768.0;
+        return Some(value);
+    }
+    None
+}
+
 pub fn self_test() -> Result<(), String> {
     let args = check_record_args("42", "/tmp/mix.wav");
     let joined = args.join(" ");
-    if !joined.contains("--target 42") || !joined.contains("--rate 48000") || !joined.contains("--channels 2") || !joined.contains("--format s16") || !joined.contains("node.virtual=true") || !joined.contains("node.dont-fallback=true") {
+    if !joined.contains("--target 42") || !joined.contains("--rate 48000") || !joined.contains("--channels 2") || !joined.contains("--format f32") || !joined.contains("--latency 480") || joined.contains("s16") || joined.contains("512/48000") || !joined.contains("node.dont-fallback=true") {
         return Err(joined);
     }
     if args.last().map(String::as_str) != Some("/tmp/mix.wav") {
         return Err("record path last".into());
+    }
+    let play = check_play_args("77", "/tmp/mix.wav").join(" ");
+    if !play.contains("--target 77") || !play.contains("--rate 48000") || !play.contains("--latency 480") || play.contains("512/48000") || !play.contains("frame_amix_check_virtual_sink_play") || !play.contains("node.dont-fallback = true") || !play.ends_with("/tmp/mix.wav") {
+        return Err(play);
+    }
+    if check_play_args("", "/tmp/mix.wav") != vec!["/tmp/mix.wav".to_string()] {
+        return Err("play without sink".into());
+    }
+    if format!("{}_virtual_sink_discard", InstanceKey::APc.sink()) != "frame_amix_fx_a_pc_virtual_sink_discard" {
+        return Err("fx discard".into());
     }
     if solo_mute(false, false, true) != true || solo_mute(false, true, true) != false || solo_mute(true, true, false) != true {
         return Err("solo mute".into());
@@ -1121,6 +1259,17 @@ pub fn self_test() -> Result<(), String> {
     }
     if wave.first().copied().unwrap_or(0.0) < 0.99 {
         return Err(format!("peak {wave:?}"));
+    }
+    let mut floats = vec![[0.0f32, 0.0f32]; 480];
+    floats[0] = [1.25, -0.5];
+    let float_bytes = float_wav(48000, 2, &floats);
+    let (float_seconds, float_wave) = wav_peaks_bytes(&float_bytes, 36);
+    if (float_seconds - 0.01).abs() > 0.000_1 {
+        return Err(format!("float duration {float_seconds}"));
+    }
+    let float_peak = float_wave.first().copied().unwrap_or(0.0);
+    if (float_peak - 1.25).abs() > 0.001 {
+        return Err(format!("float peak {float_peak}"));
     }
     Ok(())
 }
@@ -1140,6 +1289,30 @@ fn pcm_wav(rate: u32, channels: u16, frames: &[[i16; 2]]) -> Vec<u8> {
     bytes.extend_from_slice(&(rate * block).to_le_bytes());
     bytes.extend_from_slice(&(block as u16).to_le_bytes());
     bytes.extend_from_slice(&16u16.to_le_bytes());
+    bytes.extend_from_slice(b"data");
+    bytes.extend_from_slice(&(data_len as u32).to_le_bytes());
+    for frame in frames {
+        bytes.extend_from_slice(&frame[0].to_le_bytes());
+        bytes.extend_from_slice(&frame[1].to_le_bytes());
+    }
+    bytes
+}
+
+fn float_wav(rate: u32, channels: u16, frames: &[[f32; 2]]) -> Vec<u8> {
+    let data_len = frames.len() * 8;
+    let mut bytes = Vec::with_capacity(44 + data_len);
+    bytes.extend_from_slice(b"RIFF");
+    bytes.extend_from_slice(&(36 + data_len as u32).to_le_bytes());
+    bytes.extend_from_slice(b"WAVE");
+    bytes.extend_from_slice(b"fmt ");
+    bytes.extend_from_slice(&16u32.to_le_bytes());
+    bytes.extend_from_slice(&3u16.to_le_bytes());
+    bytes.extend_from_slice(&channels.to_le_bytes());
+    bytes.extend_from_slice(&rate.to_le_bytes());
+    let block = u32::from(channels) * 4;
+    bytes.extend_from_slice(&(rate * block).to_le_bytes());
+    bytes.extend_from_slice(&(block as u16).to_le_bytes());
+    bytes.extend_from_slice(&32u16.to_le_bytes());
     bytes.extend_from_slice(b"data");
     bytes.extend_from_slice(&(data_len as u32).to_le_bytes());
     for frame in frames {
@@ -1234,15 +1407,19 @@ fn tuner_version() -> String {
 }
 
 fn echo_cancel() -> Option<bool> {
-    let out = Command::new("wpctl").args(["settings", "frame-mic.echo-cancel"]).output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
-    if text.contains("true") {
-        Some(true)
-    } else if text.contains("false") {
-        Some(false)
-    } else {
-        None
+    // `wpctl settings` with no key crashes in WirePlumber's JSON parser on this
+    // headset. The saved file is the same value, without starting wpctl.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let text = fs::read_to_string(PathBuf::from(home).join(".local/state/wireplumber/sm-settings")).ok()?;
+    for line in text.lines() {
+        let Some(value) = line.trim().strip_prefix("frame-mic.echo-cancel=") else { continue };
+        return match value.trim() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        };
     }
+    None
 }
 
 fn dump_graph() -> Graph {

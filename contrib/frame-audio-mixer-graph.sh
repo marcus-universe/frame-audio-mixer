@@ -15,12 +15,12 @@ set -uo pipefail
 mode="${1:-}"
 id="${2:-}"
 name_dir="${XDG_CONFIG_HOME:-$HOME/.config}/pipewire/frame-audio-mixer"
-# The headset graph is 48 kHz. A fixed latency lets a new channel join without
-# changing the quantum, which is the short crackle. 512 keeps these loopbacks
-# from being the longest period in the graph, so the Steam menu's own streams
-# do not pull the quantum around them. No force-quantum: that would retime
-# every other stream.
-lock="audio.rate = 48000 node.latency = 512/48000 stream.dont-remix = true"
+# The headset graph is 48 kHz and the speaker period is 480 samples (10 ms).
+# A different period, including 512, is a second clock: the ALSA device then
+# counts xruns and a 512-frame effect block drops one 480-frame hole about
+# every 160 ms. Matching 480 lets a new channel join without retiming the
+# graph. No force-quantum: that would retime every other stream.
+lock="audio.rate = 48000 node.latency = 480/48000 stream.dont-remix = true"
 
 pids=()
 cleanup() {
@@ -38,10 +38,18 @@ start() {
 }
 
 if [[ "$mode" == "core" ]]; then
-    # Bus, then the source VRLink records. priority.session 1 so WirePlumber
-    # never picks either node as a default.
+    # The bus is a sink. One pw-loopback cannot be both that sink and Frame Mix:
+    # the playback end stays silent while the sink inputs are live. The playback
+    # side is only discarded. Its name contains virtual and sink, so the
+    # spatializer does not play the mix on the speakers. priority.session 1 so
+    # WirePlumber never picks the bus as a default.
     start \
         --capture-props="{ media.class = Audio/Sink node.name = frame_amix_bus node.description = \"Frame Mix Bus\" node.virtual = true audio.position = [ FL FR ] priority.session = 1 media.name = \"Frame Mix Bus\" $lock }" \
+        --playback-props="{ node.name = frame_amix_bus_virtual_sink_discard node.passive = true node.virtual = true node.dont-fallback = true audio.position = [ FL FR ] media.name = \"Frame Mix Bus discard\" $lock }"
+    # Frame Mix records the bus monitor, the same way a channel monitor records
+    # its sink. Not passive, so the copy runs while VRLink or Mix Check listens.
+    start \
+        --capture-props="{ node.name = frame_amix_from_bus stream.capture.sink = true target.object = frame_amix_bus node.passive = false node.virtual = true node.dont-fallback = true audio.position = [ FL FR ] media.name = \"Frame Mix from bus\" $lock }" \
         --playback-props="{ media.class = Audio/Source node.name = frame_amix_source node.description = \"Frame Mix\" node.nick = \"Frame Mix\" device.description = \"Frame Mix\" audio.position = [ FL FR ] priority.session = 1 media.name = \"Frame Mix\" $lock }"
     # No target.object: the WirePlumber script pins this to the current default
     # mic. node.passive is false because the graph only exists while Mix is on,
@@ -85,9 +93,13 @@ elif [[ "$mode" == "fx" ]]; then
         exit 1
     fi
     node="frame_amix_fx_${id//-/_}"
+    # The playback is a dry copy of whatever was sent here. It has no target,
+    # so it follows the speakers. node.mute in these props does not stick;
+    # the panel mutes this node. dont-fallback keeps a later target from
+    # dropping the stream onto the speakers.
     start \
         --capture-props="{ media.class = Audio/Sink node.name = ${node} node.description = \"Frame Mix FX ${id}\" node.virtual = true audio.position = [ FL FR ] priority.session = 1 media.name = \"Frame Mix FX ${id}\" $lock }" \
-        --playback-props="{ node.name = ${node}_discard node.passive = true node.virtual = true node.mute = true audio.position = [ FL FR ] media.name = \"Frame Mix FX ${id} discard\" $lock }"
+        --playback-props="{ node.name = ${node}_virtual_sink_discard node.passive = true node.virtual = true node.dont-fallback = true audio.position = [ FL FR ] media.name = \"Frame Mix FX ${id} discard\" $lock }"
 else
     echo "usage: frame-audio-mixer-graph.sh core | channel chN | fx a-pc" >&2
     exit 2

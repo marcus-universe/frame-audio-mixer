@@ -9,6 +9,11 @@ use std::path::{Path, PathBuf};
 /// Each channel is one systemd instance with two `pw-loopback` processes.
 pub const MAX_CHANNELS: usize = 32;
 pub const NAME_MAX_CHARS: usize = 32;
+/// Linear gain on `frame_amix_mic_virtual_sink` at a fader of 1.0.
+/// The filtered Frame mic sits well below a mix bus; 100% is this
+/// trim, not digital unity. 4.0 is +12 dB.
+pub const MIC_PREAMP: f64 = 4.0;
+
 /// Fader values a drag snaps to (1.0 is 100%).
 pub const FADER_SNAPS: [f64; 4] = [0.2, 0.5, 0.8, 1.0];
 
@@ -173,7 +178,7 @@ impl EffectKind {
             EffectKind::Reverb => [0.55, 0.45, 0.25],
             EffectKind::Comp => [0.55, 0.4, 0.2],
             EffectKind::Eq => [0.5, 0.5, 0.5],
-            EffectKind::Pitcher => [0.5, 0.0, 0.0],
+            EffectKind::Pitcher => [0.5, 0.0, 0.0], // center is 0 semitones; ±1 is ±12
             EffectKind::Flanger => [0.35, 0.5, 0.35],
             EffectKind::Phaser => [0.3, 0.55, 0.4],
             EffectKind::Delay => [0.35, 0.3, 0.3],
@@ -186,11 +191,43 @@ pub struct EffectSlot {
     pub kind: EffectKind,
     #[serde(default = "default_effect_params")]
     pub params: [f64; 3],
+    /// Pitcher drag snaps to whole semitones. Other effects ignore it.
+    #[serde(default = "default_pitch_snap")]
+    pub pitch_snap: bool,
 }
 
 impl EffectSlot {
     pub fn new(kind: EffectKind) -> Self {
-        Self { kind, params: kind.defaults() }
+        Self { kind, params: kind.defaults(), pitch_snap: true }
+    }
+}
+
+fn default_pitch_snap() -> bool {
+    true
+}
+
+/// Pitcher param 0 is 0 at −12 semitones, 0.5 at 0, and 1 at +12.
+pub fn pitch_semitones(param: f64) -> f64 {
+    ((param.clamp(0.0, 1.0) - 0.5) * 24.0).clamp(-12.0, 12.0)
+}
+
+pub fn pitch_param(semitones: f64) -> f64 {
+    (semitones.clamp(-12.0, 12.0) / 24.0 + 0.5).clamp(0.0, 1.0)
+}
+
+pub fn pitch_snapped(param: f64) -> f64 {
+    pitch_param(pitch_semitones(param).round())
+}
+
+pub fn format_pitch(param: f64, snap: bool) -> String {
+    let raw = pitch_semitones(param);
+    let shown = if snap { raw.round() } else { (raw * 10.0).round() / 10.0 };
+    if shown.abs() < 0.05 {
+        "0".to_string()
+    } else if snap || (shown - shown.round()).abs() < 0.001 {
+        format!("{shown:+.0}")
+    } else {
+        format!("{shown:+.1}")
     }
 }
 
@@ -325,12 +362,26 @@ fn sanitize_bus(bus: &mut FxBus) {
         if slot.kind == EffectKind::Pitcher {
             slot.params[1] = 0.0;
             slot.params[2] = 0.0;
+            if slot.pitch_snap {
+                slot.params[0] = pitch_snapped(slot.params[0]);
+            }
         }
     }
 }
 
 pub fn clamp_volume(value: f64) -> f64 {
     value.clamp(0.0, 1.5)
+}
+
+/// Linear gain for the microphone fader, including the speaking-level trim.
+/// `wpctl` does not take this number: its volume is cubic (`channelVolumes` is the cube).
+pub fn mic_pipewire_volume(fader: f64) -> f64 {
+    clamp_volume(fader) * MIC_PREAMP
+}
+
+/// Value for `wpctl set-volume` that produces `linear` as PipeWire's channel volume.
+pub fn wpctl_cubic(linear: f64) -> f64 {
+    if linear <= 0.0 { 0.0 } else { linear.cbrt() }
 }
 
 /// `ch1` to `ch<MAX_CHANNELS>`, without leading zeros. The id is part of unit and node names.
@@ -423,7 +474,33 @@ pub fn self_test() -> Result<(), String> {
     assert_eq!(snap_volume(0.49, 0.02), 0.5);
     assert_eq!(snap_volume(1.015, 0.02), 1.0);
     assert_eq!(snap_volume(0.65, 0.02), 0.65);
+    let cubic = wpctl_cubic(mic_pipewire_volume(1.0));
+    if (cubic.powi(3) - MIC_PREAMP).abs() > 0.001 || cubic > 1.6 {
+        return Err(format!("mic cubic {cubic}"));
+    }
     assert_eq!(snap_volume(0.19, 0.02), 0.2);
+    assert!((pitch_semitones(0.0) + 12.0).abs() < 1e-9);
+    assert!(pitch_semitones(0.5).abs() < 1e-9);
+    assert!((pitch_semitones(1.0) - 12.0).abs() < 1e-9);
+    assert!((pitch_snapped(0.51) - 0.5).abs() < 1e-9);
+    assert!((pitch_snapped(0.53) - pitch_param(1.0)).abs() < 1e-9);
+    assert_eq!(format_pitch(0.5, true), "0");
+    assert_eq!(format_pitch(1.0, false), "+12");
+    assert_eq!(format_pitch(0.0, true), "-12");
+    let mut pitched = EffectSlot::new(EffectKind::Pitcher);
+    assert!(pitched.pitch_snap && (pitched.params[0] - 0.5).abs() < 1e-9);
+    pitched.params[0] = 0.53;
+    let mut snapped = Config::default();
+    snapped.fx_a.chain.push(pitched.clone());
+    let stepped = sanitize(snapped);
+    assert!(stepped.fx_a.chain[0].pitch_snap);
+    assert!((stepped.fx_a.chain[0].params[0] - pitch_param(1.0)).abs() < 1e-9);
+    pitched.pitch_snap = false;
+    let mut held = Config::default();
+    held.fx_a.chain.push(pitched);
+    let kept = sanitize(held);
+    assert!(!kept.fx_a.chain[0].pitch_snap);
+    assert!((kept.fx_a.chain[0].params[0] - 0.53).abs() < 1e-9);
     assert_eq!(name_from_app("  Zen \"Browser\"  ").as_deref(), Some("Zen Browser"));
     assert_eq!(name_from_app(&"y".repeat(40)).map(|n| n.chars().count()), Some(NAME_MAX_CHARS));
     assert!(name_from_app("\"\"").is_none());

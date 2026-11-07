@@ -145,9 +145,10 @@ pub struct Panel {
     pub(crate) app_binaries: Vec<(String, String)>,
     /// Record was clicked and the worker has not published Recording yet.
     pub(crate) record_pending: bool,
-    record_message: String,
+    /// Snapshot epoch when Record was clicked. A later epoch means the attempt ended.
+    record_epoch: u64,
     record_at: Option<Instant>,
-    seen_message: String,
+    seen_epoch: u64,
     levels_sent: Option<Instant>,
     drawer: Drawer,
     drawer_target: Drawer,
@@ -208,9 +209,9 @@ impl Panel {
             pin_app: None,
             app_binaries: Vec::new(),
             record_pending: false,
-            record_message: String::new(),
+            record_epoch: 0,
             record_at: None,
-            seen_message: String::new(),
+            seen_epoch: 0,
             levels_sent: None,
             drawer: Drawer::Check,
             drawer_target: Drawer::Check,
@@ -739,7 +740,7 @@ impl Panel {
         }
         if id == "rec" {
             self.record_pending = true;
-            self.record_message = self.seen_message.clone();
+            self.record_epoch = self.seen_epoch;
             self.record_at = Some(Instant::now());
             return Action::Record;
         }
@@ -879,6 +880,20 @@ impl Panel {
             self.fx_edit = if self.fx_edit == Some((bus, index)) { None } else { Some((bus, index)) };
             return Some(Action::None);
         }
+        if let Some(rest) = id.strip_prefix("fxsnap:") {
+            let (bus, index) = rest.split_once(':')?;
+            let bus: usize = bus.parse().ok()?;
+            let index: usize = index.parse().ok()?;
+            if let Some(slot) = fx::bus_mut(&mut self.config, bus).chain.get_mut(index) {
+                if slot.kind == crate::config::EffectKind::Pitcher {
+                    slot.pitch_snap = !slot.pitch_snap;
+                    if slot.pitch_snap {
+                        slot.params[0] = crate::config::pitch_snapped(slot.params[0]);
+                    }
+                }
+            }
+            return Some(Action::Save);
+        }
         if let Some(rest) = id.strip_prefix("fxgrip:") {
             let (bus, index) = rest.split_once(':')?;
             let bus: u8 = bus.parse().ok()?;
@@ -919,7 +934,8 @@ impl Panel {
             let param: usize = parts.next().unwrap_or("").parse().unwrap_or(99);
             if let Some(slot) = fx::bus_mut(&mut self.config, bus).chain.get_mut(index) {
                 if param < slot.params.len() {
-                    slot.params[param] = t;
+                    let snap = slot.kind == crate::config::EffectKind::Pitcher && param == 0 && slot.pitch_snap;
+                    slot.params[param] = if snap { crate::config::pitch_snapped(t) } else { t };
                 }
             }
             return;
@@ -944,12 +960,11 @@ impl Panel {
 
     fn fx_reorder(&mut self, y: f64) {
         let Some((bus, from)) = self.fx_drag else { return };
+        let top = self.stage().check.1 + 80.0;
         let chain = &mut fx::bus_mut(&mut self.config, bus as usize).chain;
         if chain.len() < 2 || from >= chain.len() {
             return;
         }
-        let (dx, dy, _dw, dh) = self.stage().check;
-        let top = dy + 80.0;
         let row = 60.0;
         let index = ((y - top) / row).floor().clamp(0.0, (chain.len() - 1) as f64) as usize;
         if index == from {
@@ -958,8 +973,6 @@ impl Panel {
         let slot = chain.remove(from);
         chain.insert(index.min(chain.len()), slot);
         self.fx_drag = Some((bus, index.min(chain.len().saturating_sub(1))));
-        let _ = dx;
-        let _ = dh;
     }
 
     /// The thumb follows the pointer; a click on the track jumps there.
@@ -1033,12 +1046,12 @@ impl Panel {
     fn note_check(&mut self, snap: &Snapshot) {
         let failed = self.record_pending
             && snap.check != CheckPhase::Recording
-            && (snap.message != self.record_message || self.record_at.is_some_and(|start| start.elapsed() > Duration::from_secs(8)));
+            && (snap.check_epoch != self.record_epoch || self.record_at.is_some_and(|start| start.elapsed() > Duration::from_secs(8)));
         if snap.check == CheckPhase::Recording || failed {
             self.record_pending = false;
             self.record_at = None;
         }
-        self.seen_message = snap.message.clone();
+        self.seen_epoch = snap.check_epoch;
     }
 
     fn draw(&mut self, cr: &Context, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) {

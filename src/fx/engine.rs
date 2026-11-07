@@ -12,7 +12,29 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 const RATE: u32 = 48_000;
-const FRAMES: usize = 512;
+/// One speaker period. Reading 512 from a 480-period device drops a 480-frame hole.
+const FRAMES: usize = 480;
+/// Sample count for `pw-cat --latency`. A fraction is rejected here.
+const STREAM_LATENCY: &str = "480";
+
+fn pipe_args(target: &str, props: &str) -> Vec<String> {
+    vec![
+        "--raw".into(),
+        "--format".into(),
+        "f32".into(),
+        "--channels".into(),
+        "2".into(),
+        "--rate".into(),
+        RATE.to_string(),
+        "--latency".into(),
+        STREAM_LATENCY.into(),
+        "--target".into(),
+        target.into(),
+        "-P".into(),
+        props.into(),
+        "-".into(),
+    ]
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum InstanceKey {
@@ -88,7 +110,7 @@ impl Engine {
                 }
             }
             self.stop(key);
-            if let Some(live) = spawn(&capture, play_to, chain.clone()) {
+            if let Some(live) = spawn(key, &capture, play_to, chain.clone()) {
                 self.live.insert(key, live);
             }
         }
@@ -124,46 +146,22 @@ impl Drop for Engine {
     }
 }
 
-fn spawn(capture: &str, play_to: &str, chain: Vec<EffectSlot>) -> Option<Live> {
+fn spawn(key: InstanceKey, capture: &str, play_to: &str, chain: Vec<EffectSlot>) -> Option<Live> {
+    // Names must contain both `virtual` and `sink` or the spatializer wraps the
+    // stream, ignores target.object, and sends the wet return to the speakers.
+    let tap = format!("{}_virtual_sink_tap", key.sink());
+    let ret = format!("{}_virtual_sink_return", key.sink());
+    let rec_props = format!("{{ node.name = {tap} node.virtual = true node.passive = false stream.capture.sink = true }}");
+    let play_props = format!("{{ node.name = {ret} node.virtual = true node.passive = false node.dont-fallback = true }}");
     let mut rec = Command::new("pw-record")
-        .args([
-            "--raw",
-            "--format",
-            "f32",
-            "--channels",
-            "2",
-            "--rate",
-            &RATE.to_string(),
-            "--latency",
-            "11ms",
-            "--target",
-            capture,
-            "-P",
-            "{ node.virtual=true node.passive=false stream.capture.sink=true }",
-            "-",
-        ])
+        .args(pipe_args(capture, &rec_props))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
     let mut play = Command::new("pw-play")
-        .args([
-            "--raw",
-            "--format",
-            "f32",
-            "--channels",
-            "2",
-            "--rate",
-            &RATE.to_string(),
-            "--latency",
-            "11ms",
-            "--target",
-            play_to,
-            "-P",
-            "{ node.virtual=true node.passive=false node.dont-fallback=true }",
-            "-",
-        ])
+        .args(pipe_args(play_to, &play_props))
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -178,16 +176,20 @@ fn spawn(capture: &str, play_to: &str, chain: Vec<EffectSlot>) -> Option<Live> {
     let thread = thread::spawn(move || {
         let mut proc = Processor::new();
         let mut bytes = vec![0u8; FRAMES * 2 * 4];
+        let mut samples = vec![0.0f32; FRAMES * 2];
+        let mut applied: Option<Vec<EffectSlot>> = None;
         while !stop_t.load(Ordering::Relaxed) {
             if read_exact(&mut rec_out, &mut bytes).is_err() {
                 break;
             }
-            let mut samples = vec![0.0f32; FRAMES * 2];
             for (i, chunk) in bytes.chunks_exact(4).enumerate() {
                 samples[i] = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
             }
             if let Ok(guard) = chain_t.lock() {
-                proc.set_chain(&guard);
+                if applied.as_deref() != Some(guard.as_slice()) {
+                    proc.set_chain(&guard);
+                    applied = Some(guard.clone());
+                }
             }
             proc.process(&mut samples);
             for (i, sample) in samples.iter().enumerate() {
@@ -228,6 +230,14 @@ fn read_exact(reader: &mut impl Read, buf: &mut [u8]) -> std::io::Result<()> {
 pub fn self_test() -> Result<(), String> {
     if InstanceKey::APc.sink() != "frame_amix_fx_a_pc" {
         return Err("fx sink name".into());
+    }
+    let ret = format!("{}_virtual_sink_return", InstanceKey::APc.sink());
+    if !ret.contains("virtual") || !ret.contains("sink") {
+        return Err("fx return name".into());
+    }
+    let args = pipe_args("42", "{ node.name = frame_amix_fx_a_pc_virtual_sink_tap }").join(" ");
+    if !args.contains("--format f32") || !args.contains("--latency 480") || args.contains("512/48000") || !args.contains("--target 42") || args.contains("11ms") {
+        return Err(args);
     }
     Ok(())
 }

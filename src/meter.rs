@@ -121,7 +121,8 @@ pub fn record_args(target: &Target) -> Vec<String> {
         "--rate".into(),
         "48000".into(),
         "--latency".into(),
-        "20ms".into(),
+        // Sample count. This pw-cat rejects a fraction. 480 matches the speaker period.
+        "480".into(),
         "--target".into(),
         target.object.clone(),
         "-P".into(),
@@ -148,9 +149,9 @@ fn start_tap(target: &Target) -> Option<Tap> {
 }
 
 fn read_peak(stdout: &mut impl Read, peak: &AtomicU32, updated: &AtomicU32) {
-    // 20 ms at 48 kHz, one float per sample. The old 100 ms block is what made the bar lag.
+    // One speaker period, one float per sample. A 20 ms tap is 960 samples and moves the period.
     // The graph rate, so a tap does not add a resampler.
-    let mut buf = [0u8; 960 * 4];
+    let mut buf = [0u8; 480 * 4];
     let started = Instant::now();
     loop {
         match stdout.read(&mut buf) {
@@ -215,7 +216,7 @@ pub fn self_test() -> Result<(), String> {
     };
     let args = record_args(&target);
     let joined = args.join(" ");
-    if joined.contains("node.virtual=true") || !joined.contains("node.passive=false") || !joined.contains("stream.capture.sink=false") || !joined.contains("20ms") {
+    if joined.contains("node.virtual=true") || !joined.contains("node.passive=false") || !joined.contains("stream.capture.sink=false") || !joined.contains("--latency 480") || joined.contains("20ms") {
         return Err(joined);
     }
     let channel = Target {

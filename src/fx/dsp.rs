@@ -3,7 +3,8 @@
 use crate::config::{EffectKind, EffectSlot};
 
 const RATE: f64 = 48_000.0;
-const FRAMES: usize = 512;
+/// Scratch size. The engine hands over one speaker period, which is 480 frames.
+const FRAMES: usize = 480;
 
 pub struct Processor {
     stages: Vec<Stage>,
@@ -51,10 +52,23 @@ impl Processor {
             stage.process(&mut left[..frames], &mut right[..frames]);
         }
         for i in 0..frames {
-            interleaved[i * 2] = left[i].clamp(-1.0, 1.0);
-            interleaved[i * 2 + 1] = right[i].clamp(-1.0, 1.0);
+            interleaved[i * 2] = soft_ceiling(left[i]);
+            interleaved[i * 2 + 1] = soft_ceiling(right[i]);
         }
     }
+}
+
+/// Linear through most of the range, then a knee so a hot send does not crackle.
+fn soft_ceiling(sample: f32) -> f32 {
+    let x = sample.clamp(-8.0, 8.0);
+    let ax = x.abs();
+    let shaped = if ax <= 0.8 {
+        ax
+    } else {
+        let t = (ax - 0.8) / 0.8;
+        0.8 + 0.2 * (1.0 - 1.0 / (1.0 + t))
+    };
+    shaped.copysign(x)
 }
 
 impl Stage {
@@ -175,6 +189,15 @@ impl Biquad {
         self.z2 = self.b2 * x - self.a2 * y;
         y
     }
+
+    /// New coefficients, same history. Replacing the filter zeroed the tail every block.
+    fn apply_coeffs(&mut self, next: Self) {
+        self.b0 = next.b0;
+        self.b1 = next.b1;
+        self.b2 = next.b2;
+        self.a1 = next.a1;
+        self.a2 = next.a2;
+    }
 }
 
 struct Eq {
@@ -202,12 +225,12 @@ impl Eq {
         let low = (params[0] - 0.5) * 24.0;
         let mid = (params[1] - 0.5) * 24.0;
         let high = (params[2] - 0.5) * 24.0;
-        self.low_l = Biquad::lowshelf(120.0, low);
-        self.low_r = Biquad::lowshelf(120.0, low);
-        self.mid_l = Biquad::peaking(1000.0, 0.8, mid);
-        self.mid_r = Biquad::peaking(1000.0, 0.8, mid);
-        self.high_l = Biquad::highshelf(8000.0, high);
-        self.high_r = Biquad::highshelf(8000.0, high);
+        self.low_l.apply_coeffs(Biquad::lowshelf(120.0, low));
+        self.low_r.apply_coeffs(Biquad::lowshelf(120.0, low));
+        self.mid_l.apply_coeffs(Biquad::peaking(1000.0, 0.8, mid));
+        self.mid_r.apply_coeffs(Biquad::peaking(1000.0, 0.8, mid));
+        self.high_l.apply_coeffs(Biquad::highshelf(8000.0, high));
+        self.high_r.apply_coeffs(Biquad::highshelf(8000.0, high));
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
@@ -238,8 +261,10 @@ impl Comp {
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let attack = 0.01;
-        let release = 0.002;
+        // 10 ms attack and 120 ms release. The old per-sample coefficients followed
+        // the waveform itself, which is the fizz people hear as over-compression.
+        let attack = (1.0 - (-1.0 / (0.010 * RATE)).exp()) as f32;
+        let release = (1.0 - (-1.0 / (0.120 * RATE)).exp()) as f32;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             let peak = l.abs().max(r.abs());
             let coeff = if peak > self.env { attack } else { release };
@@ -260,11 +285,29 @@ struct Comb {
     buf: Vec<f32>,
     pos: usize,
     feedback: f32,
+    /// Length at size 1. The knob scales this, not the buffer's current length.
+    base: usize,
+}
+
+fn comb_len(base: usize, size: f64) -> usize {
+    ((base.max(1) as f64) * size).clamp(64.0, 4000.0) as usize
 }
 
 impl Comb {
     fn new(len: usize) -> Self {
-        Self { buf: vec![0.0; len.max(1)], pos: 0, feedback: 0.7 }
+        let len = len.max(1);
+        Self { buf: vec![0.0; len], pos: 0, feedback: 0.7, base: len }
+    }
+
+    fn set_length(&mut self, size: f64) {
+        let len = comb_len(self.base, size);
+        if self.buf.len() == len {
+            return;
+        }
+        self.buf.resize(len, 0.0);
+        if self.pos >= self.buf.len() {
+            self.pos = 0;
+        }
     }
 
     fn tick(&mut self, x: f32) -> f32 {
@@ -325,11 +368,7 @@ impl Reverb {
         self.mix = params[2] as f32;
         for comb in self.combs_l.iter_mut().chain(self.combs_r.iter_mut()) {
             comb.feedback = decay as f32;
-            let len = ((comb.buf.len() as f64) * size / 1.2).clamp(64.0, 4000.0) as usize;
-            if comb.buf.len() != len {
-                comb.buf = vec![0.0; len];
-                comb.pos = 0;
-            }
+            comb.set_length(size);
         }
     }
 
@@ -485,18 +524,23 @@ impl Phaser {
         self.mix = params[2] as f32;
     }
 
+    fn retune(&mut self) {
+        let sweep = (self.phase * std::f64::consts::TAU).sin() * 0.5 + 0.5;
+        let freq = 300.0 + (2200.0 * self.depth) * sweep;
+        self.left[0].apply_coeffs(Biquad::allpass(freq));
+        self.left[1].apply_coeffs(Biquad::allpass(freq * 1.4));
+        self.left[2].apply_coeffs(Biquad::allpass(freq * 2.1));
+        self.left[3].apply_coeffs(Biquad::allpass(freq * 3.0));
+        self.right[0].apply_coeffs(Biquad::allpass(freq * 1.03));
+        self.right[1].apply_coeffs(Biquad::allpass(freq * 1.45));
+        self.right[2].apply_coeffs(Biquad::allpass(freq * 2.15));
+        self.right[3].apply_coeffs(Biquad::allpass(freq * 3.05));
+    }
+
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        // Once per block. Retuning every sample wiped the allpass history and blew the budget.
+        self.retune();
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let sweep = (self.phase * std::f64::consts::TAU).sin() * 0.5 + 0.5;
-            let freq = 300.0 + (2200.0 * self.depth) * sweep;
-            self.left[0] = Biquad::allpass(freq);
-            self.left[1] = Biquad::allpass(freq * 1.4);
-            self.left[2] = Biquad::allpass(freq * 2.1);
-            self.left[3] = Biquad::allpass(freq * 3.0);
-            self.right[0] = Biquad::allpass(freq * 1.03);
-            self.right[1] = Biquad::allpass(freq * 1.45);
-            self.right[2] = Biquad::allpass(freq * 2.15);
-            self.right[3] = Biquad::allpass(freq * 3.05);
             let dry_l = *l as f64;
             let dry_r = *r as f64;
             let mut wet_l = dry_l;
@@ -570,5 +614,46 @@ pub fn self_test() -> Result<(), String> {
     if buf.iter().any(|s| !s.is_finite()) {
         return Err("dsp nan".into());
     }
+
+    let mut eq = Processor::new();
+    let eq_slot = EffectSlot { params: [0.9, 0.5, 0.5], ..EffectSlot::new(EffectKind::Eq) };
+    eq.set_chain(&[eq_slot.clone()]);
+    let mut impulse = vec![0.0f32; FRAMES * 2];
+    // Last frame, so the next block is pure filter tail. A wiped history is silence.
+    impulse[FRAMES * 2 - 2] = 1.0;
+    impulse[FRAMES * 2 - 1] = 1.0;
+    eq.process(&mut impulse);
+    eq.set_chain(&[eq_slot]);
+    let mut tail = vec![0.0f32; FRAMES * 2];
+    eq.process(&mut tail);
+    let energy: f32 = tail.iter().map(|sample| sample.abs()).sum();
+    if energy < 1.0e-3 {
+        return Err(format!("eq state cleared {energy}"));
+    }
+
+    let mut reverb = Processor::new();
+    let reverb_slot = EffectSlot::new(EffectKind::Reverb);
+    reverb.set_chain(std::slice::from_ref(&reverb_slot));
+    let first = reverb_comb_lengths(&reverb);
+    reverb.set_chain(std::slice::from_ref(&reverb_slot));
+    reverb.set_chain(std::slice::from_ref(&reverb_slot));
+    let settled = reverb_comb_lengths(&reverb);
+    if first.is_empty() || first != settled {
+        return Err(format!("reverb grew {first:?} -> {settled:?}"));
+    }
+    let size = 0.5 + reverb_slot.params[0] * 1.5;
+    if first[0] != comb_len(1116, size) {
+        return Err(format!("reverb length {} size {size}", first[0]));
+    }
     Ok(())
+}
+
+fn reverb_comb_lengths(proc: &Processor) -> Vec<usize> {
+    let mut lens = Vec::new();
+    for stage in &proc.stages {
+        if let Stage::Reverb(reverb) = stage {
+            lens.extend(reverb.combs_l.iter().chain(reverb.combs_r.iter()).map(|comb| comb.buf.len()));
+        }
+    }
+    lens
 }

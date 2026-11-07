@@ -494,14 +494,41 @@ pub fn level_color(fraction: f64) -> Rgb {
 
 const LED_H: f64 = 3.0;
 const LED_GAP: f64 = 1.0;
+const METER_DB_LO: f64 = -48.0;
+const METER_DB_HI: f64 = 6.0;
 const METER_TICKS: [(f64, &'static str); 6] = [(3.0, "+3"), (0.0, "0"), (-6.0, "−6"), (-12.0, "−12"), (-24.0, "−24"), (-48.0, "−48")];
 
-fn db_to_amp(db: f64) -> f64 {
-    10f64.powf(db / 20.0)
+fn signal_db(amplitude: f64) -> f64 {
+    if amplitude <= 1e-8 { -120.0 } else { 20.0 * amplitude.max(0.0).log10() }
 }
 
-/// Segmented peak column. `amplitude` is post-fader linear gain, 1.0 at 0 dB.
-/// The scale runs to 1.5 (+3.5 dB). Green below 80%, yellow to 100%, red above.
+/// 0 at −48 dB, 1 at +6 dB. Speech around −18 dB sits in the column.
+fn db_pos(db: f64) -> f64 {
+    ((db - METER_DB_LO) / (METER_DB_HI - METER_DB_LO)).clamp(0.0, 1.0)
+}
+
+fn led_db(t: f64) -> f64 {
+    METER_DB_LO + t * (METER_DB_HI - METER_DB_LO)
+}
+
+/// Green below −6 dB, yellow through 0 dB, red above.
+fn led_color(db: f64) -> Rgb {
+    if db > 0.0 {
+        METER_RED
+    } else if db >= -6.0 {
+        METER_YELLOW
+    } else {
+        let t = ((db - METER_DB_LO) / (-6.0 - METER_DB_LO)).clamp(0.0, 1.0);
+        mix(METER_GREEN_LO, METER_GREEN_HI, t)
+    }
+}
+
+fn led_lit(amplitude: f64, db: f64) -> bool {
+    signal_db(amplitude) + 0.4 >= db
+}
+
+/// Segmented peak column. `amplitude` is linear gain, 1.0 at 0 dB.
+/// The scale is −48 dB to +6 dB. Green below −6 dB, yellow to 0 dB, red above.
 pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, amplitude: f64, labels: bool) -> f64 {
     if w <= 0.0 || h <= 0.0 {
         return x;
@@ -510,12 +537,11 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
     fill(cr, BG, 1.0);
     let step = LED_H + LED_GAP;
     let n = ((h + LED_GAP) / step).floor().max(1.0) as usize;
-    let amp = amplitude.max(0.0);
     for i in 0..n {
         let t = (i as f64 + 0.5) / n as f64;
-        let led_amp = t * 1.5;
+        let db = led_db(t);
         let ly = y + h - (i as f64 + 1.0) * step + LED_GAP;
-        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
         rounded(cr, x + 1.0, ly, w - 2.0, LED_H, 0.8);
         fill(cr, color, 1.0);
     }
@@ -525,8 +551,7 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
     let label_x = x + w + 4.0;
     let mut right = label_x;
     for (db, text) in METER_TICKS {
-        let t = (db_to_amp(db) / 1.5).clamp(0.0, 1.0);
-        let ty = y + h - t * h;
+        let ty = y + h - db_pos(db) * h;
         cr.set_source_rgba(MUTED.r, MUTED.g, MUTED.b, 0.7);
         cr.set_line_width(1.0);
         cr.move_to(x + w, ty);
@@ -548,18 +573,16 @@ pub fn paint_led_strip(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f
     fill(cr, BG, 1.0);
     let step = LED_H + LED_GAP;
     let n = ((w + LED_GAP) / step).floor().max(1.0) as usize;
-    let amp = amplitude.max(0.0);
     for i in 0..n {
         let t = (i as f64 + 0.5) / n as f64;
-        let led_amp = t * 1.5;
+        let db = led_db(t);
         let lx = x + i as f64 * step;
-        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
         rounded(cr, lx, y + 1.0, LED_H, h - 2.0, 0.8);
         fill(cr, color, 1.0);
     }
     for (db, text) in [(0.0, "0"), (-12.0, "−12")] {
-        let t = (db_to_amp(db) / 1.5).clamp(0.0, 1.0);
-        let tx = x + t * w;
+        let tx = x + db_pos(db) * w;
         label(cr, fonts, false, 9.0, MUTED, tx - 6.0, y - 2.0, text);
     }
 }
@@ -573,12 +596,11 @@ pub fn paint_led_bar(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f6
     fill(cr, BG, 1.0);
     let step = 4.0;
     let n = ((w + 1.0) / step).floor().max(1.0) as usize;
-    let amp = amplitude.max(0.0);
     for i in 0..n {
         let t = (i as f64 + 0.5) / n as f64;
-        let led_amp = t * 1.5;
+        let db = led_db(t);
         let lx = x + i as f64 * step;
-        let color = if amp + 0.01 >= led_amp { meter_color(led_amp) } else { mix(TEXT, BG, 0.12) };
+        let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
         rounded(cr, lx + 0.5, y + 1.0, 3.0, h - 2.0, 1.0);
         fill(cr, color, 1.0);
     }
@@ -617,15 +639,16 @@ pub struct FaderGeom {
     pub icon_s: f64,
 }
 
-/// Below a vertical fader: percent baseline, path icon, then Mute/Solo and FX in mix.rs.
+/// Below a vertical fader: percent baseline, path icon, then Mute/Solo in mix.rs.
 const FADER_PCT_Y: f64 = 16.0;
 const FADER_ICON_Y: f64 = 36.0;
 pub const FADER_MUTE_Y: f64 = 48.0;
 pub const FADER_MUTE_H: f64 = 28.0;
-pub const FADER_FX_Y: f64 = 80.0;
 pub const FADER_FX_S: f64 = 28.0;
-/// Room a vertical fader needs under its capsule, including Mute, Solo and FX.
-pub const FADER_FOOT: f64 = 116.0;
+/// Room above the capsule for the two effect-bus buttons.
+pub const FADER_HEAD: f64 = 36.0;
+/// Room a vertical fader needs under its capsule, including Mute and Solo.
+pub const FADER_FOOT: f64 = 80.0;
 
 /// One mix fader: a 0–150% capsule, an optional meter, the percent, and a mute icon.
 /// `cx` is the horizontal center of the capsule. `peak` is a linear 0–1 level.

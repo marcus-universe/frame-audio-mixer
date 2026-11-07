@@ -36,7 +36,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus
         chain_row(panel, cr, fonts, t, bus, index, slot, left, ry, row_w);
         ry += ROW_H + 8.0;
         if panel.fx_edit == Some((bus as u8, index)) {
-            let extra = slot.kind.param_count() as f64 * 48.0 + 8.0;
+            let extra = editor_height(slot.kind);
             if ry + extra < list_bottom {
                 params(panel, cr, fonts, t, bus, index, slot, left, ry, row_w);
                 ry += extra;
@@ -82,7 +82,15 @@ fn pick_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize
     panel.hot(&format!("fxadd:{bus}:{}", kind.key()), x, y, w, ROW_H);
 }
 
+fn editor_height(kind: EffectKind) -> f64 {
+    if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * 48.0 + 8.0 }
+}
+
 fn params(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    if slot.kind == EffectKind::Pitcher {
+        pitcher(panel, cr, fonts, t, bus, index, slot, x, y, w);
+        return;
+    }
     let mut py = y;
     for p in 0..slot.kind.param_count() {
         let label = i18n::param_name(t, slot.kind, p);
@@ -99,6 +107,41 @@ fn params(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, 
         draw::label(cr, fonts, false, 12.0, TEXT, track_x + track_w + 8.0, py + 24.0, &shown);
         py += 48.0;
     }
+}
+
+/// Bipolar pitch, −12 at the left, 0 in the middle, +12 at the right. Snap locks whole semitones.
+fn pitcher(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    let snap = slot.pitch_snap;
+    let btn_w = 76.0;
+    let btn_h = 28.0;
+    draw::label_fit(cr, fonts, false, 12.0, MUTED, x, y + 18.0, (w - btn_w - 72.0).max(40.0), t.param_semitones);
+    let shown = crate::config::format_pitch(slot.params[0], snap);
+    draw::label(cr, fonts, true, 13.0, TEXT, x + w - btn_w - 56.0, y + 18.0, &shown);
+    let kind = if snap { ButtonKind::Accent } else { ButtonKind::Plain };
+    panel.button(cr, fonts, x + w - btn_w, y, btn_w, btn_h, t.pitch_snap, kind);
+    panel.hot(&format!("fxsnap:{bus}:{index}"), x + w - btn_w, y, btn_w, btn_h);
+
+    let track_y = y + 40.0;
+    let track_h = 24.0;
+    let mark = 28.0;
+    let gap = 8.0;
+    draw::label(cr, fonts, false, 12.0, MUTED, x, track_y + 16.0, "-12");
+    let track_x = x + mark + gap;
+    let track_w = (w - 2.0 * (mark + gap)).max(48.0);
+    draw::label(cr, fonts, false, 12.0, MUTED, track_x + track_w + gap, track_y + 16.0, "+12");
+    let frac = slot.params[0].clamp(0.0, 1.0);
+    fill_round(cr, track_x, track_y, track_w, track_h, track_h / 2.0, draw::track());
+    let center = track_x + track_w * 0.5;
+    let thumb = track_x + track_w * frac;
+    let span_x = thumb.min(center);
+    let span_w = (thumb - center).abs();
+    if span_w > 1.0 {
+        let radius = (track_h / 2.0).min(span_w / 2.0);
+        fill_round(cr, span_x, track_y, span_w, track_h, radius, draw::effect_color(slot.kind));
+    }
+    fill_round(cr, center - 1.0, track_y + 4.0, 2.0, track_h - 8.0, 1.0, MUTED);
+    draw::fill_circle(cr, thumb, track_y + track_h / 2.0, 9.0, draw::effect_color(slot.kind));
+    panel.fader_hit(&format!("fxp:{bus}:{index}:0"), track_x, track_y, track_w, track_h, true);
 }
 
 fn grip(cr: &Context, x: f64, y: f64) {
