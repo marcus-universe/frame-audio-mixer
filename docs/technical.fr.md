@@ -30,7 +30,19 @@ Depuis un dépôt git, `./install.sh` compile avec `cargo` puis installe. `./ins
 - Un nom tient sur une ligne, 32 caractères au plus, et il est unique sans tenir compte de la casse.
 - Un canal créé à partir d'une appli en cours porte le nom de l'appli, épingle l'appli sur ce canal et affiche son icône tirée de son entrée `.desktop`. Sans icône, il affiche la première lettre.
 - Quand la rangée est plus large que le panneau, faites-la défiler avec le stick de la manette ou faites glisser la barre sous les canaux.
-- Les faders vont de 0 à 150 %. Pendant un glissement, le fader s'aimante à 20, 50, 80 et 100 % quand il passe à moins de 8 pixels. Les points sur un fader marquent 20, 50 et 80 %. Le trait marque 100 %.
+- Chaque tranche a un fader, du silence à +12 dB, avec un cran à 0 dB. Sourdine et Solo sont dessous. Les boutons de routage sont empilés à côté du fader : A1 à A4 (ce que vous entendez), PC (le micro de streaming du PC), B1 à B4 (micros virtuels), puis FX1 et FX2. Avec 6 ou 8 sorties, les boutons A et B se répartissent sur deux colonnes. Dans la vue en liste, ils sont sur une seule ligne à côté de Sourdine et Solo.
+
+## Sorties
+
+Le micro de streaming du PC est toujours là. Les Réglages ajoutent 2, 4, 6 ou 8 sorties de plus : 2, c'est A1 et B1 ; 8, c'est A1 à A4 et B1 à B4. Un nombre plus petit garde les routes enregistrées sans les connecter.
+
+- PC est `frame_amix_source`, affiché sous le nom **Frame Mix**. VRLink l'enregistre, donc le PC voit Steam Streaming Microphone.
+- A1, ce sont les haut-parleurs du casque. A2 à A4 peuvent être n'importe quelle autre sortie, comme du Bluetooth.
+- B1 à B4 sont des micros virtuels pour les applis du casque (`frame_amix_b1` à `frame_amix_b4`). Chacun a un nom.
+
+Le tiroir Sorties (icône haut-parleur sur la barre de droite) contient le contrôle du mix en haut, puis un bloc par sortie : son nom, le fader master dessous et la sourdine à droite. PC vient en premier.
+
+Les réglages de la version 2 sont repris au premier chargement : l'ancien B1 devient PC (avec son fader et sa sourdine), et les anciens B2 à B4 deviennent B1 à B3.
 
 ## Micro
 
@@ -42,9 +54,15 @@ Le choix du micro ne concerne que le mix. Rien dans cette appli n'appelle `wpctl
 
 Le choix est enregistré dans `frame-audio-mixer.mic-source` (`""`, `builtin` ou un nom de nœud). Le script fait correspondre `builtin` à la boucle ci-dessus, revient au défaut du système si ce nœud manque, et n'utilise jamais `frame_amix_source`. Une valeur modifiée prend effet au prochain démarrage de WirePlumber.
 
+Le moteur capture cette source avec une boucle qui n'est pas virtuelle, donc la réduction de bruit de Valve reste active tant que Mix est actif. La tranche micro ajoute 12 dB de gain quand le fader est à 0 dB. Sa route par défaut est PC seulement.
+
 ## Indicateurs de niveau
 
 Les indicateurs ne tournent que si le tableau de bord est visible, si Mix est actif et si les niveaux sont activés dans Réglages (l'engrenage à côté du menu des langues). Seuls les canaux visibles à l'écran sont mesurés. Chaque indicateur est une prise `pw-record` avec `node.virtual=true`, donc il n'active pas les filtres micro de Valve. Les prises des canaux sont passives. Celle du micro ne l'est pas. Le panneau se redessine à environ 30 images/s tant que les indicateurs tournent, et ne dessine rien quand le tableau de bord est caché.
+
+## Effets
+
+FX1 et FX2 sont des envois partagés, et chacun contient une chaîne de trois effets au plus. EQ en fait partie : un égaliseur paramétrique à 3, 6, 8 ou 12 points, qui s'ouvre avec Modifier sur son emplacement. Les points extrêmes peuvent être une cloche, un shelf, ou un passe-haut (point bas) ou un passe-bas (point haut). Un envoi laisse le chemin direct intact. Chaque retour a son propre fader et ses routes A, PC et B. Le traitement se fait en float32 à 48 kHz et 480 trames dans le moteur. Activer ou couper un envoi ne redémarre ni PipeWire ni WirePlumber.
 
 ## Applis et mises à jour
 

@@ -17,7 +17,7 @@ ureq = { version = "2.12", default-features = false, features = ["tls"] }
 sha2 = "0.10"
 flate2 = "1"
 tar = "0.4"
-pipewire = "0.10"
+pipewire = { version = "0.10", features = ["v0_3_49"] }
 libspa = "0.10"
 
 [profile.release]

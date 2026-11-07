@@ -4,7 +4,6 @@
 //! only the mixer's input. It is never made the system default.
 
 mod apps;
-mod check;
 mod dialogs;
 mod eq;
 mod footer;
@@ -44,7 +43,6 @@ enum Overlay {
     AppsList,
     Confirm(String),
     Name(NameEdit),
-    Inserts(String),
     Eq(String),
 }
 
@@ -91,7 +89,6 @@ pub(crate) struct Stage {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Drawer {
     Closed,
-    Check,
     FxA,
     FxB,
     Outputs,
@@ -110,6 +107,7 @@ const DRAWER_MS: f64 = 0.22;
 
 const HSCROLL: &str = "hscroll";
 const PAN: &str = "pan";
+const OUT_PAN: &str = "outpan";
 /// How close, in pixels, a fader drag has to come to a snap point.
 const SNAP_REACH_PX: f64 = 8.0;
 const LEVELS_EVERY: Duration = Duration::from_millis(40);
@@ -122,6 +120,12 @@ pub struct Panel {
     language_open: bool,
     color_open: bool,
     outputs_open: bool,
+    /// The Mix Check output menu is open.
+    pub(crate) check_open: bool,
+    /// Vertical scroll of the Outputs drawer.
+    pub(crate) out_scroll: f64,
+    /// Output containers from the last frame. Empty space here drag-scrolls them.
+    pub(crate) out_list: Option<(f64, f64, f64, f64)>,
     eq_band: usize,
     eq_graph: Option<(f64, f64, f64, f64)>,
     sink_names: Vec<String>,
@@ -177,7 +181,8 @@ pub enum Action {
     ShowKeyboard { description: String, existing: String },
     Record,
     StopCheck,
-    PlayClip(u64),
+    PlayTake,
+    PauseTake,
     CheckUpdates,
     InstallUpdate,
     OpenInstaller(String),
@@ -197,6 +202,9 @@ impl Panel {
             language_open: false,
             color_open: false,
             outputs_open: false,
+            check_open: false,
+            out_scroll: 0.0,
+            out_list: None,
             eq_band: 0,
             eq_graph: None,
             sink_names: Vec::new(),
@@ -300,10 +308,6 @@ impl Panel {
         (self.drawer_progress - target).abs() > 0.001
     }
 
-    pub(crate) fn drawer_shows_check(&self) -> bool {
-        self.drawer_target == Drawer::Check
-    }
-
     pub(crate) fn drawer_shows_fx(&self, bus: usize) -> bool {
         match bus {
             0 => self.drawer_target == Drawer::FxA,
@@ -333,19 +337,8 @@ impl Panel {
     }
 
     /// PipeWire nodes to meter. The mic tap is not passive. Channel taps are.
-    /// While Mix Check records, Frame Mix itself is tapped, even with meters off.
     pub fn meter_targets(&self, snap: &Snapshot) -> Vec<crate::meter::Target> {
         let mut targets = Vec::new();
-        let recording = snap.check == CheckPhase::Recording || self.record_pending;
-        if recording && snap.graph.node_by_name("frame_amix_source").is_some() {
-            targets.push(crate::meter::Target {
-                key: "mix".into(),
-                object: snap.graph.link_target("frame_amix_source"),
-                capture_sink: false,
-                passive: true,
-                virtual_node: true,
-            });
-        }
         if !self.wants_meters() {
             return targets;
         }
@@ -524,6 +517,11 @@ impl Panel {
                         self.scroll = (self.scroll - delta).max(0.0);
                     }
                     self.pan_at = Some((x, y));
+                } else if id == OUT_PAN {
+                    if let Some((_, py)) = self.pan_at {
+                        self.out_scroll = (self.out_scroll - (y - py)).max(0.0);
+                    }
+                    self.pan_at = Some((x, y));
                 } else if id.starts_with("fxgrip:") {
                     self.fx_reorder(y);
                 } else if let Some(rest) = id.strip_prefix("eqband:") {
@@ -545,7 +543,7 @@ impl Panel {
             self.pan_at = None;
             let dragged = self.drag.take();
             self.fx_drag = None;
-            let save = dragged.as_deref().is_some_and(|id| id != HSCROLL && id != PAN);
+            let save = dragged.as_deref().is_some_and(|id| id != HSCROLL && id != PAN && id != OUT_PAN);
             return if save { Action::Save } else { Action::None };
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
@@ -561,6 +559,10 @@ impl Panel {
                 return Action::Levels;
             } else if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {
                 self.dialog_scroll = (self.dialog_scroll - step * 0.45).max(0.0);
+            } else if self.over_outputs() {
+                let delta = if y.abs() >= x.abs() { y } else { x };
+                let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
+                self.out_scroll = (self.out_scroll - step * 0.45).max(0.0);
             } else {
                 self.scroll = (self.scroll - step).max(0.0);
             }
@@ -579,6 +581,14 @@ impl Panel {
             return action;
         }
         if !matches!(self.overlay, Overlay::None) {
+            return self.hit_at(x, y);
+        }
+        if self.check_open {
+            let on_menu = self.hot_at(x, y).is_some_and(|id| id.starts_with("check-out"));
+            if !on_menu {
+                self.check_open = false;
+                return Action::None;
+            }
             return self.hit_at(x, y);
         }
         if self.hbar.is_some_and(|bar| x >= bar.x - 10.0 && x < bar.x + bar.w + 10.0 && y >= bar.y - 10.0 && y < bar.y + bar.h + 10.0) {
@@ -600,7 +610,17 @@ impl Panel {
             self.pan_at = Some((x, y));
             return Action::None;
         }
+        if self.out_list.is_some_and(|(lx, ly, lw, lh)| x >= lx && x < lx + lw && y >= ly && y < ly + lh) {
+            self.drag = Some(OUT_PAN.to_string());
+            self.pan_at = Some((x, y));
+            return Action::None;
+        }
         Action::None
+    }
+
+    fn over_outputs(&self) -> bool {
+        let Some((lx, ly, lw, lh)) = self.out_list else { return false };
+        self.pointer.is_some_and(|(x, y)| x >= lx && x < lx + lw && y >= ly && y < ly + lh)
     }
 
     fn hit_at(&mut self, x: f64, y: f64) -> Action {
@@ -761,10 +781,6 @@ impl Panel {
             self.delete_until = None;
             return Action::Save;
         }
-        if id == "rail-check" {
-            self.set_drawer(Drawer::Check);
-            return Action::None;
-        }
         if id == "rail-fx-0" {
             self.set_drawer(Drawer::FxA);
             return Action::None;
@@ -775,10 +791,6 @@ impl Panel {
         }
         if id == "rail-out" {
             self.set_drawer(Drawer::Outputs);
-            return Action::None;
-        }
-        if let Some(who) = id.strip_prefix("inserts:") {
-            self.overlay = Overlay::Inserts(who.to_string());
             return Action::None;
         }
         if let Some(action) = self.handle_eq(id) {
@@ -836,10 +848,23 @@ impl Panel {
             self.record_at = None;
             return Action::StopCheck;
         }
-        if let Some(id) = id.strip_prefix("clip:") {
-            if let Ok(clip) = id.parse::<u64>() {
-                return Action::PlayClip(clip);
+        if id == "check-play" {
+            return Action::PlayTake;
+        }
+        if id == "check-pause" {
+            return Action::PauseTake;
+        }
+        if id == "check-out-open" {
+            self.check_open = !self.check_open;
+            return Action::None;
+        }
+        if let Some(value) = id.strip_prefix("check-out:") {
+            self.check_open = false;
+            if config::check_output_valid(value, self.config.outputs) && self.config.check_output != value {
+                self.config.check_output = value.to_string();
+                return Action::Save;
             }
+            return Action::None;
         }
         if id == "upd-on" || id == "upd-off" {
             self.config.check_updates = id == "upd-on";
@@ -903,12 +928,27 @@ impl Panel {
         let mut parts = id.split(':');
         let who = parts.next().unwrap_or("");
         let side = parts.next().unwrap_or("");
+        if side == "pc" {
+            let to_pc = if who == "mic" {
+                Some(&mut self.config.mic_to_pc)
+            } else if who == "fx1" {
+                Some(&mut self.config.fx_a.to_pc)
+            } else if who == "fx2" {
+                Some(&mut self.config.fx_b.to_pc)
+            } else {
+                self.config.channels.iter_mut().find(|channel| channel.id == who).map(|channel| &mut channel.to_pc)
+            };
+            if let Some(on) = to_pc {
+                *on = !*on;
+            }
+            return;
+        }
         let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(9);
         let bit = config::route_bit(side == "a", index);
         if bit == 0 {
             return;
         }
-        let routes =         if who == "mic" {
+        let routes = if who == "mic" {
             Some(&mut self.config.mic_routes)
         } else if who == "fx1" {
             Some(&mut self.config.fx_a.routes)
@@ -963,8 +1003,19 @@ impl Panel {
             if chain.len() >= 3 {
                 return Some(Action::None);
             }
-            chain.push(crate::config::EffectSlot::new(kind));
-            self.fx_edit = Some((bus as u8, chain.len() - 1));
+            let mut slot = crate::config::EffectSlot::new(kind);
+            if kind == crate::config::EffectKind::Eq {
+                slot.eq = Some(crate::config::ParamEq::new(6));
+            }
+            chain.push(slot);
+            let index = chain.len() - 1;
+            if kind == crate::config::EffectKind::Eq {
+                self.fx_edit = None;
+                self.eq_band = 0;
+                self.overlay = Overlay::Eq(format!("fx:{bus}:{index}"));
+            } else {
+                self.fx_edit = Some((bus as u8, index));
+            }
             return Some(Action::Save);
         }
         if let Some(rest) = id.strip_prefix("fxrm:") {
@@ -982,6 +1033,13 @@ impl Panel {
             let (bus, index) = rest.split_once(':')?;
             let bus: u8 = bus.parse().ok()?;
             let index: usize = index.parse().ok()?;
+            let is_eq = fx::bus_mut(&mut self.config, bus as usize).chain.get(index).is_some_and(|slot| slot.kind == crate::config::EffectKind::Eq);
+            if is_eq {
+                self.fx_edit = None;
+                self.eq_band = 0;
+                self.overlay = Overlay::Eq(format!("fx:{bus}:{index}"));
+                return Some(Action::None);
+            }
             self.fx_edit = if self.fx_edit == Some((bus, index)) { None } else { Some((bus, index)) };
             return Some(Action::None);
         }
@@ -1059,6 +1117,8 @@ impl Panel {
             self.config.mic_gain_db = db;
         } else if let Some(channel) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
             channel.gain_db = db;
+        } else if id == "bus:pc" {
+            self.config.pc.gain_db = db;
         } else if let Some(rest) = id.strip_prefix("bus:") {
             let mut parts = rest.split(':');
             let side = parts.next().unwrap_or("");
@@ -1080,6 +1140,10 @@ impl Panel {
     }
 
     fn toggle_bus_mute(&mut self, id: &str) {
+        if id == "pc" {
+            self.config.pc.muted = !self.config.pc.muted;
+            return;
+        }
         let mut parts = id.split(':');
         let side = parts.next().unwrap_or("");
         let index: usize = parts.next().unwrap_or("0").parse().unwrap_or(9);
@@ -1091,26 +1155,9 @@ impl Panel {
 
     fn handle_eq(&mut self, id: &str) -> Option<Action> {
         let who = match &self.overlay {
-            Overlay::Inserts(who) | Overlay::Eq(who) => who.clone(),
+            Overlay::Eq(who) => who.clone(),
             _ => return None,
         };
-        if id == "add-eq" {
-            eq::add_eq(self, &who);
-            self.overlay = Overlay::Eq(who);
-            return Some(Action::Save);
-        }
-        if let Some(rest) = id.strip_prefix("open-eq:") {
-            let _ = rest;
-            self.eq_band = 0;
-            self.overlay = Overlay::Eq(who);
-            return Some(Action::None);
-        }
-        if let Some(rest) = id.strip_prefix("rm-insert:") {
-            if let Ok(index) = rest.parse::<usize>() {
-                eq::remove_insert(self, &who, index);
-                return Some(Action::Save);
-            }
-        }
         if let Some(rest) = id.strip_prefix("eqband:") {
             let index = rest.parse().unwrap_or(0);
             self.eq_band = index;
@@ -1151,7 +1198,7 @@ impl Panel {
 
     fn fx_reorder(&mut self, y: f64) {
         let Some((bus, from)) = self.fx_drag else { return };
-        let top = self.stage().check.1 + 80.0;
+        let top = self.stage().check.1 + fx::CHAIN_TOP;
         let chain = &mut fx::bus_mut(&mut self.config, bus as usize).chain;
         if chain.len() < 2 || from >= chain.len() {
             return;
@@ -1252,6 +1299,7 @@ impl Panel {
         self.faders.clear();
         self.hbar = None;
         self.strip = None;
+        self.out_list = None;
         let (pw, ph) = self.size_f();
         fill_round(cr, 0.0, 0.0, pw, ph, 28.0, BG);
         let t = i18n::text(self.lang);
@@ -1261,12 +1309,12 @@ impl Panel {
         } else {
             mix::draw(self, cr, fonts, t, snap, peaks);
             match self.drawer {
-                Drawer::Outputs => outputs::draw(self, cr, fonts, t, &snap.graph),
+                Drawer::Outputs => outputs::draw(self, cr, fonts, t, snap, peaks),
                 Drawer::FxA => fx::draw(self, cr, fonts, t, 0),
                 Drawer::FxB => fx::draw(self, cr, fonts, t, 1),
-                _ => check::draw(self, cr, fonts, t, snap, peaks),
+                Drawer::Closed => {}
             }
-            rail::draw(self, cr, fonts, t);
+            rail::draw(self, cr);
         }
         footer::draw(self, cr, fonts, t, snap.autostart);
         if self.language_open {
@@ -1280,12 +1328,11 @@ impl Panel {
             Overlay::AppsList => 4,
             Overlay::Confirm(_) => 5,
             Overlay::Name(_) => 6,
-            Overlay::Inserts(_) => 7,
             Overlay::Eq(_) => 8,
         };
         let confirm_key = if let Overlay::Confirm(key) = &self.overlay { key.clone() } else { String::new() };
         let eq_who = match &self.overlay {
-            Overlay::Inserts(who) | Overlay::Eq(who) => who.clone(),
+            Overlay::Eq(who) => who.clone(),
             _ => String::new(),
         };
         match overlay {
@@ -1295,7 +1342,6 @@ impl Panel {
             4 => apps::list(self, cr, fonts, t, snap),
             5 => apps::confirm(self, cr, fonts, t, snap, &confirm_key),
             6 => dialogs::name(self, cr, fonts, t),
-            7 => eq::inserts(self, cr, fonts, t, &eq_who),
             8 => eq::sheet(self, cr, fonts, t, &eq_who),
             _ => {}
         }
@@ -1475,12 +1521,8 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     snap.graph.default_sink = "alsa_output.platform-sound.HiFi__Speaker__sink".into();
     snap.graph.default_source = Graph::BUILTIN_SOURCE.into();
     snap.check = CheckPhase::Ready;
-    snap.clips.push(crate::worker::MixClip {
-        id: 1,
-        seconds: 4.2,
-        clock: "21:52:10".into(),
-        wave: (0..36).map(|i| (i as f32 * 0.7).sin().abs() * 0.6).collect(),
-    });
+    snap.has_take = true;
+    snap.take_secs = 4.2;
     snap.apps = demo_apps();
     snap.update.state = crate::updater::UpdateState::UpToDate;
     snap.update.latest = crate::updater::VERSION.into();
@@ -1503,7 +1545,23 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     snap.check_secs = 3.0;
     let mut loud = HashMap::new();
     loud.insert("mic".to_string(), 0.4f32);
+    loud.insert("check".to_string(), 0.5f32);
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "scrolled"))?;
+    snap.check = CheckPhase::Paused;
+    snap.check_secs = 1.6;
+    panel.config.outputs = 8;
+    panel.config.b[0].name = "Discord".into();
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight"))?;
+    panel.out_scroll = 400.0;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight-scrolled"))?;
+    panel.out_scroll = 0.0;
+    panel.check_open = true;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "check-menu"))?;
+    panel.check_open = false;
+    panel.config.list = true;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight-rows"))?;
+    panel.config.list = false;
+    panel.config.outputs = 2;
     snap.check = CheckPhase::Ready;
     panel.scroll = 0.0;
     panel.overlay = Overlay::Settings;
@@ -1530,6 +1588,8 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.config.fx_a.chain.push(crate::config::EffectSlot::new(crate::config::EffectKind::Delay));
     panel.fx_edit = Some((0, 0));
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx"))?;
+    let _ = panel.handle("fxadd:0:eq");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-eq"))?;
     Ok(())
 }
 

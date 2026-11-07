@@ -220,9 +220,10 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
             // only from the event loop, which has the session. Re-sent below.
             let _ = (description, existing);
         }
-        Action::Record => worker.send(Job::Record),
+        Action::Record => worker.send(Job::Record(ui.config.clone())),
         Action::StopCheck => worker.send(Job::StopCheck),
-        Action::PlayClip(id) => worker.send(Job::PlayClip(id)),
+        Action::PlayTake => worker.send(Job::PlayTake),
+        Action::PauseTake => worker.send(Job::PauseTake),
         Action::CheckUpdates => {
             let _ = config::save(&config::config_path(), &ui.config);
             worker.send(Job::CheckUpdates);

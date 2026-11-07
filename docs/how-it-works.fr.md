@@ -10,10 +10,13 @@ flowchart LR
   micSrc["Micro après les filtres Valve"] --> micStrip["Tranche micro"]
   chSink --> chStrip["Tranche"]
   chStrip --> busA["A1 à A4"]
+  chStrip --> busPc["PC"]
   chStrip --> busB["B1 à B4"]
+  micStrip --> busPc
   micStrip --> busB
   busA --> speakers["Haut-parleurs ou autre sortie"]
-  busB --> frameMix["frame_amix_source"]
+  busPc --> frameMix["frame_amix_source"]
+  busB --> virtualMics["frame_amix_b1 à b4"]
   frameMix --> vrlink["VRLink"]
 ```
 
@@ -26,10 +29,11 @@ Le mix part du micro choisi dans le panneau. **Défaut du système** suit la sou
 `frame-audio-mixer-engine.service` possède le graphe. Le mix continue quand le panneau se ferme.
 
 - Chaque canal est un sink `frame_amix_chN`. Les applis le voient sous le nom du canal (`DJ`).
-- La tranche applique les inserts, le fader, la sourdine, le solo et le niveau, puis envoie vers les bus A et B allumés.
+- La tranche applique le fader, la sourdine, le solo et le niveau, puis envoie vers les sorties allumées avec les boutons à côté de son fader.
 - A1, ce sont les haut-parleurs du casque. A2 à A4, c'est la sortie choisie.
-- B1 est `frame_amix_source` (**Frame Mix**). B2 à B4 sont d'autres micros virtuels.
-- La tranche micro va par défaut seulement vers B1. La capture n'est pas virtuelle, donc la réduction de bruit reste active tant que Mix est allumé.
+- PC (l'icône écran et haut-parleur) est `frame_amix_source` (**Frame Mix**), le micro que le PC entend. C'est une sortie à part, en plus des 2, 4, 6 ou 8 sorties A et B.
+- B1 à B4 sont d'autres micros virtuels (`frame_amix_b1` à `frame_amix_b4`) pour les autres applis du casque.
+- La tranche micro va par défaut seulement vers PC. La capture n'est pas virtuelle, donc la réduction de bruit reste active tant que Mix est allumé.
 
 Ajouter ou retirer un canal ne crée ou ne détruit que ses nœuds. PipeWire et WirePlumber ne redémarrent pas.
 
@@ -48,6 +52,14 @@ Une appli qui choisit `Frame Mix: <name>` passe quand même par l'audio spatial,
 Un canal créé à partir d'une appli en cours se souvient aussi de cette appli. Tant que Mix est actif, ses flux sont épinglés au canal, même si l'appli n'a pas de réglage de sortie.
 
 Rien dans cette appli n'appelle `wpctl set-default`.
+
+## Contrôle du mix
+
+Le contrôle du mix se trouve en haut du tiroir Sorties. Choisissez une sortie (PC, A ou B), appuyez sur Enregistrer, et le moteur l'enregistre jusqu'à 10 secondes. Lecture et Pause jouent cette seule prise sur A1 ; un nouvel enregistrement la remplace. Pendant l'enregistrement ou la lecture, le micro est retiré du mix et les retours d'effets du casque sont coupés, donc la prise n'est pas écoutée et ne peut pas provoquer de larsen.
+
+## Effets
+
+Les effets se trouvent sur FX1 et FX2, des envois partagés que chaque tranche peut allumer à côté de son fader. Chaque chaîne contient jusqu'à trois effets. L'égaliseur en fait partie : paramétrique, à 3, 6, 8 ou 12 points, avec une courbe de réponse. Son bouton Modifier ouvre la vue complète de l'égaliseur. Le premier et le dernier point peuvent être une cloche, un shelf, un passe-haut ou un passe-bas. Un envoi est une copie ; les routes directes restent. Chaque retour a un fader et les mêmes boutons A, PC et B qu'une tranche.
 
 ## Annulation d'écho
 

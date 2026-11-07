@@ -32,13 +32,14 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## Features
 
-- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The mix also creates virtual microphones. B1 is `Frame Mix`, which the PC hears as Steam Streaming Microphone.
-- **Routing**: one fader per strip, in dB, with Mute, Solo and Inserts. A buttons are what you hear (A1 is the headset). B buttons are virtual microphones. App Settings chooses 2, 4, 6 or 8 outputs.
-- **Parametric EQ**: 3, 6, 8 or 12 points, with a response curve. The outer points can be a bell, a shelf, a high-pass or a low-pass. FX1 and FX2 are shared sends.
+- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The mix also creates virtual microphones.
+- **PC output**: `Frame Mix`, which the PC hears as Steam Streaming Microphone, is its own output with a PC icon, so it is clear what goes to the PC.
+- **Routing**: one fader per strip, in dB, with Mute and Solo. The route buttons are stacked next to the fader: A is what you hear (A1 is the headset), PC is the streaming microphone, B are more virtual microphones, and FX1 and FX2 are the effect sends. App Settings chooses 2, 4, 6 or 8 A and B outputs.
+- **Effects and parametric EQ**: FX1 and FX2 each hold up to three effects. The EQ has 3, 6, 8 or 12 points with a response curve. The outer points can be a bell, a shelf, a high-pass or a low-pass.
 - **App channels**: make a channel from a running app. Its icon is shown next to the name.
 - **Microphone**: choose the microphone for the mix. The system default microphone does not change.
 - **Level meters** on every fader. They can be turned off.
-- **Mix Check**: record up to 10 seconds of what the PC hears and play it back. The right rail is Outputs, FX1, FX2 and Mix Check.
+- **Mix Check**: at the top of the Outputs drawer. Pick an output, record up to 10 seconds of it, then play or pause the take. The right rail is Outputs (speaker icon), FX1 and FX2.
 - Seven languages, and a blue or pink color theme.
 
 <table>
@@ -58,7 +59,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Turn **Mix** on.
 3. Press **+** to add a channel: a suggestion, your own name, or a running app.
 4. In that app, choose the output named after the channel (`DJ`). Open the app again if it was already running: it keeps the device list it read at startup.
-5. The fader sets the strip level. A1 plays it in the headset. B1 sends it to the PC. The Outputs drawer sets the other buses.
+5. The fader sets the strip level. A1 plays it in the headset. The PC button sends it to the PC. The Outputs drawer sets the level of each output.
 
 If you use the Frame's speakers, turn echo cancellation on in Frame Mic Tuner. Otherwise the PC can hear the app audio twice.
 

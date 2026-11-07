@@ -21,7 +21,17 @@ const BAR_H: f64 = 6.0;
 const ICON_S: f64 = 20.0;
 /// Channel name baseline and the capsule top inside a vertical strip.
 const STRIP_TITLE_Y: f64 = 30.0;
-const CAP_TOP: f64 = 48.0 + draw::FADER_HEAD;
+const CAP_TOP: f64 = 48.0;
+/// Route buttons stacked left of a vertical fader.
+const ROUTE_W: f64 = 44.0;
+const ROUTE_W2: f64 = 40.0;
+const ROUTE_H: f64 = 26.0;
+const ROUTE_GAP: f64 = 3.0;
+/// Space between the A, PC, B and FX groups.
+const GROUP_GAP: f64 = 8.0;
+const STACK_GAP: f64 = 14.0;
+/// Capsule, meter and meter scale, measured from the capsule's left edge.
+const FADER_BODY_W: f64 = 66.0;
 
 pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>) {
     let stage = panel.stage();
@@ -67,15 +77,21 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     }
     let cap_top = CAP_TOP;
     let cap_h = (strip_h - cap_top - draw::FADER_FOOT).max(80.0);
+    let sides = crate::config::side_count(panel.config.outputs).max(1);
+    let stack = Stack::fit(sides, cap_h);
+    let group_w = stack.w + STACK_GAP + FADER_BODY_W;
+    let mic_sw = MIC_W.max(group_w + 28.0);
+    let chan_w = CHAN_W.max(group_w + 28.0);
     let mic_x = x + PAD;
-    fill_round(cr, mic_x, strip_top, MIC_W, strip_h, R_SURFACE, INSET);
-    let mic_w = draw::text_width(cr, fonts, true, 15.0, t.mic).min(MIC_W - 16.0);
-    draw::label_fit(cr, fonts, true, 15.0, TEXT, mic_x + (MIC_W - mic_w) / 2.0, strip_top + STRIP_TITLE_Y, MIC_W - 16.0, t.mic);
+    fill_round(cr, mic_x, strip_top, mic_sw, strip_h, R_SURFACE, INSET);
+    let mic_w = draw::text_width(cr, fonts, true, 15.0, t.mic).min(mic_sw - 16.0);
+    draw::label_fit(cr, fonts, true, 15.0, TEXT, mic_x + (mic_sw - mic_w) / 2.0, strip_top + STRIP_TITLE_Y, mic_sw - 16.0, t.mic);
     let mic_peak = peaks.get("mic").copied().unwrap_or(0.0) * crate::config::MIC_PREAMP as f32;
+    let group_x = mic_x + (mic_sw - group_w) / 2.0;
     let geom = draw::paint_fader(
         cr,
         fonts,
-        mic_x + MIC_W / 2.0,
+        group_x + stack.w + STACK_GAP + 16.0,
         strip_top + cap_top,
         cap_h,
         panel.config.mic_gain_db,
@@ -86,25 +102,25 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
         panel.config.snap,
     );
     panel.fader_hit("mic", geom.capsule_x - 4.0, geom.capsule_y, geom.meter_right - geom.capsule_x + 8.0, geom.capsule_h, false);
-    let mic_cx = geom.capsule_x + geom.capsule_w / 2.0;
-    route_grid(panel, cr, fonts, mic_x + 8.0, strip_top + 40.0, MIC_W - 16.0, "mic", panel.config.mic_routes, panel.config.mic_send_fx1, panel.config.mic_send_fx2, None, None);
+    let mic_flow = Routes { bits: panel.config.mic_routes, to_pc: panel.config.mic_to_pc, fx1: panel.config.mic_send_fx1, fx2: panel.config.mic_send_fx2 };
+    stack.draw(panel, cr, fonts, group_x, strip_top + cap_top, sides, "mic", mic_flow, None);
     fader_buttons(
         panel,
         cr,
         fonts,
         t,
-        mic_cx,
+        mic_x + mic_sw / 2.0,
         strip_top + cap_top + cap_h,
-        MIC_W - 16.0,
+        mic_sw - 16.0,
         "mic",
         panel.config.mic_muted,
         panel.config.mic_solo,
         None,
     );
 
-    let list_x = mic_x + MIC_W + GAP;
+    let list_x = mic_x + mic_sw + GAP;
     let list_w = x + w - PAD - list_x;
-    let content = panel.config.channels.len() as f64 * (CHAN_W + GAP) + ADD_W;
+    let content = panel.config.channels.len() as f64 * (chan_w + GAP) + ADD_W;
     let max_scroll = (content - list_w).max(0.0);
     panel.scroll = panel.scroll.clamp(0.0, max_scroll);
     let _ = cr.save();
@@ -116,36 +132,37 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     panel.set_strip(list_x, strip_top, list_w, strip_h);
     panel.visible_channels.clear();
     for channel in &channels {
-        if cx + CHAN_W >= list_x && cx <= list_x + list_w {
+        if cx + chan_w >= list_x && cx <= list_x + list_w {
             panel.visible_channels.push(channel.id.clone());
-            fill_round(cr, cx, strip_top, CHAN_W, strip_h, R_SURFACE, INSET);
+            fill_round(cr, cx, strip_top, chan_w, strip_h, R_SURFACE, INSET);
             let armed = panel.delete_armed(&channel.id);
             if armed {
-                fill_round(cr, cx + 8.0, strip_top + 8.0, CHAN_W - 16.0, 32.0, 16.0, draw::DANGER_FILL);
-                let confirm_w = draw::text_width(cr, fonts, true, 13.0, t.delete_confirm).min(CHAN_W - 28.0);
-                draw::label_fit(cr, fonts, true, 13.0, draw::DANGER_TEXT, cx + (CHAN_W - confirm_w) / 2.0, strip_top + 29.0, CHAN_W - 28.0, t.delete_confirm);
-                view.hot(panel, &format!("rm:{}", channel.id), cx + 8.0, strip_top + 8.0, CHAN_W - 16.0, 32.0);
+                fill_round(cr, cx + 8.0, strip_top + 8.0, chan_w - 16.0, 32.0, 16.0, draw::DANGER_FILL);
+                let confirm_w = draw::text_width(cr, fonts, true, 13.0, t.delete_confirm).min(chan_w - 28.0);
+                draw::label_fit(cr, fonts, true, 13.0, draw::DANGER_TEXT, cx + (chan_w - confirm_w) / 2.0, strip_top + 29.0, chan_w - 28.0, t.delete_confirm);
+                view.hot(panel, &format!("rm:{}", channel.id), cx + 8.0, strip_top + 8.0, chan_w - 16.0, 32.0);
             } else {
                 // Icon and name are centered as one group and stay clear of the ×.
                 let with_icon = !channel.app.is_empty();
                 let icon_room = if with_icon { ICON_S + 6.0 } else { 0.0 };
-                let name_room = CHAN_W - 52.0 - icon_room;
+                let name_room = chan_w - 52.0 - icon_room;
                 let name_w = draw::text_width(cr, fonts, true, 15.0, &channel.name).min(name_room);
                 let group = icon_room + name_w;
-                let group_x = (cx + (CHAN_W - group) / 2.0).min(cx + CHAN_W - 38.0 - group);
+                let title_x = (cx + (chan_w - group) / 2.0).min(cx + chan_w - 38.0 - group);
                 if with_icon {
-                    super::paint_desktop_icon(panel, cr, fonts, &channel.app, &channel.binary, group_x, strip_top + STRIP_TITLE_Y - 15.0, ICON_S);
+                    super::paint_desktop_icon(panel, cr, fonts, &channel.app, &channel.binary, title_x, strip_top + STRIP_TITLE_Y - 15.0, ICON_S);
                 }
-                draw::label_fit(cr, fonts, true, 15.0, draw::accent(), group_x + icon_room, strip_top + STRIP_TITLE_Y, name_room, &channel.name);
-                view.hot(panel, &format!("name:{}", channel.id), cx + 8.0, strip_top + 8.0, CHAN_W - 48.0, 32.0);
-                remove_glyph(panel, cr, cx + CHAN_W - 40.0, strip_top + 8.0);
-                view.hot(panel, &format!("rm:{}", channel.id), cx + CHAN_W - 40.0, strip_top + 8.0, REMOVE_S, REMOVE_S);
+                draw::label_fit(cr, fonts, true, 15.0, draw::accent(), title_x + icon_room, strip_top + STRIP_TITLE_Y, name_room, &channel.name);
+                view.hot(panel, &format!("name:{}", channel.id), cx + 8.0, strip_top + 8.0, chan_w - 48.0, 32.0);
+                remove_glyph(panel, cr, cx + chan_w - 40.0, strip_top + 8.0);
+                view.hot(panel, &format!("rm:{}", channel.id), cx + chan_w - 40.0, strip_top + 8.0, REMOVE_S, REMOVE_S);
             }
             let peak = peaks.get(&channel.id).copied().unwrap_or(0.0);
+            let group_x = cx + (chan_w - group_w) / 2.0;
             let geom = draw::paint_fader(
                 cr,
                 fonts,
-                cx + CHAN_W / 2.0,
+                group_x + stack.w + STACK_GAP + 16.0,
                 strip_top + cap_top,
                 cap_h,
                 channel.gain_db,
@@ -156,23 +173,23 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
                 panel.config.snap,
             );
             view.fader(panel, &channel.id, geom.capsule_x - 2.0, geom.capsule_y, geom.meter_right - geom.capsule_x + 4.0, geom.capsule_h);
-            let center = geom.capsule_x + geom.capsule_w / 2.0;
-            route_grid(panel, cr, fonts, cx + 8.0, strip_top + 40.0, CHAN_W - 16.0, &channel.id, channel.routes, channel.send_fx1, channel.send_fx2, Some(&view), None);
+            let flow = Routes { bits: channel.routes, to_pc: channel.to_pc, fx1: channel.send_fx1, fx2: channel.send_fx2 };
+            stack.draw(panel, cr, fonts, group_x, strip_top + cap_top, sides, &channel.id, flow, Some(&view));
             fader_buttons(
                 panel,
                 cr,
                 fonts,
                 t,
-                center,
+                cx + chan_w / 2.0,
                 strip_top + cap_top + cap_h,
-                CHAN_W - 16.0,
+                chan_w - 16.0,
                 &channel.id,
                 channel.muted,
                 channel.solo,
                 Some(&view),
             );
         }
-        cx += CHAN_W + GAP;
+        cx += chan_w + GAP;
     }
     let add_y = strip_top + (strip_h - ADD_W) / 2.0;
     let room = channels.len() < crate::config::MAX_CHANNELS;
@@ -195,10 +212,6 @@ const ROW_H: f64 = 128.0;
 const LIST_GAP: f64 = 8.0;
 /// Title baseline inside a list row.
 const TITLE_Y: f64 = 22.0;
-/// Effect buttons sit above the sideways fader.
-const LIST_FX_Y: f64 = 28.0;
-/// Sideways fader under the title. The track is 24px inside this box.
-const SLOT_Y: f64 = 58.0;
 const SLOT_H: f64 = 40.0;
 const ROW_PAD: f64 = 16.0;
 
@@ -261,14 +274,12 @@ fn draw_list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peaks: &H
 fn list_mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peak: f32, x: f64, y: f64, w: f64, view: &VClip) {
     fill_round(cr, x, y, w, ROW_H, R_SURFACE, INSET);
     draw::label_fit(cr, fonts, true, 15.0, TEXT, x + ROW_PAD, y + TITLE_Y, 160.0, t.mic);
-    let grid_w = 220.0_f64.min(w * 0.42);
-    route_grid(panel, cr, fonts, x + w - ROW_PAD - grid_w, y + 8.0, grid_w, "mic", panel.config.mic_routes, panel.config.mic_send_fx1, panel.config.mic_send_fx2, None, Some(view));
     let mic = draw::paint_side_fader(
         cr,
         fonts,
         x + ROW_PAD - 4.0,
         y + 36.0,
-        w - grid_w - 36.0,
+        w - 2.0 * ROW_PAD + 4.0,
         SLOT_H,
         panel.config.mic_gain_db,
         peak,
@@ -278,7 +289,9 @@ fn list_mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, peak: f32,
         panel.config.snap,
     );
     view.fader(panel, "mic", mic.capsule_x, mic.capsule_y, mic.capsule_w, mic.capsule_h);
-    list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, w - grid_w - 36.0, "mic", panel.config.mic_muted, panel.config.mic_solo, view);
+    let used = list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, "mic", panel.config.mic_muted, panel.config.mic_solo, view);
+    let flow = Routes { bits: panel.config.mic_routes, to_pc: panel.config.mic_to_pc, fx1: panel.config.mic_send_fx1, fx2: panel.config.mic_send_fx2 };
+    route_row(panel, cr, fonts, x + ROW_PAD + used + 16.0, y + ROW_H - 32.0, x + w - ROW_PAD, "mic", flow, view);
 }
 
 fn list_channel(
@@ -310,14 +323,12 @@ fn list_channel(
     }
     remove_glyph(panel, cr, x + w - 40.0, y + 4.0);
     view.hot(panel, &format!("rm:{}", channel.id), x + w - 40.0, y + 4.0, REMOVE_S, REMOVE_S);
-    let grid_w = 220.0_f64.min(w * 0.42);
-    route_grid(panel, cr, fonts, x + w - ROW_PAD - grid_w, y + 36.0, grid_w, &channel.id, channel.routes, channel.send_fx1, channel.send_fx2, None, Some(view));
     let fader = draw::paint_side_fader(
         cr,
         fonts,
         x + ROW_PAD - 4.0,
         y + 36.0,
-        w - grid_w - 36.0,
+        w - 2.0 * ROW_PAD + 4.0,
         SLOT_H,
         channel.gain_db,
         peak,
@@ -327,7 +338,9 @@ fn list_channel(
         panel.config.snap,
     );
     view.fader(panel, &channel.id, fader.capsule_x, fader.capsule_y, fader.capsule_w, fader.capsule_h);
-    list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, w - grid_w - 36.0, &channel.id, channel.muted, channel.solo, view);
+    let used = list_buttons(panel, cr, fonts, t, x + ROW_PAD, y + ROW_H - 36.0, &channel.id, channel.muted, channel.solo, view);
+    let flow = Routes { bits: channel.routes, to_pc: channel.to_pc, fx1: channel.send_fx1, fx2: channel.send_fx2 };
+    route_row(panel, cr, fonts, x + ROW_PAD + used + 16.0, y + ROW_H - 32.0, x + w - ROW_PAD, &channel.id, flow, view);
 }
 
 
@@ -438,35 +451,117 @@ fn header_tools(panel: &mut Panel, cr: &Context, x: f64, y: f64) {
     tool_button(panel, cr, x + step * 2.0, y, view_path, 512.0, view_on, view_id);
 }
 
-fn route_grid(
-    panel: &mut Panel,
-    cr: &Context,
-    fonts: &Fonts,
-    x: f64,
-    y: f64,
-    w: f64,
-    id: &str,
-    routes: u8,
+/// Where one strip goes: A bits, the PC, B bits and the two sends.
+#[derive(Clone, Copy)]
+struct Routes {
+    bits: u8,
+    to_pc: bool,
     fx1: bool,
     fx2: bool,
-    clip: Option<&Clip>,
-    vclip: Option<&VClip>,
-) {
-    let sides = crate::config::side_count(panel.config.outputs).max(1);
-    let gap = 4.0;
-    let bw = ((w - gap * (sides as f64 - 1.0)) / sides as f64).clamp(28.0, 64.0);
-    let bh = 26.0;
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Cell {
+    A,
+    Pc,
+    B,
+    Fx1,
+    Fx2,
+}
+
+/// One route button: what it is, its caption and hit id, and whether it is on.
+fn route_cells(sides: usize, id: &str, routes: Routes) -> Vec<(Cell, String, String, bool)> {
+    let mut cells = Vec::new();
     for index in 0..sides {
-        let bx = x + index as f64 * (bw + gap);
-        let a_on = crate::config::route_on(routes, true, index);
-        let b_on = crate::config::route_on(routes, false, index);
-        route_cell(panel, cr, fonts, bx, y, bw, bh, &format!("A{}", index + 1), &format!("route:{id}:a:{index}"), a_on, 0, clip, vclip);
-        route_cell(panel, cr, fonts, bx, y + bh + 3.0, bw, bh, &format!("B{}", index + 1), &format!("route:{id}:b:{index}"), b_on, 1, clip, vclip);
+        cells.push((Cell::A, format!("A{}", index + 1), format!("route:{id}:a:{index}"), crate::config::route_on(routes.bits, true, index)));
     }
-    let fy = y + (bh + 3.0) * 2.0;
-    let fw = ((w - gap) / 2.0).max(28.0);
-    route_cell(panel, cr, fonts, x, fy, fw, bh, "FX1", &format!("send:{id}:1"), fx1, 2, clip, vclip);
-    route_cell(panel, cr, fonts, x + fw + gap, fy, fw, bh, "FX2", &format!("send:{id}:2"), fx2, 3, clip, vclip);
+    cells.push((Cell::Pc, String::new(), format!("route:{id}:pc"), routes.to_pc));
+    for index in 0..sides {
+        cells.push((Cell::B, format!("B{}", index + 1), format!("route:{id}:b:{index}"), crate::config::route_on(routes.bits, false, index)));
+    }
+    cells.push((Cell::Fx1, "FX1".into(), format!("send:{id}:1"), routes.fx1));
+    cells.push((Cell::Fx2, "FX2".into(), format!("send:{id}:2"), routes.fx2));
+    cells
+}
+
+/// The route buttons beside a vertical fader. One column, or A and B side by side
+/// when one column would be taller than the fader.
+struct Stack {
+    two: bool,
+    w: f64,
+}
+
+impl Stack {
+    fn fit(sides: usize, room: f64) -> Self {
+        let one = (2 * sides + 3) as f64 * (ROUTE_H + ROUTE_GAP) - ROUTE_GAP + 3.0 * GROUP_GAP;
+        if one <= room {
+            Self { two: false, w: ROUTE_W }
+        } else {
+            Self { two: true, w: ROUTE_W2 * 2.0 + 4.0 }
+        }
+    }
+
+    fn draw(&self, panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, sides: usize, id: &str, routes: Routes, clip: Option<&Clip>) {
+        let step = ROUTE_H + ROUTE_GAP;
+        let cells = route_cells(sides, id, routes);
+        if !self.two {
+            let mut cy = y;
+            let mut last = Cell::A;
+            for (kind, caption, hit, on) in &cells {
+                let group = |cell: Cell| if cell == Cell::Fx2 { Cell::Fx1 } else { cell };
+                if group(*kind) != group(last) {
+                    cy += GROUP_GAP;
+                }
+                last = *kind;
+                route_cell(panel, cr, fonts, x, cy, ROUTE_W, ROUTE_H, *kind, caption, hit, *on, clip, None);
+                cy += step;
+            }
+            return;
+        }
+        let col_b = x + ROUTE_W2 + 4.0;
+        let mut a_row = 0usize;
+        let mut b_row = 0usize;
+        let fx_y = y + sides as f64 * step + GROUP_GAP + step + GROUP_GAP;
+        for (kind, caption, hit, on) in &cells {
+            let (cx, cy, cw) = match kind {
+                Cell::A => {
+                    a_row += 1;
+                    (x, y + (a_row - 1) as f64 * step, ROUTE_W2)
+                }
+                Cell::B => {
+                    b_row += 1;
+                    (col_b, y + (b_row - 1) as f64 * step, ROUTE_W2)
+                }
+                Cell::Pc => (x, y + sides as f64 * step + GROUP_GAP, self.w),
+                Cell::Fx1 => (x, fx_y, ROUTE_W2),
+                Cell::Fx2 => (col_b, fx_y, ROUTE_W2),
+            };
+            route_cell(panel, cr, fonts, cx, cy, cw, ROUTE_H, *kind, caption, hit, *on, clip, None);
+        }
+    }
+}
+
+/// The same buttons in one row, for list view. Stops at `right`.
+fn route_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, right: f64, id: &str, routes: Routes, view: &VClip) {
+    let sides = crate::config::side_count(panel.config.outputs).max(1);
+    let cells = route_cells(sides, id, routes);
+    let gaps = 3.0 * GROUP_GAP + (cells.len() - 1) as f64 * ROUTE_GAP;
+    let bw = ((right - x - gaps) / cells.len() as f64).clamp(26.0, 40.0);
+    let h = 24.0;
+    let mut cx = x;
+    let mut last = Cell::A;
+    for (kind, caption, hit, on) in &cells {
+        let group = |cell: Cell| if cell == Cell::Fx2 { Cell::Fx1 } else { cell };
+        if group(*kind) != group(last) {
+            cx += GROUP_GAP;
+        }
+        last = *kind;
+        if cx + bw > right + 0.5 {
+            break;
+        }
+        route_cell(panel, cr, fonts, cx, y, bw, h, *kind, caption, hit, *on, None, Some(view));
+        cx += bw + ROUTE_GAP;
+    }
 }
 
 fn route_cell(
@@ -477,26 +572,43 @@ fn route_cell(
     y: f64,
     w: f64,
     h: f64,
+    kind: Cell,
     caption: &str,
     id: &str,
     on: bool,
-    kind: u8,
     clip: Option<&Clip>,
     vclip: Option<&VClip>,
 ) {
     let (fill, ink) = if on {
         match kind {
-            0 => (TEXT, draw::BG),
-            1 => (draw::accent(), draw::on_accent()),
-            2 => (draw::FX1, draw::BG),
-            _ => (draw::FX2, draw::BG),
+            Cell::A => (TEXT, draw::BG),
+            Cell::Pc => (draw::accent(), draw::on_accent()),
+            Cell::B => (draw::mix(draw::accent(), draw::CONTROL, 0.45), TEXT),
+            Cell::Fx1 => (draw::FX1, draw::BG),
+            Cell::Fx2 => (draw::FX2, draw::BG),
         }
     } else {
-        (INSET, MUTED)
+        let rest = match panel.look(x, y, w, h) {
+            draw::Look::Down => draw::CONTROL_DOWN,
+            draw::Look::Hover => draw::CONTROL_HOVER,
+            draw::Look::Rest => draw::CONTROL,
+        };
+        let ink = match kind {
+            Cell::Pc => draw::accent(),
+            Cell::Fx1 => draw::FX1,
+            Cell::Fx2 => draw::FX2,
+            _ => MUTED,
+        };
+        (rest, ink)
     };
     fill_round(cr, x, y, w, h, 8.0, fill);
-    let tw = draw::text_width(cr, fonts, true, 12.0, caption);
-    draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);
+    if kind == Cell::Pc {
+        let s = (h - 6.0).min(20.0);
+        draw::pc_icon(cr, x + (w - s) / 2.0, y + (h - s) / 2.0, s, ink);
+    } else {
+        let tw = draw::text_width(cr, fonts, true, 12.0, caption);
+        draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);
+    }
     if let Some(clip) = clip {
         clip.hot(panel, id, x, y, w, h);
     } else if let Some(view) = vclip {
@@ -504,13 +616,6 @@ fn route_cell(
     } else {
         panel.hot(id, x, y, w, h);
     }
-}
-
-fn fader_sends(panel: &mut Panel, cr: &Context, cx: f64, y: f64, id: &str, fx_a: bool, fx_b: bool, clip: Option<&Clip>) {
-    let fx_s = draw::FADER_FX_S;
-    let fx_x = cx - fx_s - 2.0;
-    fx_btn(panel, cr, fx_x, y + 4.0, fx_s, 0, &format!("fxa:{id}"), fx_a, clip);
-    fx_btn(panel, cr, fx_x + fx_s + 4.0, y + 4.0, fx_s, 1, &format!("fxb:{id}"), fx_b, clip);
 }
 
 fn fader_buttons(
@@ -528,42 +633,22 @@ fn fader_buttons(
 ) {
     let mute_y = foot + draw::FADER_MUTE_Y;
     let btn_h = draw::FADER_MUTE_H;
-    let pair_w = max_w.min(168.0);
-    let gap = 4.0;
-    let btn_w = (pair_w - gap * 2.0) / 3.0;
+    let pair_w = max_w.min(148.0);
+    let gap = 6.0;
+    let btn_w = (pair_w - gap) / 2.0;
     let x0 = cx - pair_w / 2.0;
     pill(panel, cr, fonts, t.mute, &format!("mute:{id}"), x0, mute_y, btn_w, btn_h, muted, true, clip);
     pill(panel, cr, fonts, t.solo, &format!("solo:{id}"), x0 + btn_w + gap, mute_y, btn_w, btn_h, soloed, false, clip);
-    pill(panel, cr, fonts, t.inserts, &format!("inserts:{id}"), x0 + (btn_w + gap) * 2.0, mute_y, btn_w, btn_h, false, false, clip);
 }
 
-fn list_sends(panel: &mut Panel, cr: &Context, x: f64, y: f64, w: f64, id: &str, fx_a: bool, fx_b: bool, view: &VClip) {
-    let fx_s = 24.0;
-    let gap = 4.0;
-    let fx_x = x + (w - fx_s * 2.0 - gap) / 2.0;
-    fx_btn_clip(panel, cr, fx_x, y, fx_s, 0, &format!("fxa:{id}"), fx_a, view);
-    fx_btn_clip(panel, cr, fx_x + fx_s + gap, y, fx_s, 1, &format!("fxb:{id}"), fx_b, view);
-}
-
-fn list_buttons(
-    panel: &mut Panel,
-    cr: &Context,
-    fonts: &Fonts,
-    t: &Text,
-    x: f64,
-    y: f64,
-    w: f64,
-    id: &str,
-    muted: bool,
-    soloed: bool,
-    view: &VClip,
-) {
+/// Mute and Solo of a list row. Returns the width they take.
+fn list_buttons(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, x: f64, y: f64, id: &str, muted: bool, soloed: bool, view: &VClip) -> f64 {
     let btn_h = 24.0;
-    let gap = 4.0;
-    let mute_w = ((w - gap * 2.0) / 3.0).max(28.0);
+    let gap = 6.0;
+    let mute_w = 72.0;
     pill_clip(panel, cr, fonts, t.mute, &format!("mute:{id}"), x, y + 4.0, mute_w, btn_h, muted, true, view);
     pill_clip(panel, cr, fonts, t.solo, &format!("solo:{id}"), x + mute_w + gap, y + 4.0, mute_w, btn_h, soloed, false, view);
-    pill_clip(panel, cr, fonts, t.inserts, &format!("inserts:{id}"), x + (mute_w + gap) * 2.0, y + 4.0, mute_w, btn_h, false, false, view);
+    mute_w * 2.0 + gap
 }
 
 fn pill(
@@ -583,9 +668,9 @@ fn pill(
     let fill = if on {
         if danger { draw::DANGER } else { draw::SOLO }
     } else {
-        INSET
+        draw::CONTROL
     };
-    let ink = if on { draw::BG } else { MUTED };
+    let ink = if on { draw::BG } else { draw::SOFT };
     fill_round(cr, x, y, w, h, 12.0, fill);
     let tw = draw::text_width(cr, fonts, true, 12.0, caption);
     draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);
@@ -598,39 +683,15 @@ fn pill(
 
 fn pill_clip(panel: &mut Panel, cr: &Context, fonts: &Fonts, caption: &str, id: &str, x: f64, y: f64, w: f64, h: f64, on: bool, danger: bool, view: &VClip) {
     let fill = if on {
-        if danger { draw::DANGER } else { draw::accent() }
+        if danger { draw::DANGER } else { draw::SOLO }
     } else {
-        INSET
+        draw::CONTROL
     };
-    let ink = if on { draw::on_accent() } else { MUTED };
+    let ink = if on { draw::BG } else { draw::SOFT };
     fill_round(cr, x, y, w, h, 12.0, fill);
     let tw = draw::text_width(cr, fonts, true, 12.0, caption);
     draw::label_mid(cr, fonts, true, 12.0, ink, x + (w - tw) / 2.0, y + h / 2.0, caption);
     view.hot(panel, id, x, y, w, h);
-}
-
-fn fx_btn(panel: &mut Panel, cr: &Context, x: f64, y: f64, s: f64, bus: usize, id: &str, on: bool, clip: Option<&Clip>) {
-    let color = draw::bus_color(bus);
-    let fill = if on { color } else { draw::mix(color, INSET, 0.22) };
-    let ink = if on { draw::ink_on(color) } else { color };
-    fill_round(cr, x, y, s, s, 8.0, fill);
-    let glyph = 16.0;
-    draw::icon(cr, draw::FX_TAG_PATH, 24.0, x + (s - glyph) / 2.0, y + (s - glyph) / 2.0, glyph, ink);
-    if let Some(clip) = clip {
-        clip.hot(panel, id, x, y, s, s);
-    } else {
-        panel.hot(id, x, y, s, s);
-    }
-}
-
-fn fx_btn_clip(panel: &mut Panel, cr: &Context, x: f64, y: f64, s: f64, bus: usize, id: &str, on: bool, view: &VClip) {
-    let color = draw::bus_color(bus);
-    let fill = if on { color } else { draw::mix(color, INSET, 0.22) };
-    let ink = if on { draw::ink_on(color) } else { color };
-    fill_round(cr, x, y, s, s, 8.0, fill);
-    let glyph = 14.0;
-    draw::icon(cr, draw::FX_TAG_PATH, 24.0, x + (s - glyph) / 2.0, y + (s - glyph) / 2.0, glyph, ink);
-    view.hot(panel, id, x, y, s, s);
 }
 
 fn tool_button(panel: &mut Panel, cr: &Context, x: f64, y: f64, path: &str, view: f64, on: bool, id: &str) {

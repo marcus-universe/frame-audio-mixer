@@ -35,10 +35,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Dispositivi audio virtuali**: fino a 32 canali con nome. Ognuno è un'uscita (`Frame Mix: <name>`) che qualsiasi app può scegliere.
 - **Canali delle app**: crea un canale da un'app in esecuzione. La sua icona compare accanto al nome.
 - **Mix per il microfono di streaming del PC**: il PC sente il tuo microfono più i canali.
-- **Un fader per canale**, in dB, con mute, solo e insert. A è ciò che senti. B sono microfoni virtuali. Nelle impostazioni: 2, 4, 6 o 8 uscite. EQ parametrico a 3, 6, 8 o 12 punti.
+- **Uscita PC**: `Frame Mix`, che il PC sente come Steam Streaming Microphone, è un'uscita a sé con un'icona PC, così è chiaro cosa va al PC.
+- **Instradamento**: un fader per canale, in dB, con mute e solo. I pulsanti di instradamento sono impilati accanto al fader: A è ciò che senti (A1 è il visore), PC è il microfono di streaming, B sono altri microfoni virtuali, e FX1 e FX2 sono le mandate degli effetti. Nelle impostazioni: 2, 4, 6 o 8 uscite A e B.
+- **Effetti ed EQ parametrico**: FX1 e FX2 contengono fino a tre effetti ciascuno. L'EQ ha 3, 6, 8 o 12 punti con curva di risposta. I punti esterni possono essere una campana, uno shelf, un passa-alto o un passa-basso.
 - **Microfono**: scegli il microfono per il mix. Il microfono predefinito di sistema non cambia.
 - **Livelli** su ogni fader. Si possono spegnere.
-- **Prova mix**: registra fino a 10 secondi di ciò che sente il PC e lo riproduce.
+- **Prova mix**: in cima al cassetto Uscite. Scegli un'uscita, registrane fino a 10 secondi, poi riproduci o metti in pausa la ripresa. La barra a destra contiene Uscite (icona dell'altoparlante), FX1 e FX2.
 - Sette lingue e un tema colore blu o rosa.
 
 <table>
@@ -58,7 +60,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Attiva **Mix**.
 3. Premi **+** per aggiungere un canale: un suggerimento, un nome tuo o un'app in esecuzione.
 4. In quell'app scegli l'uscita `Frame Mix: <name>`.
-5. Il fader regola il livello della strip. A1 suona nel visore. B1 va al PC. Gli altri bus sono nel cassetto Uscite.
+5. Il fader regola il livello della strip. A1 suona nel visore. Il pulsante PC la manda al PC. Il cassetto Uscite regola il livello di ogni uscita.
 
 Se usi gli altoparlanti del Frame, attiva la cancellazione dell'eco in Frame Mic Tuner. Altrimenti il PC può sentire l'audio dell'app due volte.
 

@@ -10,10 +10,13 @@ flowchart LR
   micSrc["Mikrofon nach den Valve-Filtern"] --> micStrip["Mikrofon-Streifen"]
   chSink --> chStrip["Streifen"]
   chStrip --> busA["A1 bis A4"]
+  chStrip --> busPc["PC"]
   chStrip --> busB["B1 bis B4"]
+  micStrip --> busPc
   micStrip --> busB
   busA --> speakers["Lautsprecher oder anderer Ausgang"]
-  busB --> frameMix["frame_amix_source"]
+  busPc --> frameMix["frame_amix_source"]
+  busB --> virtualMics["frame_amix_b1 bis b4"]
   frameMix --> vrlink["VRLink"]
 ```
 
@@ -26,10 +29,11 @@ Die Mischung beginnt mit dem Mikrofon, das im Panel gewählt ist. **Systemstanda
 `frame-audio-mixer-engine.service` besitzt den Graphen. Die Mischung läuft weiter, wenn das Panel schließt.
 
 - Jeder Kanal ist ein Sink `frame_amix_chN`. Apps sehen ihn unter dem Kanalnamen (`DJ`).
-- Der Streifen wendet Inserts, Fader, Stumm, Solo und den Pegel an und schickt das Signal auf die eingeschalteten A- und B-Busse.
+- Der Streifen wendet Fader, Stumm, Solo und den Pegel an und schickt das Signal auf die Ausgänge, die mit den Knöpfen neben seinem Fader eingeschaltet sind.
 - A1 sind die Headset-Lautsprecher. A2 bis A4 sind der gewählte Ausgang.
-- B1 ist `frame_amix_source` (**Frame Mix**). B2 bis B4 sind weitere virtuelle Mikrofone.
-- Der Mikrofon-Streifen geht standardmäßig nur auf B1. Die Aufnahme ist nicht virtuell, deshalb bleibt die Rauschunterdrückung an, solange Mix an ist.
+- PC (das Symbol mit Monitor und Lautsprecher) ist `frame_amix_source` (**Frame Mix**), das Mikrofon, das der PC hört. Es ist ein eigener Ausgang, zusätzlich zu den 2, 4, 6 oder 8 A- und B-Ausgängen.
+- B1 bis B4 sind weitere virtuelle Mikrofone (`frame_amix_b1` bis `frame_amix_b4`) für andere Apps auf dem Headset.
+- Der Mikrofon-Streifen geht standardmäßig nur auf PC. Die Aufnahme ist nicht virtuell, deshalb bleibt die Rauschunterdrückung an, solange Mix an ist.
 
 Ein Kanal erzeugt oder löscht nur seine eigenen Nodes. PipeWire und WirePlumber werden nicht neu gestartet.
 
@@ -48,6 +52,14 @@ Eine App, die `Frame Mix: <name>` wählt, läuft trotzdem durch das räumliche A
 Ein Kanal, der aus einer laufenden App angelegt wurde, merkt sich auch diese App. Solange Mix an ist, werden ihre Streams auf den Kanal gepinnt, auch wenn die App keine Ausgangseinstellung hat.
 
 Nichts in dieser App ruft `wpctl set-default` auf.
+
+## Mix-Check
+
+Mix-Check sitzt oben in der Ausgänge-Schublade. Einen Ausgang wählen (PC, A oder B) und Aufnahme drücken, dann nimmt die Engine ihn bis zu 10 Sekunden auf. Wiedergabe und Pause spielen genau diese eine Aufnahme auf A1 ab. Eine neue Aufnahme ersetzt sie. Während der Aufnahme oder Wiedergabe bleibt das Mikrofon aus der Mischung, und die Effekt-Returns im Headset sind stumm. So wird die Aufnahme nicht mitgehört und kann nicht rückkoppeln.
+
+## Effekte
+
+Effekte sitzen auf FX1 und FX2, gemeinsamen Sends, die jeder Streifen neben seinem Fader einschalten kann. Jede Kette fasst bis zu drei Effekte. Der Equalizer ist einer davon: parametrisch, mit 3, 6, 8 oder 12 Punkten und einer Frequenzgangkurve. Sein Knopf Bearbeiten öffnet die volle EQ-Ansicht. Der erste und der letzte Punkt können Glocke, Shelf, Hochpass oder Tiefpass sein. Ein Send ist eine Kopie, die trockenen Wege bleiben. Jeder Return hat einen Fader und dieselben A-, PC- und B-Knöpfe wie ein Streifen.
 
 ## Echounterdrückung
 

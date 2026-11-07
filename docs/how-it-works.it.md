@@ -10,10 +10,13 @@ flowchart LR
   micSrc["Microfono dopo i filtri Valve"] --> micStrip["Strip del microfono"]
   chSink --> chStrip["Strip"]
   chStrip --> busA["A1 a A4"]
+  chStrip --> busPc["PC"]
   chStrip --> busB["B1 a B4"]
+  micStrip --> busPc
   micStrip --> busB
   busA --> speakers["Altoparlanti o un'altra uscita"]
-  busB --> frameMix["frame_amix_source"]
+  busPc --> frameMix["frame_amix_source"]
+  busB --> virtualMics["frame_amix_b1 a b4"]
   frameMix --> vrlink["VRLink"]
 ```
 
@@ -26,10 +29,11 @@ Il mix parte dal microfono scelto nel pannello. **Predefinito di sistema** segue
 `frame-audio-mixer-engine.service` possiede il grafo. Il mix continua quando il pannello si chiude.
 
 - Ogni canale è un sink `frame_amix_chN`. Le app lo vedono con il nome del canale (`DJ`).
-- La strip applica insert, fader, mute, solo e il livello, poi manda ai bus A e B accesi.
+- La strip applica fader, mute, solo e il livello, poi manda alle uscite accese con i pulsanti accanto al suo fader.
 - A1 sono gli altoparlanti del visore. Da A2 ad A4 è l'uscita scelta.
-- B1 è `frame_amix_source` (**Frame Mix**). Da B2 a B4 sono altri microfoni virtuali.
-- La strip del microfono va di default solo su B1. La cattura non è virtuale, quindi la riduzione del rumore resta attiva mentre Mix è acceso.
+- PC (l'icona con monitor e altoparlante) è `frame_amix_source` (**Frame Mix**), il microfono che sente il PC. È un'uscita a sé, in aggiunta alle 2, 4, 6 o 8 uscite A e B.
+- Da B1 a B4 sono altri microfoni virtuali (da `frame_amix_b1` a `frame_amix_b4`) per altre app sul visore.
+- La strip del microfono va di default solo su PC. La cattura non è virtuale, quindi la riduzione del rumore resta attiva mentre Mix è acceso.
 
 Aggiungere o togliere un canale crea o distrugge solo i suoi nodi. PipeWire e WirePlumber non vengono riavviati.
 
@@ -48,6 +52,14 @@ Un'app che sceglie `Frame Mix: <name>` passa comunque dall'audio spaziale, e un 
 Un canale creato da un'app in esecuzione si ricorda anche di quell'app. Finché Mix è attivo, i suoi flussi vengono agganciati al canale anche se l'app non ha un'impostazione per l'uscita.
 
 Niente in questa app chiama `wpctl set-default`.
+
+## Prova mix
+
+Prova mix si trova in cima al cassetto Uscite. Scegli un'uscita (PC, A o B), premi Registra e il motore la registra per un massimo di 10 secondi. Riproduci e Pausa suonano quella singola ripresa su A1; una nuova registrazione la sostituisce. Mentre registra o riproduce, il microfono resta fuori dal mix e i ritorni degli effetti nel visore sono in mute, così la ripresa non viene monitorata e non può andare in feedback.
+
+## Effetti
+
+Gli effetti stanno su FX1 e FX2, mandate condivise che ogni strip può accendere accanto al suo fader. Ogni catena contiene fino a tre effetti. L'equalizzatore è uno di questi: parametrico, a 3, 6, 8 o 12 punti, con curva di risposta. Il suo pulsante Modifica apre la vista completa dell'EQ. Il primo e l'ultimo punto possono essere una campana, uno shelf, un passa-alto o un passa-basso. Una mandata è una copia; i percorsi dry restano. Ogni ritorno ha un fader e gli stessi pulsanti A, PC e B di una strip.
 
 ## Cancellazione dell'eco
 

@@ -1,5 +1,5 @@
 //! In-process PipeWire graph. Loopback modules are the devices apps can see.
-//! Gain, inserts and meters run in stream callbacks. Routes are ordinary links.
+//! Gain, effects and meters run in stream callbacks. Routes are ordinary links.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -255,6 +255,8 @@ struct Engine {
     mic: Option<Strip>,
     buses_a: Vec<Bus>,
     buses_b: Vec<Bus>,
+    /// Feeds `frame_amix_source`, which VRLink records for the PC.
+    bus_pc: Option<Bus>,
     fx: Vec<Strip>,
     check_live: Option<CheckLive>,
     held_links: HashMap<(u32, u32), Link>,
@@ -439,6 +441,8 @@ struct CheckShare {
     samples: Mutex<Vec<f32>>,
     play: Mutex<Vec<f32>>,
     play_at: AtomicU32,
+    /// Peak of the output being recorded, for the Mix Check level bar.
+    peak: AtomicU32,
 }
 
 impl CheckShare {
@@ -449,6 +453,7 @@ impl CheckShare {
             samples: Mutex::new(Vec::new()),
             play: Mutex::new(Vec::new()),
             play_at: AtomicU32::new(0),
+            peak: AtomicU32::new(0),
         })
     }
 }
@@ -466,25 +471,23 @@ struct PlayIoCheck {
     share: Arc<CheckShare>,
 }
 
+/// One take. Phases: idle, recording, ready, playing, paused.
 struct Check {
     phase: String,
-    clips: Vec<StoredClip>,
-    next_id: u64,
-    playing_id: u64,
-    started: Option<std::time::Instant>,
-}
-
-struct StoredClip {
-    id: u64,
-    seconds: f64,
-    wave: Vec<f32>,
-    samples: Vec<f32>,
+    /// Output being recorded: "pc", "a:N" or "b:N".
+    output: String,
+    take: Vec<f32>,
 }
 
 impl Check {
     fn new() -> Self {
-        Self { phase: "idle".into(), clips: Vec::new(), next_id: 1, playing_id: 0, started: None }
+        Self { phase: "idle".into(), output: "pc".into(), take: Vec::new() }
     }
+}
+
+/// Seconds in an interleaved stereo 48 kHz buffer.
+fn stereo_secs(samples: usize) -> f64 {
+    samples as f64 / 48_000.0 / 2.0
 }
 
 impl Engine {
@@ -494,6 +497,7 @@ impl Engine {
             mic: None,
             buses_a: Vec::new(),
             buses_b: Vec::new(),
+            bus_pc: None,
             fx: Vec::new(),
             check_live: None,
             held_links: HashMap::new(),
@@ -529,12 +533,13 @@ impl Engine {
                     }
                 }
             }
-            "record" => self.start_record(),
-            "stop" => self.finish_record(),
-            "play" => {
-                let id = value.get("id").and_then(|id| id.as_u64()).unwrap_or(0);
-                self.play_clip(id);
+            "record" => {
+                let output = value.get("output").and_then(|output| output.as_str()).unwrap_or("pc").to_string();
+                self.start_record(output);
             }
+            "stop" => self.finish_record(),
+            "play" => self.play_take(),
+            "pause" => self.pause_take(),
             "quit" => {}
             _ => {}
         }
@@ -550,8 +555,16 @@ impl Engine {
         }
         if self.check.phase == "playing" && !self.share.playing.load(Ordering::Relaxed) {
             self.check.phase = "ready".into();
-            self.check.started = None;
+            self.share.play_at.store(0, Ordering::Relaxed);
             self.apply_levels(&self.config.clone());
+        }
+    }
+
+    fn check_secs(&self) -> f64 {
+        match self.check.phase.as_str() {
+            "recording" => stereo_secs(self.share.samples.lock().map(|samples| samples.len()).unwrap_or(0)),
+            "playing" | "paused" => stereo_secs(self.share.play_at.load(Ordering::Relaxed) as usize),
+            _ => 0.0,
         }
     }
 
@@ -563,21 +576,19 @@ impl Engine {
         for (id, strip) in &self.strips {
             meters.insert(id.clone(), serde_json::json!(f32::from_bits(strip.controls.peak.load(Ordering::Relaxed))));
         }
-        let clips: Vec<_> = self
-            .check
-            .clips
-            .iter()
-            .map(|clip| serde_json::json!({ "id": clip.id, "seconds": clip.seconds, "wave": clip.wave }))
-            .collect();
+        if self.check.phase == "recording" {
+            meters.insert("check".into(), serde_json::json!(f32::from_bits(self.share.peak.load(Ordering::Relaxed))));
+        }
         serde_json::json!({
             "ok": true,
             "mix_active": self.config.mix_on && (self.mic.is_some() || !self.strips.is_empty()),
             "meters": meters,
             "graph": self.graph(),
             "check": self.check.phase,
-            "check_secs": self.check.started.map(|start| start.elapsed().as_secs_f64()).unwrap_or(0.0),
-            "playing_id": self.check.playing_id,
-            "clips": clips,
+            "check_secs": self.check_secs(),
+            "check_output": self.check.output,
+            "has_take": !self.check.take.is_empty(),
+            "take_secs": stereo_secs(self.check.take.len()),
         })
         .to_string()
     }
@@ -628,6 +639,12 @@ impl Engine {
                 Err(err) => eprintln!("frame-audio-mixer: {}: {err}", channel.id),
             }
         }
+        if self.bus_pc.is_none() {
+            match make_send_bus(&self.context, "frame_amix_pc", "frame_amix_source", "Frame Mix") {
+                Ok(bus) => self.bus_pc = Some(bus),
+                Err(err) => eprintln!("frame-audio-mixer: pc bus: {err}"),
+            }
+        }
         let sides = config::side_count(self.config.outputs);
         self.buses_a.truncate(sides);
         self.buses_b.truncate(sides);
@@ -639,15 +656,10 @@ impl Engine {
                 }
             }
             if self.buses_b.len() == index {
-                let source_name = if index == 0 { "frame_amix_source".into() } else { format!("frame_amix_b{}", index + 1) };
-                let label = if index == 0 {
-                    "Frame Mix".into()
-                } else {
-                    let custom = self.config.b.get(index).map(|bus| bus.name.clone()).unwrap_or_default();
-                    if custom.is_empty() { format!("B{}", index + 1) } else { custom }
-                };
+                let custom = self.config.b.get(index).map(|bus| bus.name.clone()).unwrap_or_default();
+                let label = if custom.is_empty() { format!("B{}", index + 1) } else { custom };
                 let name = format!("frame_amix_b{}", index + 1);
-                if let Ok(bus) = make_send_bus(&self.context, &name, &source_name, &label) {
+                if let Ok(bus) = make_send_bus(&self.context, &name, &name, &label) {
                     self.buses_b.push(bus);
                 }
             }
@@ -676,19 +688,17 @@ impl Engine {
             mic.controls.mute.store(config.mic_muted, Ordering::Relaxed);
             mic.controls.solo.store(config.mic_solo, Ordering::Relaxed);
             mic.controls.hold.store(hold_mic, Ordering::Relaxed);
-            if let Ok(mut chain) = mic.controls.chain.lock() {
-                *chain = config.mic_inserts.clone();
-            }
         }
         for channel in &config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
                 strip.controls.set_gain_db(channel.gain_db, 1.0);
                 strip.controls.mute.store(channel.muted, Ordering::Relaxed);
                 strip.controls.solo.store(channel.solo, Ordering::Relaxed);
-                if let Ok(mut chain) = strip.controls.chain.lock() {
-                    *chain = channel.inserts.clone();
-                }
             }
+        }
+        let pc_name = self.bus_pc.as_ref().map(|bus| bus.sink_name.clone());
+        if let Some(name) = pc_name {
+            self.set_named_volume(&name, config.pc.gain_db, config.pc.muted);
         }
         let sides = config::side_count(config.outputs);
         for index in 0..sides {
@@ -735,19 +745,23 @@ impl Engine {
     fn sync_routes(&mut self) {
         let mut routes = Vec::new();
         let sides = config::side_count(self.config.outputs);
+        let dest = Dest { a: &self.buses_a, b: &self.buses_b, pc: self.bus_pc.as_ref(), fx: &self.fx, sides };
         if let Some(mic) = &self.mic {
-            push_routes(&mut routes, &mic.dsp(), &self.buses_a, &self.buses_b, &self.fx, self.config.mic_routes, self.config.mic_send_fx1, self.config.mic_send_fx2, sides);
+            let flow = Flow { bits: self.config.mic_routes, to_pc: self.config.mic_to_pc, fx1: self.config.mic_send_fx1, fx2: self.config.mic_send_fx2 };
+            push_routes(&mut routes, &mic.dsp(), &dest, flow);
             routes.push(Wanted { output_node: mic.loop_out(), input_node: mic.tap() });
         }
         for channel in &self.config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
-                push_routes(&mut routes, &strip.dsp(), &self.buses_a, &self.buses_b, &self.fx, channel.routes, channel.send_fx1, channel.send_fx2, sides);
+                let flow = Flow { bits: channel.routes, to_pc: channel.to_pc, fx1: channel.send_fx1, fx2: channel.send_fx2 };
+                push_routes(&mut routes, &strip.dsp(), &dest, flow);
                 routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.tap() });
             }
         }
         for (index, fx) in [&self.config.fx_a, &self.config.fx_b].into_iter().enumerate() {
             if let Some(strip) = self.fx.get(index) {
-                push_routes(&mut routes, &strip.dsp(), &self.buses_a, &self.buses_b, &[], fx.routes, false, false, sides);
+                let flow = Flow { bits: fx.routes, to_pc: fx.to_pc, fx1: false, fx2: false };
+                push_routes(&mut routes, &strip.dsp(), &dest, flow);
                 routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.tap() });
             }
         }
@@ -760,7 +774,7 @@ impl Engine {
             }
         }
         if self.check.phase == "recording" {
-            if let Some(bus) = self.buses_b.first() {
+            if let Some(bus) = self.check_bus(&self.check.output) {
                 routes.push(Wanted { output_node: bus.play_name.clone(), input_node: "frame_amix_check_virtual_sink_rec".into() });
             }
         }
@@ -771,6 +785,19 @@ impl Engine {
         }
         self.held_routes = routes;
         self.reconcile();
+    }
+
+    fn check_bus(&self, output: &str) -> Option<&Bus> {
+        if output == "pc" {
+            return self.bus_pc.as_ref();
+        }
+        let (side, index) = output.split_once(':')?;
+        let index: usize = index.parse().ok()?;
+        match side {
+            "a" => self.buses_a.get(index),
+            "b" => self.buses_b.get(index),
+            _ => None,
+        }
     }
 
     fn reconcile(&mut self) {
@@ -796,66 +823,92 @@ impl Engine {
         }
     }
 
-    fn start_record(&mut self) {
+    fn start_record(&mut self, output: String) {
         if self.check.phase == "recording" {
             return;
         }
         if let Ok(mut samples) = self.share.samples.lock() {
             samples.clear();
         }
+        self.check.output = if config::check_output_valid(&output, self.config.outputs) { output } else { "pc".into() };
         self.share.recording.store(true, Ordering::Relaxed);
         self.share.playing.store(false, Ordering::Relaxed);
+        self.share.play_at.store(0, Ordering::Relaxed);
         self.check.phase = "recording".into();
-        self.check.playing_id = 0;
-        self.check.started = Some(std::time::Instant::now());
         self.apply_levels(&self.config.clone());
     }
 
     fn finish_record(&mut self) {
         self.share.recording.store(false, Ordering::Relaxed);
         if self.check.phase != "recording" {
-            self.check.phase = "idle".into();
-            self.check.started = None;
             return;
         }
         let samples = self.share.samples.lock().map(|mut samples| std::mem::take(&mut *samples)).unwrap_or_default();
-        let id = self.check.next_id;
-        self.check.next_id += 1;
-        let seconds = samples.len() as f64 / 48_000.0 / 2.0;
-        let wave = peaks_of(&samples, 36);
-        self.check.clips.insert(0, StoredClip { id, seconds, wave, samples });
-        self.check.clips.truncate(5);
-        self.check.phase = "ready".into();
-        self.check.started = None;
+        self.check.take = samples;
+        self.check.phase = if self.check.take.is_empty() { "idle".into() } else { "ready".into() };
         self.apply_levels(&self.config.clone());
     }
 
-    fn play_clip(&mut self, id: u64) {
-        let Some(clip) = self.check.clips.iter().find(|clip| clip.id == id) else { return };
-        if let Ok(mut play) = self.share.play.lock() {
-            *play = clip.samples.clone();
+    /// Plays the take on A1, or resumes it where Pause left it.
+    fn play_take(&mut self) {
+        if self.check.take.is_empty() || self.check.phase == "recording" || self.check.phase == "playing" {
+            return;
         }
-        self.share.play_at.store(0, Ordering::Relaxed);
+        if self.check.phase != "paused" {
+            if let Ok(mut play) = self.share.play.lock() {
+                *play = self.check.take.clone();
+            }
+            self.share.play_at.store(0, Ordering::Relaxed);
+        }
         self.share.playing.store(true, Ordering::Relaxed);
-        self.share.recording.store(false, Ordering::Relaxed);
-        self.check.playing_id = id;
         self.check.phase = "playing".into();
-        self.check.started = Some(std::time::Instant::now());
+        self.apply_levels(&self.config.clone());
+    }
+
+    fn pause_take(&mut self) {
+        if self.check.phase != "playing" {
+            return;
+        }
+        self.share.playing.store(false, Ordering::Relaxed);
+        self.check.phase = "paused".into();
         self.apply_levels(&self.config.clone());
     }
 }
 
-fn push_routes(routes: &mut Vec<Wanted>, from: &str, a: &[Bus], b: &[Bus], fx: &[Strip], bits: u8, fx1: bool, fx2: bool, sides: usize) {
-    for index in 0..sides {
+struct Dest<'a> {
+    a: &'a [Bus],
+    b: &'a [Bus],
+    pc: Option<&'a Bus>,
+    fx: &'a [Strip],
+    sides: usize,
+}
+
+#[derive(Clone, Copy)]
+struct Flow {
+    bits: u8,
+    to_pc: bool,
+    fx1: bool,
+    fx2: bool,
+}
+
+fn push_routes(routes: &mut Vec<Wanted>, from: &str, dest: &Dest, flow: Flow) {
+    let Flow { bits, to_pc, fx1, fx2 } = flow;
+    let fx = dest.fx;
+    for index in 0..dest.sides {
         if config::route_on(bits, true, index) {
-            if let Some(bus) = a.get(index) {
+            if let Some(bus) = dest.a.get(index) {
                 routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
             }
         }
         if config::route_on(bits, false, index) {
-            if let Some(bus) = b.get(index) {
+            if let Some(bus) = dest.b.get(index) {
                 routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
             }
+        }
+    }
+    if to_pc {
+        if let Some(bus) = dest.pc {
+            routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
         }
     }
     if fx1 {
@@ -880,29 +933,6 @@ fn mic_target(config: &Config, default_source: &str) -> String {
     }
 }
 
-fn peaks_of(interleaved: &[f32], bars: usize) -> Vec<f32> {
-    let frames = interleaved.len() / 2;
-    let mut wave = vec![0.0f32; bars.max(1)];
-    if frames == 0 {
-        return wave;
-    }
-    let per = (frames / wave.len()).max(1);
-    for (bar, slot) in wave.iter_mut().enumerate() {
-        let start = bar * per;
-        if start >= frames {
-            break;
-        }
-        let stop = ((bar + 1) * per).min(frames);
-        let mut peak = 0.0f32;
-        for frame in start..stop {
-            peak = peak.max(interleaved[frame * 2].abs());
-            peak = peak.max(interleaved[frame * 2 + 1].abs());
-        }
-        *slot = peak;
-    }
-    wave
-}
-
 fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: Kind, capture_target: Option<&str>, any_solo: &Arc<AtomicBool>) -> Result<Strip, String> {
     let base = format!("frame_amix_{id}");
     let module = match kind {
@@ -912,7 +942,7 @@ fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: K
     };
     let controls = Controls::new();
     let ring = Ring::new();
-    let tap = connect_stream(core, &format!("{base}_virtual_sink_tap"), true, TapIo { ring: ring.clone() }, |stream, io| {
+    let tap = connect_stream(core, &format!("{base}_virtual_sink_tap"), true, true, TapIo { ring: ring.clone() }, |stream, io| {
         if let Some(samples) = take_f32(stream) {
             io.ring.push(&samples);
         }
@@ -930,7 +960,7 @@ fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: K
         chain: controls.chain.clone(),
         peak: controls.peak.clone(),
     };
-    let play = connect_stream(core, &format!("{base}_virtual_sink_dsp"), false, play_io, |stream, io| render_play(stream, io))?;
+    let play = connect_stream(core, &format!("{base}_virtual_sink_dsp"), false, false, play_io, |stream, io| render_play(stream, io))?;
     Ok(Strip {
         _modules: vec![module],
         _tap: tap,
@@ -965,11 +995,13 @@ fn make_send_bus(context: &ContextRc, name: &str, source_name: &str, label: &str
 }
 
 fn make_check(core: &CoreRc, share: &Arc<CheckShare>) -> Result<CheckLive, String> {
-    let rec = connect_stream(core, "frame_amix_check_virtual_sink_rec", true, RecIo { share: share.clone() }, |stream, io| {
+    let rec = connect_stream(core, "frame_amix_check_virtual_sink_rec", true, false, RecIo { share: share.clone() }, |stream, io| {
         if !io.share.recording.load(Ordering::Relaxed) {
             return;
         }
         let Some(samples) = take_f32(stream) else { return };
+        let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+        io.share.peak.store(peak.to_bits(), Ordering::Relaxed);
         let Ok(mut buf) = io.share.samples.try_lock() else { return };
         if buf.len() >= CHECK_MAX {
             return;
@@ -977,7 +1009,7 @@ fn make_check(core: &CoreRc, share: &Arc<CheckShare>) -> Result<CheckLive, Strin
         let room = CHECK_MAX - buf.len();
         buf.extend(samples.into_iter().take(room));
     })?;
-    let play = connect_stream(core, "frame_amix_check_virtual_sink_play", false, PlayIoCheck { share: share.clone() }, |stream, io| {
+    let play = connect_stream(core, "frame_amix_check_virtual_sink_play", false, false, PlayIoCheck { share: share.clone() }, |stream, io| {
         render_check_play(stream, io);
     })?;
     Ok(CheckLive { _rec: rec, _play: play })
@@ -991,15 +1023,7 @@ fn render_play(stream: &Stream, io: &mut PlayIo) {
         }
     }
     let Some(mut buffer) = stream.dequeue_buffer() else { return };
-    let datas = buffer.datas_mut();
-    let Some(data) = datas.first_mut() else { return };
-    let n_bytes = data.chunk().size() as usize;
-    let Some(bytes) = data.data() else { return };
-    let n = n_bytes.min(bytes.len()) / 4;
-    if bytes.as_ptr().align_offset(std::mem::align_of::<f32>()) != 0 || n == 0 {
-        return;
-    }
-    let samples = unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<f32>(), n) };
+    let Some(samples) = out_samples(&mut buffer) else { return };
     io.ring.pull(samples.len() / 2, samples);
     io.proc.process(samples);
     let dest = desired_gain(io);
@@ -1012,17 +1036,33 @@ fn render_play(stream: &Stream, io: &mut PlayIo) {
     io.peak.store(peak.to_bits(), Ordering::Relaxed);
 }
 
+/// Interleaved stereo float32.
+const FRAME_BYTES: usize = 8;
+
+/// The writable samples of a playback buffer, with the chunk already set to cover them.
+/// A playback chunk starts at size 0, so its size is not how much to write.
+fn out_samples<'a>(buffer: &'a mut pipewire::buffer::Buffer<'_>) -> Option<&'a mut [f32]> {
+    let requested = buffer.requested() as usize;
+    let data = buffer.datas_mut().first_mut()?;
+    let room = data.data()?.len() / FRAME_BYTES;
+    let frames = if requested > 0 { requested.min(room) } else { room };
+    if frames == 0 {
+        return None;
+    }
+    let chunk = data.chunk_mut();
+    *chunk.offset_mut() = 0;
+    *chunk.stride_mut() = FRAME_BYTES as i32;
+    *chunk.size_mut() = (frames * FRAME_BYTES) as u32;
+    let bytes = data.data()?;
+    if bytes.as_ptr().align_offset(std::mem::align_of::<f32>()) != 0 {
+        return None;
+    }
+    Some(unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<f32>(), frames * 2) })
+}
+
 fn render_check_play(stream: &Stream, io: &mut PlayIoCheck) {
     let Some(mut buffer) = stream.dequeue_buffer() else { return };
-    let datas = buffer.datas_mut();
-    let Some(data) = datas.first_mut() else { return };
-    let n_bytes = data.chunk().size() as usize;
-    let Some(bytes) = data.data() else { return };
-    let n = n_bytes.min(bytes.len()) / 4;
-    if bytes.as_ptr().align_offset(std::mem::align_of::<f32>()) != 0 || n == 0 {
-        return;
-    }
-    let samples = unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<f32>(), n) };
+    let Some(samples) = out_samples(&mut buffer) else { return };
     for sample in samples.iter_mut() {
         *sample = 0.0;
     }
@@ -1068,10 +1108,13 @@ fn take_f32(stream: &Stream) -> Option<Vec<f32>> {
     Some(samples.to_vec())
 }
 
+/// A passive stream does not wake what it is linked to. Strip outputs and the Mix Check
+/// streams are not passive, or an A bus stays suspended and is never heard.
 fn connect_stream<T: 'static>(
     core: &CoreRc,
     name: &str,
     capture: bool,
+    passive: bool,
     io: T,
     process: impl Fn(&Stream, &mut T) + 'static,
 ) -> Result<Live<T>, String> {
@@ -1080,7 +1123,7 @@ fn connect_stream<T: 'static>(
         *pipewire::keys::MEDIA_CATEGORY => if capture { "Capture" } else { "Playback" },
         *pipewire::keys::NODE_NAME => name,
         *pipewire::keys::NODE_AUTOCONNECT => "false",
-        *pipewire::keys::NODE_PASSIVE => "true",
+        *pipewire::keys::NODE_PASSIVE => if passive { "true" } else { "false" },
         "node.virtual" => "true",
         "node.latency" => "480/48000",
         "audio.rate" => "48000",

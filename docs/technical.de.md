@@ -30,7 +30,19 @@ Aus einem Git-Checkout baut `./install.sh` mit `cargo` und installiert. `./insta
 - Ein Name ist eine Zeile, höchstens 32 Zeichen, und ohne Groß-/Kleinschreibung eindeutig.
 - Ein Kanal aus einer laufenden App bekommt den Namen der App, pinnt die App auf sich und zeigt das Icon der App aus ihrem `.desktop`-Eintrag. Ohne Icon zeigt er den ersten Buchstaben.
 - Ist die Reihe breiter als das Panel, mit dem Stick des Controllers scrollen oder die Leiste unter den Kanälen ziehen.
-- Die Fader gehen von 0 bis 150 %. Beim Ziehen rastet ein Fader bei 20, 50, 80 und 100 % ein, wenn er auf 8 Pixel herankommt. Die Punkte auf einem Fader markieren 20, 50 und 80 %. Die Linie markiert 100 %.
+- Jeder Streifen hat einen Fader, von Stille bis +12 dB, mit einer Raste bei 0 dB. Stumm und Solo sitzen darunter. Die Routing-Knöpfe sind neben dem Fader gestapelt: A1 bis A4 (was du hörst), PC (das Streaming-Mikrofon am PC), B1 bis B4 (virtuelle Mikrofone), dann FX1 und FX2. Bei 6 oder 8 Ausgängen teilen sich die A- und B-Knöpfe auf zwei Spalten auf. In der Listenansicht stehen sie in einer Reihe neben Stumm und Solo.
+
+## Ausgänge
+
+Das PC-Streaming-Mikrofon ist immer da. Die App-Einstellungen fügen 2, 4, 6 oder 8 weitere Ausgänge hinzu: 2 sind A1 und B1, 8 sind A1 bis A4 und B1 bis B4. Eine kleinere Zahl behält die gespeicherten Routen, verbindet sie aber nicht.
+
+- PC ist `frame_amix_source`, angezeigt als **Frame Mix**. VRLink nimmt ihn auf, deshalb sieht der PC das Steam Streaming Microphone.
+- A1 sind die Headset-Lautsprecher. A2 bis A4 können jeder andere Ausgang sein, zum Beispiel Bluetooth.
+- B1 bis B4 sind virtuelle Mikrofone für Apps auf dem Headset (`frame_amix_b1` bis `frame_amix_b4`). Jedes hat einen Namen.
+
+Die Ausgänge-Schublade (Lautsprecher-Symbol in der rechten Leiste) enthält oben Mix-Check, dann einen Container pro Ausgang: den Namen, darunter den Master-Fader und rechts Stumm. PC kommt zuerst.
+
+Einstellungen aus Version 2 werden beim ersten Laden übernommen: Das alte B1 wird PC (mit seinem Fader und Stumm), und die alten B2 bis B4 werden B1 bis B3.
 
 ## Mikrofon
 
@@ -42,9 +54,15 @@ Die Mikrofonwahl gilt nur für die Mischung. Nichts in dieser App ruft `wpctl se
 
 Die Wahl wird als `frame-audio-mixer.mic-source` gespeichert (`""`, `builtin` oder ein Knotenname). Das Skript löst `builtin` zur oben genannten Loopback auf, fällt auf den Systemstandard zurück, wenn dieser Knoten fehlt, und nutzt nie `frame_amix_source`. Ein geänderter Wert wirkt erst nach dem nächsten Start von WirePlumber.
 
+Die Engine nimmt diese Quelle mit einer Loopback auf, die nicht virtuell ist, deshalb bleibt die Rauschunterdrückung von Valve an, solange Mix an ist. Der Mikrofon-Streifen gibt beim Fader auf 0 dB 12 dB Trim dazu. Seine Standardroute ist nur PC.
+
 ## Pegelanzeigen
 
 Die Pegel laufen nur, solange das Dashboard sichtbar ist, Mix an ist und die Pegelanzeige in den App-Einstellungen (das Zahnrad neben dem Sprachmenü) an ist. Gemessen werden nur die Kanäle, die auf dem Bildschirm zu sehen sind. Jede Pegelanzeige ist ein `pw-record`-Tap mit `node.virtual=true`. Deshalb schaltet sie die Mikrofonfilter von Valve nicht ein. Kanal-Taps sind passiv. Der Mikrofon-Tap ist es nicht. Solange die Pegel laufen, zeichnet das Panel mit etwa 30 Bildern pro Sekunde neu. Bei ausgeblendetem Dashboard zeichnet es nicht.
+
+## Effekte
+
+FX1 und FX2 sind gemeinsame Sends, und jeder enthält eine Kette mit bis zu drei Effekten. EQ ist einer davon: ein parametrischer Equalizer mit 3, 6, 8 oder 12 Punkten, der mit Bearbeiten in seinem Slot geöffnet wird. Die äußeren Punkte können Glocke, Shelf oder Hochpass (unterer Punkt) bzw. Tiefpass (oberer Punkt) sein. Ein Send lässt den trockenen Weg unverändert. Jeder Return hat einen eigenen Fader und eigene A-, PC- und B-Routen. Die Verarbeitung läuft in der Engine mit float32 bei 48 kHz und 480 Frames. Einen Send umzuschalten startet PipeWire oder WirePlumber nicht neu.
 
 ## Apps und Updates
 

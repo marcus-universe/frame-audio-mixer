@@ -35,10 +35,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Appareils audio virtuels** : jusqu'à 32 canaux nommés. Chacun est une sortie (`Frame Mix: <name>`) que n'importe quelle appli peut choisir.
 - **Canaux d'appli** : créez un canal à partir d'une appli en cours. Son icône s'affiche à côté du nom.
 - **Mix pour le micro de streaming du PC** : le PC entend votre micro et les canaux.
-- **Un fader par canal**, en dB, avec sourdine, solo et inserts. A est ce que vous entendez. B sont des micros virtuels. Dans les réglages : 2, 4, 6 ou 8 sorties. Égaliseur paramétrique à 3, 6, 8 ou 12 points.
+- **Sortie PC** : `Frame Mix`, que le PC entend comme Steam Streaming Microphone, est une sortie à part avec une icône PC, donc on voit clairement ce qui part vers le PC.
+- **Routage** : un fader par canal, en dB, avec sourdine et solo. Les boutons de routage sont empilés à côté du fader : A est ce que vous entendez (A1 est le casque), PC est le micro de streaming, B sont d'autres micros virtuels, et FX1 et FX2 sont les envois d'effets. Dans les réglages : 2, 4, 6 ou 8 sorties A et B.
+- **Effets et égaliseur paramétrique** : FX1 et FX2 contiennent chacun jusqu'à trois effets. L'égaliseur a 3, 6, 8 ou 12 points, avec une courbe de réponse. Les points extrêmes peuvent être une cloche, un shelf, un passe-haut ou un passe-bas.
 - **Microphone** : choisissez le micro du mix. Le micro par défaut du système ne change pas.
 - **Indicateurs de niveau** sur chaque fader. Vous pouvez les désactiver.
-- **Contrôle du mix** : enregistrez jusqu'à 10 secondes de ce que le PC entend, puis réécoutez-les.
+- **Contrôle du mix** : en haut du tiroir Sorties. Choisissez une sortie, enregistrez-en jusqu'à 10 secondes, puis lisez ou mettez en pause la prise. La barre de droite contient Sorties (icône haut-parleur), FX1 et FX2.
 - Sept langues, et un thème de couleur bleu ou rose.
 
 <table>
@@ -58,7 +60,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. Activez **Mix**.
 3. Appuyez sur **+** pour ajouter un canal : une suggestion, votre propre nom ou une appli en cours.
 4. Dans cette appli, choisissez la sortie `Frame Mix: <name>`.
-5. Le fader règle le niveau de la tranche. A1 joue dans le casque. B1 part vers le PC. Les autres bus sont dans le tiroir Sorties.
+5. Le fader règle le niveau de la tranche. A1 joue dans le casque. Le bouton PC l'envoie vers le PC. Le tiroir Sorties règle le niveau de chaque sortie.
 
 Si vous utilisez les haut-parleurs du Frame, activez l'annulation d'écho dans Frame Mic Tuner. Sinon, le PC peut entendre le son de l'appli deux fois.
 

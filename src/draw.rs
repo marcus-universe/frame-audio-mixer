@@ -110,16 +110,6 @@ pub const FX_PHASER: Rgb = Rgb { r: 0xa7 as f64 / 255.0, g: 0x8b as f64 / 255.0,
 pub const FX_PITCHER: Rgb = Rgb { r: 0xf5 as f64 / 255.0, g: 0xa5 as f64 / 255.0, b: 0x24 as f64 / 255.0 };
 pub const FX_FLANGER: Rgb = Rgb { r: 0xe0 as f64 / 255.0, g: 0x7e as f64 / 255.0, b: 0xf5 as f64 / 255.0 };
 
-pub fn bus_color(index: usize) -> Rgb {
-    let first_pink = THEME_PINK.with(|cell| cell.get());
-    match (first_pink, index) {
-        (false, 0) => BLUE,
-        (false, _) => PINK,
-        (true, 0) => PINK,
-        (true, _) => BLUE,
-    }
-}
-
 pub fn ink_on(fill: Rgb) -> Rgb {
     if fill.r > fill.b { PINK_INK } else { BLUE_INK }
 }
@@ -647,9 +637,6 @@ const FADER_PCT_Y: f64 = 16.0;
 const FADER_ICON_Y: f64 = 36.0;
 pub const FADER_MUTE_Y: f64 = 48.0;
 pub const FADER_MUTE_H: f64 = 28.0;
-pub const FADER_FX_S: f64 = 28.0;
-/// Room above the capsule for the A/B route grid and the two sends.
-pub const FADER_HEAD: f64 = 96.0;
 /// Room a vertical fader needs under its capsule, including Mute and Solo.
 pub const FADER_FOOT: f64 = 80.0;
 
@@ -884,6 +871,37 @@ pub const CLOSE_PATH: &str = "M195.2 195.2a64 64 0 0 1 90.5 0L512 421.5l226.3-22
 pub const EAR_PATH: &str = "M7.38 3.88L5.01 7.1v7.57l2.38 2.41a2 2 0 0 1 .5.9L8.43 20a2 2 0 0 0 1.18 1.35l1.47.59a2 2 0 0 0 1.6-.04l1.67-.79a2 2 0 0 0 1.1-1.41l.84-4.12a2 2 0 0 1 .24-.62l2.64-4.48a2 2 0 0 0 .23-1.43l-.82-3.86a2 2 0 0 0-1.05-1.37l-3.4-1.73a2 2 0 0 0-1.45-.14L8.45 3.14a2 2 0 0 0-1.07.74Z";
 /// iconoir:fx-tag-solid
 pub const FX_TAG_PATH: &str = "M8 2.25A6.75 6.75 0 0 0 1.25 9v6A6.75 6.75 0 0 0 8 21.75h8A6.75 6.75 0 0 0 22.75 15V9A6.75 6.75 0 0 0 16 2.25zm-2 6a.75.75 0 0 0-.75.75v6a.75.75 0 0 0 1.5 0v-2.25h2.821a.75.75 0 0 0 0-1.5H6.75v-1.5H11a.75.75 0 0 0 0-1.5zm7.576.27a.75.75 0 1 0-1.152.96l2.1 2.52l-2.1 2.52a.75.75 0 1 0 1.152.96l1.924-2.308l1.924 2.308a.75.75 0 1 0 1.152-.96l-2.1-2.52l2.1-2.52a.75.75 0 1 0-1.152-.96L15.5 10.829z";
+
+/// andrsrxn:device-pc-speaker, view box 24, MIT, Andrés Raxón. A stroked duotone,
+/// so it is drawn by `pc_icon` rather than `icon`.
+const PC_SCREEN_FILL: &str = "M1.66 10.14c0-1.89 0-2.83.58-3.42c.59-.58 1.53-.58 3.42-.58H8c1.89 0 2.83 0 3.42.58c.58.59.58 1.53.58 3.42v2.25c0 1.88 0 2.83-.58 3.41c-.59.59-1.53.59-3.42.59H5.66c-1.89 0-2.83 0-3.42-.59c-.58-.58-.58-1.53-.58-3.41z";
+const PC_SCREEN_STROKE: &str = "M12 6.14H5.66c-1.89 0-2.83 0-3.42.58c-.58.59-.58 1.53-.58 3.42v2.25c0 1.88 0 2.83.58 3.41c.59.59 1.53.59 3.42.59h6.1m-5.99 3.07h4.31m-2.15 0v-2.98";
+
+/// The PC streaming output. `size` is the square the 24-unit view box fills.
+pub fn pc_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
+    let _ = cr.save();
+    cr.translate(x, y);
+    cr.scale(size / 24.0, size / 24.0);
+    cr.set_line_cap(cairo::LineCap::Round);
+    cr.set_line_join(cairo::LineJoin::Round);
+    append_svg(cr, PC_SCREEN_FILL);
+    fill(cr, c, 0.2);
+    let _ = cr.arc(17.17, 14.12, 2.34, 0.0, 2.0 * PI);
+    fill(cr, c, 0.2);
+    cr.set_source_rgb(c.r, c.g, c.b);
+    cr.set_line_width(1.5);
+    append_svg(cr, PC_SCREEN_STROKE);
+    let _ = cr.stroke();
+    rounded(cr, 12.0, 4.54, 10.34, 14.92, 2.0);
+    let _ = cr.stroke();
+    cr.new_sub_path();
+    let _ = cr.arc(17.17, 14.12, 2.17, 0.0, 2.0 * PI);
+    let _ = cr.stroke();
+    let _ = cr.arc(17.17, 8.1, 0.46, 0.0, 2.0 * PI);
+    let _ = cr.fill_preserve();
+    let _ = cr.stroke();
+    let _ = cr.restore();
+}
 
 /// Opaque pixels of one glyph drawn at 64 px. Used to catch a path the parser drops.
 fn icon_coverage(path: &str, view: f64) -> Result<usize, String> {
@@ -1229,6 +1247,18 @@ pub fn self_test_paths() -> Result<(), String> {
         (FX_TAG_PATH, 24.0),
     ] {
         icon(&cr, path, view, 0.0, 0.0, 16.0, TEXT);
+    }
+    let pc_ink = {
+        let surface = ImageSurface::create(Format::ARgb32, 64, 64).map_err(|e| e.to_string())?;
+        {
+            let pc = Context::new(&surface).map_err(|e| e.to_string())?;
+            pc_icon(&pc, 0.0, 0.0, 64.0, TEXT);
+        }
+        let mut surface = surface;
+        surface_to_rgba(&mut surface).chunks(4).filter(|px| px[3] > 160).count()
+    };
+    if pc_ink < 300 {
+        return Err(format!("pc icon coverage {pc_ink}"));
     }
     // fa6-solid:list-ul uses smooth curves. A dropped `s` leaves only the first bullet.
     let list_ink = icon_coverage(LIST_PATH, 512.0)?;

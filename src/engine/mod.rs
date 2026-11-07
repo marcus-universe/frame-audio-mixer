@@ -23,14 +23,6 @@ pub fn self_test() -> Result<(), String> {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct StatusClip {
-    pub id: u64,
-    pub seconds: f64,
-    #[serde(default)]
-    pub wave: Vec<f32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
 pub struct Status {
     #[serde(default)]
     pub mix_active: bool,
@@ -43,16 +35,16 @@ pub struct Status {
     #[serde(default)]
     pub check_secs: f64,
     #[serde(default)]
-    pub playing_id: u64,
+    pub has_take: bool,
     #[serde(default)]
-    pub clips: Vec<StatusClip>,
+    pub take_secs: f64,
 }
 
 /// One request to the engine. `None` means the socket is not there yet.
-pub fn call(op: &str, config: Option<&Config>, id: u64) -> Option<Status> {
+pub fn call(op: &str, config: Option<&Config>) -> Option<Status> {
     let body = match config {
-        Some(config) => serde_json::json!({ "op": op, "config": config, "id": id }),
-        None => serde_json::json!({ "op": op, "id": id }),
+        Some(config) => serde_json::json!({ "op": op, "config": config, "output": config.check_output }),
+        None => serde_json::json!({ "op": op }),
     };
     let line = roundtrip(&body.to_string())?;
     serde_json::from_str(&line).ok()

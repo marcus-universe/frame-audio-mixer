@@ -30,17 +30,19 @@ From a git checkout, `./install.sh` builds with `cargo` and installs. `./install
 - A name is one line, at most 32 characters, and unique ignoring case. Apps see the channel as an output with that name (`DJ`).
 - A channel made from a running app is named after the app, pins the app to it, and shows the app's icon from its `.desktop` entry. Without an icon it shows the first letter.
 - When the row is wider than the panel, scroll it with the controller stick or drag the bar under the channels.
-- Each strip has one fader, from silence to +12 dB, with a detent at 0 dB. Mute, Solo and Inserts sit under it. The route buttons send the strip to A1–A4 (what you hear) and B1–B4 (virtual microphones), and to FX1 and FX2.
+- Each strip has one fader, from silence to +12 dB, with a detent at 0 dB. Mute and Solo sit under it. The route buttons are stacked next to the fader: A1–A4 (what you hear), PC (the PC streaming microphone), B1–B4 (virtual microphones), then FX1 and FX2. With 6 or 8 outputs the A and B buttons split into two columns. In the list view they sit in one row next to Mute and Solo.
 
 ## Outputs
 
-App Settings chooses 2, 4, 6 or 8 outputs. 2 is A1 and B1. 8 is A1–A4 and B1–B4. A lower count keeps the stored routes and does not link them.
+The PC streaming microphone is always there. App Settings adds 2, 4, 6 or 8 more outputs: 2 is A1 and B1, 8 is A1–A4 and B1–B4. A lower count keeps the stored routes and does not link them.
 
+- PC is `frame_amix_source`, shown as **Frame Mix**. VRLink records it, so the PC sees Steam Streaming Microphone.
 - A1 is the headset speakers. A2–A4 can be any other sink, such as Bluetooth.
-- B1 is `frame_amix_source`, shown as **Frame Mix**. VRLink records it, so the PC sees Steam Streaming Microphone.
-- B2–B4 are extra virtual microphones. Each has a name.
+- B1–B4 are virtual microphones for apps on the headset (`frame_amix_b1` to `frame_amix_b4`). Each has a name.
 
-Each output has a master fader and Mute in the Outputs drawer.
+The Outputs drawer (speaker icon on the right rail) holds Mix Check at the top, then one container per output: its name, the master fader under it, and Mute at the right. PC comes first.
+
+Settings from version 2 move over on first load: the old B1 becomes PC (with its fader and Mute), and the old B2–B4 become B1–B3.
 
 ## Microphone
 
@@ -50,7 +52,7 @@ The microphone choice is only for the mix. Nothing in this app calls `wpctl set-
 - **Frame built-in mic** is `alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source`, the end of Valve's chain after noise suppression, echo cancellation and the mic EQ.
 - Any other listed source is stored by its `node.name`.
 
-The engine captures that source with a loopback that is not virtual, so Valve's noise suppression stays on while Mix is on. The mic strip adds 12 dB of trim at the 0 dB fader. Its default route is B1 only.
+The engine captures that source with a loopback that is not virtual, so Valve's noise suppression stays on while Mix is on. The mic strip adds 12 dB of trim at the 0 dB fader. Its default route is PC only.
 
 ## Level meters
 
@@ -60,7 +62,7 @@ Mute and Solo sit under every fader. Solo is one group: a soloed strip is the on
 
 ## Effects
 
-Each strip has an insert chain. EQ is a parametric equalizer with 3, 6, 8 or 12 points. The outer points can be a bell, a shelf, or a high-pass (low point) or low-pass (high point). FX1 and FX2 are shared sends. A send leaves the dry path. Each return has its own fader and A/B routes. Processing is float32 at 48 kHz and 480 frames inside the engine. Toggling a send does not restart PipeWire or WirePlumber.
+FX1 and FX2 are shared sends, and each holds a chain of up to three effects. EQ is one of them: a parametric equalizer with 3, 6, 8 or 12 points, opened with Edit on its slot. The outer points can be a bell, a shelf, or a high-pass (low point) or low-pass (high point). A send is a copy; the dry routes stay. Each return has its own fader and A, PC and B routes. Processing is float32 at 48 kHz and 480 frames inside the engine. Toggling a send does not restart PipeWire or WirePlumber.
 
 ## Apps and updates
 

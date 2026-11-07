@@ -10,10 +10,13 @@ flowchart LR
   micSrc["Mic after Valve filters"] --> micStrip["Mic strip"]
   chSink --> chStrip["Strip"]
   chStrip --> busA["A1 to A4"]
+  chStrip --> busPc["PC"]
   chStrip --> busB["B1 to B4"]
+  micStrip --> busPc
   micStrip --> busB
   busA --> speakers["Speakers or another sink"]
-  busB --> frameMix["frame_amix_source"]
+  busPc --> frameMix["frame_amix_source"]
+  busB --> virtualMics["frame_amix_b1 to b4"]
   frameMix --> vrlink["VRLink"]
 ```
 
@@ -26,10 +29,11 @@ The mix starts with the microphone you chose in the panel. **System default** fo
 `frame-audio-mixer-engine.service` owns the graph. The mix keeps running when the panel closes.
 
 - Each channel is a sink named `frame_amix_chN`. Apps see it by the channel name (`DJ`).
-- The strip applies inserts, the fader, mute, solo and the meter, then routes to the A and B buses you turned on.
+- The strip applies the fader, mute, solo and the meter, then routes to the outputs you turned on with the buttons next to its fader.
 - A1 plays on the headset speakers. A2–A4 play on the sink you pick.
-- B1 is `frame_amix_source` (**Frame Mix**). B2–B4 are more virtual microphones.
-- The microphone strip defaults to B1. Its capture is not virtual, so Valve's noise suppression stays on while Mix is on.
+- PC (the monitor-and-speaker icon) is `frame_amix_source` (**Frame Mix**), the microphone the PC hears. It is its own output, on top of the 2, 4, 6 or 8 A and B outputs.
+- B1–B4 are more virtual microphones (`frame_amix_b1` to `frame_amix_b4`) for other apps on the headset.
+- The microphone strip defaults to PC only. Its capture is not virtual, so Valve's noise suppression stays on while Mix is on.
 
 Adding or removing a channel only creates or destroys that channel's nodes. PipeWire and WirePlumber keep running.
 
@@ -49,11 +53,11 @@ Nothing in this app calls `wpctl set-default`.
 
 ## Mix Check
 
-Mix Check records B1 inside the engine, up to 10 seconds, and plays it on A1. While it records or plays, the microphone is held out of the mix and headset effect returns are muted, so the take is not monitored and cannot feed back.
+Mix Check sits at the top of the Outputs drawer. Pick an output (PC, A or B), press Record, and the engine records it for up to 10 seconds. Play and Pause play that one take on A1; a new recording replaces it. While it records or plays, the microphone is held out of the mix and headset effect returns are muted, so the take is not monitored and cannot feed back.
 
 ## Effects
 
-Each strip has inserts. The equalizer is parametric: 3, 6, 8 or 12 points, with a response curve. The first and last points can be a bell, a shelf, a high-pass or a low-pass. FX1 and FX2 are shared sends. A send is a copy; the dry routes stay. Each return has a fader and the same A/B buttons as a strip.
+Effects live on FX1 and FX2, shared sends that every strip can turn on next to its fader. Each chain holds up to three effects. The equalizer is one of them: parametric, 3, 6, 8 or 12 points, with a response curve. Its Edit button opens the full EQ sheet. The first and last points can be a bell, a shelf, a high-pass or a low-pass. A send is a copy; the dry routes stay. Each return has a fader and the same A, PC and B buttons as a strip.
 
 ## Echo cancellation
 

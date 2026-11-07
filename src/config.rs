@@ -30,15 +30,16 @@ pub struct Channel {
     pub muted: bool,
     #[serde(default)]
     pub solo: bool,
-    /// Bit 0..3 is A1..A4, bit 4..7 is B1..B4.
+    /// Bit 0..3 is A1..A4, bit 4..7 is B1..B4. The PC is `to_pc`.
     #[serde(default = "default_routes")]
     pub routes: u8,
+    /// Heard on the PC streaming microphone (`frame_amix_source`).
+    #[serde(default = "default_true")]
+    pub to_pc: bool,
     #[serde(default)]
     pub send_fx1: bool,
     #[serde(default)]
     pub send_fx2: bool,
-    #[serde(default)]
-    pub inserts: Vec<EffectSlot>,
     /// Set when the channel was created from a running app. Only used to find its icon.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub app: String,
@@ -55,23 +56,23 @@ impl Channel {
             muted: false,
             solo: false,
             routes: default_routes(),
+            to_pc: true,
             send_fx1: false,
             send_fx2: false,
-            inserts: Vec::new(),
             app: String::new(),
             binary: String::new(),
         }
     }
 }
 
-/// A1 and B1. A fresh channel is heard in the headset and on the PC.
+/// A1. With `to_pc`, a fresh channel is heard in the headset and on the PC.
 pub fn default_routes() -> u8 {
-    route_bit(true, 0) | route_bit(false, 0)
+    route_bit(true, 0)
 }
 
-/// The microphone goes to the PC only, so the speakers do not howl.
+/// The microphone goes to the PC only (`mic_to_pc`), so the speakers do not howl.
 pub fn default_mic_routes() -> u8 {
-    route_bit(false, 0)
+    0
 }
 
 pub fn route_bit(a_side: bool, index: usize) -> u8 {
@@ -119,12 +120,12 @@ pub struct Config {
     pub mic_solo: bool,
     #[serde(default = "default_mic_routes")]
     pub mic_routes: u8,
+    #[serde(default = "default_true")]
+    pub mic_to_pc: bool,
     #[serde(default)]
     pub mic_send_fx1: bool,
     #[serde(default)]
     pub mic_send_fx2: bool,
-    #[serde(default)]
-    pub mic_inserts: Vec<EffectSlot>,
     /// Applied to VRLink only while Mix is on, and only when it is not 1.0.
     #[serde(default = "default_unity")]
     pub vrlink_gain: f64,
@@ -157,6 +158,12 @@ pub struct Config {
     pub a: [Bus; 4],
     #[serde(default)]
     pub b: [Bus; 4],
+    /// Master of the PC streaming microphone. Always present, outside the A/B count.
+    #[serde(default)]
+    pub pc: Bus,
+    /// Output Mix Check records: "pc", "a:N" or "b:N".
+    #[serde(default = "default_check_output")]
+    pub check_output: String,
     #[serde(default)]
     pub fx_a: FxBus,
     #[serde(default)]
@@ -304,14 +311,16 @@ pub struct FxBus {
     pub gain_db: f64,
     #[serde(default)]
     pub muted: bool,
-    /// Where the effect return plays. A fresh return is heard on A1 and B1.
+    /// Where the effect return plays. A fresh return is heard on A1 and the PC.
     #[serde(default = "default_routes")]
     pub routes: u8,
+    #[serde(default = "default_true")]
+    pub to_pc: bool,
 }
 
 impl Default for FxBus {
     fn default() -> Self {
-        Self { chain: Vec::new(), gain_db: 0.0, muted: false, routes: default_routes() }
+        Self { chain: Vec::new(), gain_db: 0.0, muted: false, routes: default_routes(), to_pc: true }
     }
 }
 
@@ -390,7 +399,22 @@ fn default_outputs() -> u8 {
     2
 }
 fn default_version() -> u32 {
-    2
+    CONFIG_VERSION
+}
+fn default_check_output() -> String {
+    "pc".to_string()
+}
+
+pub const CONFIG_VERSION: u32 = 3;
+
+/// Whether a Mix Check target names an output that exists at this count.
+pub fn check_output_valid(value: &str, outputs: u8) -> bool {
+    if value == "pc" {
+        return true;
+    }
+    let Some((side, index)) = value.split_once(':') else { return false };
+    let Ok(index) = index.parse::<usize>() else { return false };
+    matches!(side, "a" | "b") && index < side_count(outputs)
 }
 
 impl ParamEq {
@@ -512,9 +536,9 @@ impl Default for Config {
             mic_muted: false,
             mic_solo: false,
             mic_routes: default_mic_routes(),
+            mic_to_pc: true,
             mic_send_fx1: false,
             mic_send_fx2: false,
-            mic_inserts: Vec::new(),
             vrlink_gain: 1.0,
             channels: Vec::new(),
             pins: Vec::new(),
@@ -526,9 +550,11 @@ impl Default for Config {
             wide: false,
             a: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
             b: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
+            pc: Bus::default(),
+            check_output: default_check_output(),
             fx_a: FxBus::default(),
             fx_b: FxBus::default(),
-            version: 2,
+            version: CONFIG_VERSION,
         }
     }
 }
@@ -551,8 +577,10 @@ pub fn load(path: &Path) -> Config {
             return Config::default();
         }
     };
-    let config = if value.get("version").and_then(|v| v.as_u64()) == Some(2) {
-        match serde_json::from_value(value) {
+    let version = value.get("version").and_then(|v| v.as_u64());
+    let config = if version == Some(2) || version == Some(u64::from(CONFIG_VERSION)) {
+        match serde_json::from_value::<Config>(value) {
+            Ok(config) if version == Some(2) => migrate_v2(config),
             Ok(config) => config,
             Err(err) => {
                 eprintln!("frame-audio-mixer: ignoring unreadable config ({err})");
@@ -563,6 +591,34 @@ pub fn load(path: &Path) -> Config {
         migrate_v1(&value)
     };
     sanitize(config)
+}
+
+/// v2 had no PC output: B1 was the PC streaming microphone. Its bit becomes
+/// `to_pc`, and B2..B4 move down to B1..B3.
+fn migrate_v2(mut config: Config) -> Config {
+    fn split(routes: u8) -> (u8, bool) {
+        let pc = routes & route_bit(false, 0) != 0;
+        ((routes & 0x0f) | ((routes & 0xe0) >> 1), pc)
+    }
+    let (routes, pc) = split(config.mic_routes);
+    config.mic_routes = routes;
+    config.mic_to_pc = pc;
+    for channel in &mut config.channels {
+        let (routes, pc) = split(channel.routes);
+        channel.routes = routes;
+        channel.to_pc = pc;
+    }
+    for fx in [&mut config.fx_a, &mut config.fx_b] {
+        let (routes, pc) = split(fx.routes);
+        fx.routes = routes;
+        fx.to_pc = pc;
+    }
+    let old = config.b.clone();
+    config.pc = Bus { gain_db: old[0].gain_db, muted: old[0].muted, target: String::new(), name: String::new() };
+    config.b = [old[1].clone(), old[2].clone(), old[3].clone(), Bus::default()];
+    config.check_output = default_check_output();
+    config.version = CONFIG_VERSION;
+    config
 }
 
 /// v1 stored two cubic faders per channel and two effect buses named A and B.
@@ -600,14 +656,8 @@ fn migrate_v1(value: &serde_json::Value) -> Config {
             channel.muted = to_mic_muted && phones_muted;
             channel.solo = item.get("to_mic_solo").and_then(|v| v.as_bool()).unwrap_or(false)
                 || item.get("phones_solo").and_then(|v| v.as_bool()).unwrap_or(false);
-            let mut routes = 0u8;
-            if phones > 0.02 && !phones_muted {
-                routes |= route_bit(true, 0);
-            }
-            if to_mic > 0.02 && !to_mic_muted {
-                routes |= route_bit(false, 0);
-            }
-            channel.routes = routes;
+            channel.routes = if phones > 0.02 && !phones_muted { route_bit(true, 0) } else { 0 };
+            channel.to_pc = to_mic > 0.02 && !to_mic_muted;
             channel.send_fx1 = item.get("to_mic_fx_a").and_then(|v| v.as_bool()).unwrap_or(false)
                 || item.get("phones_fx_a").and_then(|v| v.as_bool()).unwrap_or(false);
             channel.send_fx2 = item.get("to_mic_fx_b").and_then(|v| v.as_bool()).unwrap_or(false)
@@ -628,7 +678,7 @@ fn migrate_v1(value: &serde_json::Value) -> Config {
     }
     config.fx_a = migrate_bus(get("fx_a"));
     config.fx_b = migrate_bus(get("fx_b"));
-    config.version = 2;
+    config.version = CONFIG_VERSION;
     config
 }
 
@@ -679,8 +729,11 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
 }
 
 fn sanitize(mut config: Config) -> Config {
-    config.version = 2;
+    config.version = CONFIG_VERSION;
     config.outputs = output_count(config.outputs);
+    if !check_output_valid(&config.check_output, config.outputs) {
+        config.check_output = default_check_output();
+    }
     config.mic_gain_db = clamp_db(config.mic_gain_db);
     config.vrlink_gain = clamp_volume(config.vrlink_gain);
     config.channels.truncate(MAX_CHANNELS);
@@ -697,9 +750,10 @@ fn sanitize(mut config: Config) -> Config {
     });
     for channel in &mut config.channels {
         channel.gain_db = clamp_db(channel.gain_db);
-        sanitize_chain(&mut channel.inserts);
     }
-    sanitize_chain(&mut config.mic_inserts);
+    config.pc.gain_db = clamp_db(config.pc.gain_db);
+    config.pc.target.clear();
+    config.pc.name.clear();
     for bus in config.a.iter_mut().chain(config.b.iter_mut()) {
         bus.gain_db = clamp_db(bus.gain_db);
         bus.target = sanitize_mic_source(&bus.target);
@@ -972,11 +1026,33 @@ pub fn self_test() -> Result<(), String> {
     fs::write(&path_v1, legacy).map_err(|e| e.to_string())?;
     let migrated = load(&path_v1);
     let dj = migrated.channels.iter().find(|channel| channel.id == "ch1").ok_or("migrate")?;
-    if dj.gain_db.abs() > 0.05 || route_on(dj.routes, true, 0) || !route_on(dj.routes, false, 0) {
-        return Err(format!("migrate {} {:08b}", dj.gain_db, dj.routes));
+    if dj.gain_db.abs() > 0.05 || dj.routes != 0 || !dj.to_pc {
+        return Err(format!("migrate {} {:08b} {}", dj.gain_db, dj.routes, dj.to_pc));
     }
-    if migrated.version != 2 || migrated.outputs != 2 {
+    if migrated.version != CONFIG_VERSION || migrated.outputs != 2 || !migrated.mic_to_pc || migrated.mic_routes != 0 {
         return Err("version".into());
+    }
+    let v2 = r#"{"version":2,"outputs":4,"mic_routes":16,"channels":[
+        {"id":"ch1","name":"DJ","routes":49,"inserts":[{"kind":"eq"}]},
+        {"id":"ch2","name":"Game","routes":1}],
+        "b":[{"gain_db":-6.0,"muted":true},{"name":"Discord"},{},{}],
+        "fx_a":{"routes":17}}"#;
+    let path_v2 = dir.join("v2.json");
+    fs::write(&path_v2, v2).map_err(|e| e.to_string())?;
+    let moved = load(&path_v2);
+    let dj = moved.channels.iter().find(|channel| channel.id == "ch1").ok_or("migrate v2")?;
+    let game = moved.channels.iter().find(|channel| channel.id == "ch2").ok_or("migrate v2")?;
+    if !dj.to_pc || dj.routes != (route_bit(true, 0) | route_bit(false, 0)) || game.to_pc || game.routes != route_bit(true, 0) {
+        return Err(format!("migrate v2 routes {:08b} {:08b}", dj.routes, game.routes));
+    }
+    if !moved.mic_to_pc || moved.mic_routes != 0 || !moved.fx_a.to_pc || moved.fx_a.routes != route_bit(true, 0) {
+        return Err("migrate v2 mic/fx".into());
+    }
+    if !moved.pc.muted || (moved.pc.gain_db + 6.0).abs() > 0.01 || moved.b[0].name != "Discord" || moved.version != CONFIG_VERSION {
+        return Err("migrate v2 buses".into());
+    }
+    if !check_output_valid("pc", 2) || !check_output_valid("b:1", 4) || check_output_valid("b:1", 2) || check_output_valid("x", 8) {
+        return Err("check output".into());
     }
     let _ = fs::remove_dir_all(&dir);
     Ok(())

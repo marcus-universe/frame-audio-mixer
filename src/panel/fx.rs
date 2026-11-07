@@ -7,6 +7,8 @@ use crate::i18n::{self, Text};
 use cairo::Context;
 
 const ROW_H: f64 = 52.0;
+/// First chain row, from the top of the drawer. Rows are `ROW_H + 8` apart.
+pub(crate) const CHAIN_TOP: f64 = 180.0;
 
 pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize) {
     let (x, y, w, h) = panel.stage().check;
@@ -26,7 +28,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus
     let chain = if bus == 0 { panel.config.fx_a.chain.clone() } else { panel.config.fx_b.chain.clone() };
     let left = x + 20.0;
     let row_w = w - 40.0;
-    let mut ry = y + 148.0;
+    let mut ry = y + CHAIN_TOP;
     let list_bottom = y + h - 16.0;
     for (index, slot) in chain.iter().enumerate() {
         if ry + ROW_H > list_bottom {
@@ -158,24 +160,33 @@ fn return_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usi
     let mut bx = x;
     for index in 0..sides {
         let on = crate::config::route_on(fx.routes, true, index);
-        let fill = if on { draw::TEXT } else { INSET };
+        let fill = if on { draw::TEXT } else { draw::CONTROL };
         let ink = if on { draw::BG } else { MUTED };
         fill_round(cr, bx, y, 36.0, 28.0, 8.0, fill);
-        draw::label_mid(cr, fonts, true, 11.0, ink, bx, y + 14.0, &format!("A{}", index + 1));
+        let tag = format!("A{}", index + 1);
+        let tw = draw::text_width(cr, fonts, true, 11.0, &tag);
+        draw::label_mid(cr, fonts, true, 11.0, ink, bx + (36.0 - tw) / 2.0, y + 14.0, &tag);
         panel.hot(&format!("route:{who}:a:{index}"), bx, y, 36.0, 28.0);
         bx += 40.0;
     }
+    let pc_x = bx + 4.0;
+    let (fill, ink) = if fx.to_pc { (draw::accent(), draw::on_accent()) } else { (draw::CONTROL, draw::accent()) };
+    fill_round(cr, pc_x, y, 36.0, 28.0, 8.0, fill);
+    draw::pc_icon(cr, pc_x + 8.0, y + 4.0, 20.0, ink);
+    panel.hot(&format!("route:{who}:pc"), pc_x, y, 36.0, 28.0);
     bx = x;
     for index in 0..sides {
         let on = crate::config::route_on(fx.routes, false, index);
-        let fill = if on { draw::accent() } else { INSET };
-        let ink = if on { draw::on_accent() } else { MUTED };
+        let fill = if on { draw::mix(draw::accent(), draw::CONTROL, 0.45) } else { draw::CONTROL };
+        let ink = if on { draw::TEXT } else { MUTED };
         fill_round(cr, bx, y + 32.0, 36.0, 28.0, 8.0, fill);
-        draw::label_mid(cr, fonts, true, 11.0, ink, bx, y + 46.0, &format!("B{}", index + 1));
+        let tag = format!("B{}", index + 1);
+        let tw = draw::text_width(cr, fonts, true, 11.0, &tag);
+        draw::label_mid(cr, fonts, true, 11.0, ink, bx + (36.0 - tw) / 2.0, y + 46.0, &tag);
         panel.hot(&format!("route:{who}:b:{index}"), bx, y + 32.0, 36.0, 28.0);
         bx += 40.0;
     }
-    let fader = draw::paint_side_fader(cr, fonts, x + w - 150.0, y + 20.0, 140.0, 36.0, fx.gain_db, 0.0, false, fx.muted, draw::FaderGlyph::Speaker, false);
+    let fader = draw::paint_side_fader(cr, fonts, x - 4.0, y + 66.0, w + 4.0, 36.0, fx.gain_db, 0.0, false, fx.muted, draw::FaderGlyph::Speaker, false);
     panel.fader_hit(&format!("fxret:{bus}"), fader.capsule_x, fader.capsule_y, fader.capsule_w, fader.capsule_h, true);
     let _ = t;
 }

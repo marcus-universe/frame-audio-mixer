@@ -24,6 +24,7 @@ Das Logo von Frame Audio Mixer liegt als SVG in `assets/logo/`, in Blau und Rosa
 | [material-symbols:settings-rounded](https://icon-sets.iconify.design/material-symbols/settings-rounded/) | Material Symbols | Google | Apache-2.0 |
 | [ep:close-bold](https://icon-sets.iconify.design/ep/close-bold/) | Element Plus | Element Plus | MIT |
 | [andrsrxn:ear](https://icon-sets.iconify.design/andrsrxn/ear/) | andrsrxn | Andrsrxn | MIT |
+| [andrsrxn:device-pc-speaker](https://icon-sets.iconify.design/andrsrxn/device-pc-speaker/) | andrsrxn | Andrsrxn | MIT |
 | [iconoir:fx-tag-solid](https://icon-sets.iconify.design/iconoir/fx-tag-solid/) | Iconoir | Luca Burgio | MIT |
 
 Die Icons in der App-Liste stammen aus frame-apps 0.3.1 von sasaken1102r und stehen wie der Code, mit dem sie kamen, unter MIT. App-Icons in der Kanalreihe werden aus den Apps gelesen, die auf dem Headset installiert sind.

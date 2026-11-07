@@ -30,7 +30,19 @@ Da un checkout git, `./install.sh` compila con `cargo` e installa. `./install.sh
 - Un nome sta su una riga, al massimo 32 caratteri, ed è unico senza distinzione tra maiuscole e minuscole.
 - Un canale creato da un'app in esecuzione prende il nome dell'app, aggancia l'app a sé e mostra l'icona dell'app dalla sua voce `.desktop`. Senza icona mostra la prima lettera.
 - Quando la riga è più larga del pannello, scorrila con la levetta del controller o trascina la barra sotto i canali.
-- I fader vanno da 0 a 150 %. Un trascinamento si aggancia a 20, 50, 80 e 100 % quando arriva entro 8 pixel. I punti su un fader segnano 20, 50 e 80 %. La linea segna 100 %.
+- Ogni strip ha un fader, dal silenzio a +12 dB, con uno scatto a 0 dB. Mute e Solo sono sotto. I pulsanti di instradamento sono impilati accanto al fader: da A1 ad A4 (ciò che senti), PC (il microfono di streaming del PC), da B1 a B4 (microfoni virtuali), poi FX1 e FX2. Con 6 o 8 uscite i pulsanti A e B si dividono in due colonne. Nella vista a elenco stanno in una riga accanto a Mute e Solo.
+
+## Uscite
+
+Il microfono di streaming del PC c'è sempre. Le impostazioni dell'app aggiungono altre 2, 4, 6 o 8 uscite: 2 sono A1 e B1, 8 sono da A1 ad A4 e da B1 a B4. Un numero più basso mantiene gli instradamenti salvati e non li collega.
+
+- PC è `frame_amix_source`, mostrato come **Frame Mix**. VRLink lo registra, quindi il PC vede Steam Streaming Microphone.
+- A1 sono gli altoparlanti del visore. Da A2 ad A4 può essere qualsiasi altra uscita, per esempio Bluetooth.
+- Da B1 a B4 sono microfoni virtuali per le app sul visore (da `frame_amix_b1` a `frame_amix_b4`). Ognuno ha un nome.
+
+Il cassetto Uscite (icona dell'altoparlante sulla barra a destra) contiene Prova mix in cima, poi un riquadro per ogni uscita: il nome, sotto il fader master e a destra Mute. PC viene per primo.
+
+Le impostazioni della versione 2 vengono trasferite al primo caricamento: il vecchio B1 diventa PC (con il suo fader e il suo Mute), e i vecchi B2–B4 diventano B1–B3.
 
 ## Microfono
 
@@ -42,9 +54,15 @@ La scelta del microfono vale solo per il mix. Niente in questa app chiama `wpctl
 
 La scelta viene salvata come `frame-audio-mixer.mic-source` (`""`, `builtin` o un nome di nodo). Lo script risolve `builtin` nel loopback qui sopra, torna al predefinito di sistema se quel nodo manca e non usa mai `frame_amix_source`. Un valore modificato ha effetto dopo il prossimo avvio di WirePlumber.
 
+Il motore cattura quella sorgente con un loopback non virtuale, quindi la riduzione del rumore di Valve resta attiva mentre Mix è acceso. La strip del microfono aggiunge 12 dB di guadagno con il fader a 0 dB. Il suo instradamento predefinito è solo PC.
+
 ## Livelli
 
 I livelli girano solo se la dashboard è visibile, Mix è attivo e i livelli sono attivi nelle impostazioni dell'app (l'ingranaggio accanto al menu della lingua). Vengono misurati solo i canali visibili sullo schermo. Ogni livello è una presa `pw-record` con `node.virtual=true`, quindi non accende i filtri Valve del microfono. Le prese dei canali sono passive. Quella del microfono no. Il pannello si ridisegna a circa 30 fps finché i livelli girano e non disegna mentre la dashboard è nascosta.
+
+## Effetti
+
+FX1 e FX2 sono mandate condivise, e ognuna contiene una catena di fino a tre effetti. EQ è uno di questi: un equalizzatore parametrico a 3, 6, 8 o 12 punti, che si apre con Modifica sul suo slot. I punti esterni possono essere una campana, uno shelf, oppure un passa-alto (punto basso) o un passa-basso (punto alto). Una mandata lascia intatto il percorso dry. Ogni ritorno ha il suo fader e gli instradamenti A, PC e B. L'elaborazione è float32 a 48 kHz e 480 frame dentro il motore. Attivare o disattivare una mandata non riavvia PipeWire né WirePlumber.
 
 ## App e aggiornamenti
 

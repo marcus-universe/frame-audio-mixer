@@ -35,10 +35,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - **Virtuelle Audiogeräte**: bis zu 32 benannte Kanäle. Jeder Kanal ist ein Ausgang (`Frame Mix: <name>`), den jede App wählen kann.
 - **App-Kanäle**: einen Kanal aus einer laufenden App anlegen. Ihr Icon steht neben dem Namen.
 - **Mischung für das Streaming-Mikrofon am PC**: der PC hört das Mikrofon und die Kanäle.
-- **Ein Fader pro Kanal**, in dB, mit Stumm, Solo und Inserts. A ist das, was du hörst. B sind virtuelle Mikrofone. In den Einstellungen: 2, 4, 6 oder 8 Ausgänge. Parametrischer EQ mit 3, 6, 8 oder 12 Punkten.
+- **PC-Ausgang**: `Frame Mix`, das der PC als Steam Streaming Microphone hört, ist ein eigener Ausgang mit PC-Symbol. So ist klar, was an den PC geht.
+- **Routing**: ein Fader pro Kanal, in dB, mit Stumm und Solo. Die Routing-Knöpfe sind neben dem Fader gestapelt: A ist das, was du hörst (A1 ist das Headset), PC ist das Streaming-Mikrofon, B sind weitere virtuelle Mikrofone, und FX1 und FX2 sind die Effekt-Sends. In den Einstellungen: 2, 4, 6 oder 8 A- und B-Ausgänge.
+- **Effekte und parametrischer EQ**: FX1 und FX2 fassen je bis zu drei Effekte. Der EQ hat 3, 6, 8 oder 12 Punkte mit einer Frequenzgangkurve. Die äußeren Punkte können Glocke, Shelf, Hochpass oder Tiefpass sein.
 - **Mikrofon**: das Mikrofon für die Mischung wählen. Das Standardmikrofon des Systems ändert sich nicht.
 - **Pegelanzeigen** an jedem Fader. Sie lassen sich ausschalten.
-- **Mix-Check**: bis zu 10 Sekunden von dem aufnehmen, was der PC hört, und wieder abspielen.
+- **Mix-Check**: oben in der Ausgänge-Schublade. Einen Ausgang wählen, bis zu 10 Sekunden davon aufnehmen und die Aufnahme abspielen oder pausieren. Die rechte Leiste enthält Ausgänge (Lautsprecher-Symbol), FX1 und FX2.
 - Sieben Sprachen und ein blaues oder rosa Farbschema.
 
 <table>
@@ -58,7 +60,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 2. **Mix** einschalten.
 3. Mit **+** einen Kanal hinzufügen: einen Vorschlag, einen eigenen Namen oder eine laufende App.
 4. In dieser App den Ausgang `Frame Mix: <name>` wählen.
-5. Der Fader stellt den Pegel der Spur ein. A1 spielt im Headset. B1 geht an den PC. Die anderen Busse sitzen in der Ausgänge-Schublade.
+5. Der Fader stellt den Pegel der Spur ein. A1 spielt im Headset. Der PC-Knopf schickt sie an den PC. Die Ausgänge-Schublade stellt den Pegel jedes Ausgangs ein.
 
 Bei den Lautsprechern der Frame die Echounterdrückung in Frame Mic Tuner einschalten. Sonst kann der PC den App-Ton doppelt hören.
 

@@ -19,14 +19,7 @@ pub enum CheckPhase {
     Recording,
     Ready,
     Playing,
-}
-
-#[derive(Debug, Clone)]
-pub struct MixClip {
-    pub id: u64,
-    pub seconds: f64,
-    pub clock: String,
-    pub wave: Vec<f32>,
+    Paused,
 }
 
 #[derive(Debug, Clone)]
@@ -38,9 +31,10 @@ pub struct Snapshot {
     pub tuner_version: String,
     pub update: UpdateView,
     pub check: CheckPhase,
+    /// Seconds recorded so far, or the play position.
     pub check_secs: f64,
-    pub playing_id: u64,
-    pub clips: Vec<MixClip>,
+    pub has_take: bool,
+    pub take_secs: f64,
     pub message: String,
     /// Bumps when a Mix Check attempt finishes without staying in Recording.
     pub check_epoch: u64,
@@ -60,8 +54,8 @@ impl Default for Snapshot {
             update: UpdateView::default(),
             check: CheckPhase::Idle,
             check_secs: 0.0,
-            playing_id: 0,
-            clips: Vec::new(),
+            has_take: false,
+            take_secs: 0.0,
             message: String::new(),
             check_epoch: 0,
             apps: Vec::new(),
@@ -77,9 +71,11 @@ pub enum Job {
     Levels(Config),
     Refresh,
     Autostart(bool),
-    Record,
+    /// Records the output named by `Config::check_output`.
+    Record(Config),
     StopCheck,
-    PlayClip(u64),
+    PlayTake,
+    PauseTake,
     CheckUpdates,
     InstallUpdate,
     OpenInstaller(String),
@@ -138,8 +134,8 @@ struct State {
     message: String,
     apps: apps::Manager,
     last_check: Option<Instant>,
-    clips: Vec<MixClip>,
-    playing_id: u64,
+    has_take: bool,
+    take_secs: f64,
     check_epoch: u64,
     booted: bool,
     meters: HashMap<String, f32>,
@@ -164,8 +160,8 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         message: String::new(),
         apps: apps::Manager::new(),
         last_check: None,
-        clips: Vec::new(),
-        playing_id: 0,
+        has_take: false,
+        take_secs: 0.0,
         check_epoch: 0,
         booted: false,
         meters: HashMap::new(),
@@ -201,11 +197,11 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
             }
         }
         if urgent {
-            // The button and the clip list update before the next pw-dump.
+            // Record and Play/Pause update before the next status poll.
             publish_check(&snap, &state);
         }
         if dragging {
-            send_engine(&mut state, "levels", 0);
+            send_engine(&mut state, "levels");
             if let Ok(mut guard) = snap.lock() {
                 guard.meters = state.meters.clone();
             }
@@ -230,16 +226,23 @@ fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
         Job::Apply(config) => apply_config(state, config),
         Job::Levels(config) => take_levels(state, &config),
         Job::Autostart(on) => set_autostart(on),
-        Job::Record => {
-            start_record(state);
+        Job::Record(config) => {
+            state.config.check_output = config.check_output;
+            ensure_engine(state);
+            send_engine(state, "record");
             return true;
         }
         Job::StopCheck => {
-            finish_recording(state);
+            send_engine(state, "stop");
             return true;
         }
-        Job::PlayClip(id) => {
-            play_clip(state, id);
+        Job::PlayTake => {
+            ensure_engine(state);
+            send_engine(state, "play");
+            return true;
+        }
+        Job::PauseTake => {
+            send_engine(state, "pause");
             return true;
         }
         Job::CheckUpdates => {
@@ -270,7 +273,7 @@ fn refresh_facts(state: &mut State, force: bool) {
         return;
     }
     state.graph = Graph::default();
-    if let Some(status) = crate::engine::call("status", None, 0) {
+    if let Some(status) = crate::engine::call("status", None) {
         apply_status(state, status);
     }
     state.echo_cancel = echo_cancel();
@@ -281,19 +284,14 @@ fn refresh_facts(state: &mut State, force: bool) {
     state.facts_at = Some(Instant::now());
 }
 
-fn check_fields(state: &State) -> (CheckPhase, f64, u64, Vec<MixClip>, String, u64) {
-    (state.check_phase, state.check_secs, state.playing_id, state.clips.clone(), state.message.clone(), state.check_epoch)
-}
-
 fn publish_check(snap: &Mutex<Snapshot>, state: &State) {
     let Ok(mut guard) = snap.lock() else { return };
-    let (phase, secs, playing, clips, message, epoch) = check_fields(state);
-    guard.check = phase;
-    guard.check_secs = secs;
-    guard.playing_id = playing;
-    guard.clips = clips;
-    guard.message = message;
-    guard.check_epoch = epoch;
+    guard.check = state.check_phase;
+    guard.check_secs = state.check_secs;
+    guard.has_take = state.has_take;
+    guard.take_secs = state.take_secs;
+    guard.message = state.message.clone();
+    guard.check_epoch = state.check_epoch;
 }
 
 fn publish(snap: &Mutex<Snapshot>, state: &State) {
@@ -301,7 +299,6 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    let (phase, secs, playing, clips, message, epoch) = check_fields(state);
     *guard = Snapshot {
         graph: state.graph.clone(),
         mix_active: state.mix_active,
@@ -309,12 +306,12 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         autostart: state.autostart,
         tuner_version: state.tuner_version.clone(),
         update: updater::current_view(),
-        check: phase,
-        check_secs: secs,
-        playing_id: playing,
-        clips,
-        message,
-        check_epoch: epoch,
+        check: state.check_phase,
+        check_secs: state.check_secs,
+        has_take: state.has_take,
+        take_secs: state.take_secs,
+        message: state.message.clone(),
+        check_epoch: state.check_epoch,
         apps: state.apps.entries().to_vec(),
         menu_busy: state.apps.menu_busy(),
         meters: state.meters.clone(),
@@ -340,13 +337,13 @@ fn apply_config(state: &mut State, config: Config) {
         unpin_vrlink(state);
     }
     ensure_engine(state);
-    send_engine(state, "apply", 0);
+    send_engine(state, "apply");
     state.facts_at = None;
 }
 
 fn take_levels(state: &mut State, config: &Config) {
     state.config = config.clone();
-    send_engine(state, "levels", 0);
+    send_engine(state, "levels");
 }
 
 fn sync_audio(state: &mut State) {
@@ -377,8 +374,8 @@ fn ensure_engine(state: &mut State) {
     state.engine_up = want;
 }
 
-fn send_engine(state: &mut State, op: &str, id: u64) {
-    if let Some(status) = crate::engine::call(op, Some(&state.config), id) {
+fn send_engine(state: &mut State, op: &str) {
+    if let Some(status) = crate::engine::call(op, Some(&state.config)) {
         apply_status(state, status);
     }
 }
@@ -388,22 +385,19 @@ fn apply_status(state: &mut State, status: crate::engine::Status) {
     state.graph = status.graph;
     state.mix_active = status.mix_active;
     state.meters = status.meters;
-    state.playing_id = status.playing_id;
     state.check_secs = status.check_secs;
+    state.has_take = status.has_take;
+    state.take_secs = status.take_secs;
     state.check_phase = match status.check.as_str() {
         "recording" => CheckPhase::Recording,
         "ready" => CheckPhase::Ready,
         "playing" => CheckPhase::Playing,
+        "paused" => CheckPhase::Paused,
         _ => CheckPhase::Idle,
     };
     if was == CheckPhase::Recording && state.check_phase != CheckPhase::Recording {
         state.check_epoch = state.check_epoch.wrapping_add(1);
     }
-    state.clips = status
-        .clips
-        .into_iter()
-        .map(|clip| MixClip { id: clip.id, seconds: clip.seconds, clock: String::new(), wave: clip.wave })
-        .collect();
     if matches!(state.check_phase, CheckPhase::Recording | CheckPhase::Playing) {
         if state.check_started.is_none() {
             state.check_started = Some(Instant::now());
@@ -561,11 +555,6 @@ fn get_volume(id: u32) -> String {
     text.split_whitespace().nth(1).unwrap_or("1.000").to_string()
 }
 
-/// `pw-cat --latency` is a sample count on this PipeWire. A fraction is rejected
-/// ("bad unit"). 480 samples is the speaker period, 10 ms at 48 kHz.
-const GRAPH_LATENCY: &str = "480";
-const TAKE_MISSED: &str = "Mix Check could not open Frame Mix.";
-
 /// Object serial of Frame Mix. A node name is not a target on this headset.
 /// Play a finished clip on the headset speakers only. The name contains
 /// `virtual` and `sink`, so the spatializer does not wrap it, and the target
@@ -583,20 +572,6 @@ struct WavInfo {
     format: u16,
     data_off: usize,
     data_len: usize,
-}
-
-fn start_record(state: &mut State) {
-    ensure_engine(state);
-    send_engine(state, "record", 0);
-}
-
-fn finish_recording(state: &mut State) {
-    send_engine(state, "stop", 0);
-}
-
-fn play_clip(state: &mut State, id: u64) {
-    ensure_engine(state);
-    send_engine(state, "play", id);
 }
 
 fn wav_info(bytes: &[u8]) -> Option<WavInfo> {
