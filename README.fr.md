@@ -12,7 +12,7 @@
 
 # 🎚️ Frame Audio Mixer
 
-Un panneau du tableau de bord SteamVR pour le Steam Frame. Il mélange le son des applis avec le micro du casque et envoie ce mix au PC par le flux sans fil. Sur le PC, il apparaît sous le nom **Steam Streaming Microphone**.
+Frame Audio Mixer mélange le son des applis avec le micro du casque et envoie ce mix au PC par le flux sans fil, dans le **Steam Streaming Microphone** que SteamVR fournit déjà.
 
 Il se place après [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), qui gère toujours l'annulation d'écho et la réduction de bruit.
 

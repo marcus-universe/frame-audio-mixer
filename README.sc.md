@@ -12,7 +12,7 @@
 
 # 🎚️ Frame Audio Mixer
 
-这是 Steam Frame 上的一个 SteamVR 仪表盘面板。它把应用的声音和头显麦克风混在一起，再通过无线串流把这份混音送给 PC。PC 上显示为 **Steam Streaming Microphone**。
+Frame Audio Mixer 把应用的声音和头显麦克风混在一起，再通过无线串流把这份混音送给 PC，送进 SteamVR 已经提供的 **Steam Streaming Microphone**。
 
 它接在 [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) 之后。回声消除和噪声抑制仍由 Frame Mic Tuner 负责。
 
