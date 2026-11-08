@@ -108,74 +108,191 @@
   });
 
   var lightbox = document.querySelector(".lightbox");
-  var lightboxImg = lightbox && lightbox.querySelector("img");
+  var frame = lightbox && lightbox.querySelector(".lightbox-frame");
+  var lightboxImg = frame && frame.querySelector("img");
+  var scrim = lightbox && lightbox.querySelector(".lightbox-scrim");
+  var controls = lightbox && lightbox.querySelector(".lightbox-ui");
+  var shots = Array.prototype.slice.call(document.querySelectorAll(".gallery .shot img"));
   var lightboxFrom = null;
-  var lightboxBusy = false;
+  var layout = null;
+  var index = 0;
+  var phase = "idle";
+  var ignoreClick = false;
+  var swipeX = null;
   var motionOk = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var OPEN_MS = 620;
+  var CLOSE_MS = 460;
+  var SLIDE_MS = 420;
+  var EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
+  var EASE_IN_OUT = "cubic-bezier(0.4, 0, 0.2, 1)";
 
-  function shiftTo(from, to) {
-    var scale = to.width > 0 ? from.width / to.width : 1;
-    var dx = from.left - to.left;
-    var dy = from.top - to.top;
-    lightboxImg.style.transformOrigin = "top left";
-    lightboxImg.style.transform = "translate(" + dx + "px," + dy + "px) scale(" + scale + ")";
+  shots.forEach(function (shot) {
+    var preload = new Image();
+    preload.src = shot.currentSrc || shot.src;
+  });
+
+  function destRect() {
+    var side = window.innerWidth < 720 ? 20 : 80;
+    var top = 72;
+    var bottom = 28;
+    var maxW = Math.max(160, window.innerWidth - side * 2);
+    var maxH = Math.max(90, window.innerHeight - top - bottom);
+    var w = maxW;
+    var h = w * 9 / 16;
+    if (h > maxH) {
+      h = maxH;
+      w = h * 16 / 9;
+    }
+    return {
+      left: (window.innerWidth - w) / 2,
+      top: top + (maxH - h) / 2,
+      width: w,
+      height: h
+    };
   }
 
-  function clearShift() {
-    lightboxImg.style.transform = "";
-    lightboxImg.style.transformOrigin = "";
+  function placeFrame(rect) {
+    layout = rect;
+    frame.style.left = rect.left + "px";
+    frame.style.top = rect.top + "px";
+    frame.style.width = rect.width + "px";
+    frame.style.height = rect.height + "px";
+  }
+
+  function pose(visual) {
+    var scale = layout.width > 0 ? visual.width / layout.width : 1;
+    var dx = visual.left - layout.left;
+    var dy = visual.top - layout.top;
+    return { transform: "translate(" + dx + "px," + dy + "px) scale(" + scale + ")" };
+  }
+
+  function dropEffects(el) {
+    if (!el) return;
+    el.getAnimations().forEach(function (anim) { anim.cancel(); });
+  }
+
+  function play(el, from, to, duration, easing) {
+    dropEffects(el);
+    var gen = (el._famPlay || 0) + 1;
+    el._famPlay = gen;
+    Object.keys(from).forEach(function (key) { el.style[key] = from[key]; });
+    var anim = el.animate([from, to], { duration: duration, easing: easing, fill: "forwards" });
+    anim.ready.then(function () {
+      if (el._famPlay !== gen) return;
+      Object.keys(to).forEach(function (key) { el.style[key] = to[key]; });
+    });
+    return anim;
+  }
+
+  function fade(el, to, duration) {
+    if (!el) return null;
+    var from = Number(getComputedStyle(el).opacity);
+    if (isNaN(from)) from = to;
+    return play(el, { opacity: from }, { opacity: to }, duration, "ease-out");
   }
 
   function showShot(thumb) {
-    if (!lightbox || !lightboxImg || lightboxBusy) return;
+    if (!lightbox || !frame || !lightboxImg || lightbox.open) return;
+    index = Math.max(0, shots.indexOf(thumb));
     lightboxFrom = thumb;
     lightboxImg.src = thumb.currentSrc || thumb.src;
     lightboxImg.alt = thumb.alt;
-    lightbox.showModal();
-    if (!motionOk) {
-      lightbox.classList.add("is-shown");
-      return;
-    }
     var from = thumb.getBoundingClientRect();
-    var to = lightboxImg.getBoundingClientRect();
-    if (to.width < 1) {
-      lightbox.classList.add("is-shown");
+    lightbox.showModal();
+    placeFrame(destRect());
+    phase = "opening";
+    if (!motionOk || from.width < 1) {
+      frame.style.transform = "none";
+      if (scrim) scrim.style.opacity = "1";
+      if (controls) controls.style.opacity = "1";
+      phase = "open";
       return;
     }
-    lightboxImg.style.transition = "none";
-    shiftTo(from, to);
-    lightbox.getBoundingClientRect();
-    requestAnimationFrame(function () {
-      lightboxImg.style.transition = "";
-      lightbox.classList.add("is-shown");
-      clearShift();
-    });
+    var start = pose(from);
+    var anim = play(frame, start, { transform: "none" }, OPEN_MS, EASE_OUT);
+    fade(scrim, 1, 480);
+    fade(controls, 1, OPEN_MS);
+    anim.onfinish = function () {
+      if (phase === "opening") phase = "open";
+    };
+    window.setTimeout(function () {
+      if (phase === "opening") phase = "open";
+    }, OPEN_MS + 80);
+  }
+
+  function finishClose() {
+    dropEffects(frame);
+    dropEffects(scrim);
+    dropEffects(controls);
+    frame.style.transform = "";
+    if (scrim) scrim.style.opacity = "";
+    if (controls) controls.style.opacity = "";
+    lightbox.close();
+    phase = "idle";
   }
 
   function hideShot() {
-    if (!lightbox || !lightbox.open || lightboxBusy) return;
-    if (!motionOk || !lightboxFrom) {
-      lightbox.classList.remove("is-shown");
-      lightbox.close();
+    if (!lightbox || !lightbox.open || phase === "closing" || phase === "sliding") return;
+    if (!motionOk || !lightboxFrom || !layout) {
+      finishClose();
       return;
     }
-    lightboxBusy = true;
-    var from = lightboxImg.getBoundingClientRect();
-    var to = lightboxFrom.getBoundingClientRect();
-    lightbox.classList.remove("is-shown");
-    shiftTo(to, from);
+    phase = "closing";
+    var visual = frame.getBoundingClientRect();
+    var back = pose(lightboxFrom.getBoundingClientRect());
+    var anim = play(frame, pose(visual), back, CLOSE_MS, EASE_IN_OUT);
+    fade(scrim, 0, 360);
+    fade(controls, 0, 220);
     var finished = false;
-    function done(event) {
+    function done() {
       if (finished) return;
-      if (event && event.target !== lightboxImg) return;
       finished = true;
-      lightboxImg.removeEventListener("transitionend", done);
-      clearShift();
-      lightbox.close();
-      lightboxBusy = false;
+      finishClose();
     }
-    lightboxImg.addEventListener("transitionend", done);
-    window.setTimeout(done, 420);
+    anim.onfinish = done;
+    window.setTimeout(done, CLOSE_MS + 80);
+  }
+
+  function step(dir) {
+    if (!lightbox || !lightbox.open || phase !== "open" || shots.length < 2) return;
+    var next = (index + dir + shots.length) % shots.length;
+    var thumb = shots[next];
+    var src = thumb.currentSrc || thumb.src;
+    index = next;
+    lightboxFrom = thumb;
+    if (!motionOk) {
+      lightboxImg.src = src;
+      lightboxImg.alt = thumb.alt;
+      return;
+    }
+    phase = "sliding";
+    var incoming = document.createElement("img");
+    incoming.alt = thumb.alt;
+    incoming.src = src;
+    frame.appendChild(incoming);
+    var shift = dir > 0 ? 56 : -56;
+    var settled = false;
+    lightboxImg.animate([
+      { opacity: 1, transform: "translateX(0px)" },
+      { opacity: 0, transform: "translateX(" + (-shift) + "px)" }
+    ], { duration: SLIDE_MS, easing: EASE_IN_OUT, fill: "forwards" });
+    var enter = incoming.animate([
+      { opacity: 0, transform: "translateX(" + shift + "px)" },
+      { opacity: 1, transform: "translateX(0px)" }
+    ], { duration: SLIDE_MS, easing: EASE_OUT, fill: "forwards" });
+    function settle() {
+      if (settled) return;
+      settled = true;
+      lightboxImg.src = src;
+      lightboxImg.alt = thumb.alt;
+      dropEffects(lightboxImg);
+      lightboxImg.style.opacity = "";
+      lightboxImg.style.transform = "";
+      incoming.remove();
+      if (phase === "sliding") phase = "open";
+    }
+    enter.onfinish = settle;
+    window.setTimeout(settle, SLIDE_MS + 80);
   }
 
   document.querySelectorAll(".gallery .shot").forEach(function (button) {
@@ -186,11 +303,45 @@
   });
   if (lightbox) {
     lightbox.addEventListener("click", function (event) {
-      if (event.target === lightbox || event.target === lightboxImg || event.target.closest("[data-lightbox-close]")) hideShot();
+      if (ignoreClick) {
+        ignoreClick = false;
+        return;
+      }
+      var stepBtn = event.target.closest("[data-lightbox-step]");
+      if (stepBtn) {
+        step(Number(stepBtn.getAttribute("data-lightbox-step")));
+        return;
+      }
+      if (event.target.closest("[data-lightbox-close]") || event.target === scrim || event.target === frame || event.target.tagName === "IMG") hideShot();
     });
     lightbox.addEventListener("cancel", function (event) {
       event.preventDefault();
       hideShot();
+    });
+    lightbox.addEventListener("keydown", function (event) {
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        step(1);
+      } else if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        step(-1);
+      }
+    });
+    frame.addEventListener("pointerdown", function (event) {
+      if (event.button !== 0) return;
+      swipeX = event.clientX;
+    });
+    frame.addEventListener("pointerup", function (event) {
+      if (swipeX == null) return;
+      var dx = event.clientX - swipeX;
+      swipeX = null;
+      if (Math.abs(dx) < 48) return;
+      ignoreClick = true;
+      step(dx < 0 ? 1 : -1);
+    });
+    window.addEventListener("resize", function () {
+      if (!lightbox.open || phase !== "open") return;
+      placeFrame(destRect());
     });
   }
 

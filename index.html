@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500&family=Noto+Sans+Mono:wght@400&family=Noto+Sans+SC:wght@400;500&family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/site.css">
+  <link rel="stylesheet" href="css/site.css?v=20261109">
 </head>
 <body data-page="home">
   <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
@@ -50,8 +50,13 @@
       <button type="button" class="shot"><img src="assets/preview/Preview-Frame-Audio-Mixer-4.jpg" alt="Dashboard, blue theme" data-i18n-alt="alt4"></button>
     </section>
     <dialog class="lightbox">
-      <button type="button" class="lightbox-close" data-lightbox-close data-i18n="close">Close</button>
-      <img alt="">
+      <div class="lightbox-scrim"></div>
+      <div class="lightbox-frame"><img alt=""></div>
+      <div class="lightbox-ui">
+        <button type="button" class="lightbox-nav prev" data-lightbox-step="-1" data-i18n-aria="prev" aria-label="Previous"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3L5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" class="lightbox-nav next" data-lightbox-step="1" data-i18n-aria="next" aria-label="Next"><svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M6 3l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button type="button" class="lightbox-close" data-lightbox-close data-i18n="close">Close</button>
+      </div>
     </dialog>
     <section class="features">
       <h2 class="section" data-i18n="features">Features</h2>
@@ -132,7 +137,7 @@
     <a href="imprint.html" data-i18n="imprint">Imprint</a>
     <a href="https://github.com/marcus-universe/frame-audio-mixer/blob/main/LICENSE">MIT</a>
   </footer>
-  <script src="js/i18n.js"></script>
-  <script src="js/site.js"></script>
+  <script src="js/i18n.js?v=20261109"></script>
+  <script src="js/site.js?v=20261109"></script>
 </body>
 </html>
