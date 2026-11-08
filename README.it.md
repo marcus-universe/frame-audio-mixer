@@ -25,9 +25,6 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
 - 🛠️ Prima attiva la modalità sviluppatore: Impostazioni di Steam, poi Sistema, poi **Abilita modalità sviluppatore**. Finché non lo fai, Konsole non è nell'elenco.
-- 🚀 Per avviare anche il pannello con SteamVR, sostituisci `| sh` con `| sh -s -- --autostart`.
-- 🔄 Per aggiornare, esegui di nuovo lo stesso comando. Per disinstallare, sostituisci `| sh` con `| sh -s -- --uninstall`.
-- 🏠 Non usa `sudo` e scrive solo nella tua home. Non riavvia mai PipeWire né WirePlumber, quindi una sessione VR in corso mantiene l'audio.
 - 💻 Da un PC: [Installazione via SSH](docs/install-ssh.it.md).
 
 ## ✨ Funzioni

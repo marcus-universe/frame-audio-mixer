@@ -25,9 +25,6 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
 - 🛠️ 先に開発者モードをオンにしてください。Steam の設定、システム、**開発者モードを有効化** の順に選びます。オンにするまで、Konsole は一覧に出ません。
-- 🚀 パネルを SteamVR と一緒に起動するには、`| sh` の代わりに `| sh -s -- --autostart` を使います。
-- 🔄 更新するには、同じコマンドをもう一度実行します。アンインストールするには、`| sh` の代わりに `| sh -s -- --uninstall` を使います。
-- 🏠 `sudo` は使わず、書き込むのはホームディレクトリだけです。PipeWire や WirePlumber を再起動しないので、実行中の VR セッションの音は途切れません。
 - 💻 PC から入れる場合: [SSH でインストール](docs/install-ssh.ja.md)。
 
 ## ✨ できること

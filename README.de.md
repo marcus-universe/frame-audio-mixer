@@ -25,9 +25,6 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
 - 🛠️ Vorher den Entwicklermodus einschalten: Steam-Einstellungen, dann System, dann **Entwicklermodus aktivieren**. Erst danach steht Konsole in der Liste.
-- 🚀 Um das Panel auch mit SteamVR zu starten, `| sh` durch `| sh -s -- --autostart` ersetzen.
-- 🔄 Zum Aktualisieren denselben Befehl noch einmal ausführen. Zum Deinstallieren `| sh` durch `| sh -s -- --uninstall` ersetzen.
-- 🏠 Der Befehl nutzt kein `sudo` und schreibt nur ins Home-Verzeichnis. Er startet PipeWire und WirePlumber nie neu, eine laufende VR-Sitzung behält also ihren Ton.
 - 💻 Vom PC aus: [Installation über SSH](docs/install-ssh.de.md).
 
 ## ✨ Funktionen

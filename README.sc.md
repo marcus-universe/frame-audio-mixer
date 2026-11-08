@@ -25,9 +25,6 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
 - 🛠️ 先打开开发者模式：Steam 设置，然后是系统，然后是 **启用开发者模式**。打开之前，列表里没有 Konsole。
-- 🚀 如果还想让面板随 SteamVR 启动，把 `| sh` 换成 `| sh -s -- --autostart`。
-- 🔄 更新时，再运行一次同一条命令。卸载时，把 `| sh` 换成 `| sh -s -- --uninstall`。
-- 🏠 它不使用 `sudo`，只写入你的主目录。它从不重启 PipeWire 或 WirePlumber，所以正在进行的 VR 会话不会失去声音。
 - 💻 从 PC 安装：[通过 SSH 安装](docs/install-ssh.sc.md)。
 
 ## ✨ 功能
