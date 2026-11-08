@@ -107,6 +107,23 @@
     });
   });
 
+  var lightbox = document.querySelector(".lightbox");
+  var lightboxImg = lightbox && lightbox.querySelector("img");
+  document.querySelectorAll(".gallery .shot").forEach(function (button) {
+    button.addEventListener("click", function () {
+      var img = button.querySelector("img");
+      if (!lightbox || !lightboxImg || !img) return;
+      lightboxImg.src = img.currentSrc || img.src;
+      lightboxImg.alt = img.alt;
+      if (typeof lightbox.showModal === "function") lightbox.showModal();
+    });
+  });
+  if (lightbox) {
+    lightbox.addEventListener("click", function (event) {
+      if (event.target === lightbox || event.target.closest("[data-lightbox-close]")) lightbox.close();
+    });
+  }
+
   var theme = "blue";
   try { theme = localStorage.getItem("fam-theme") || "blue"; } catch (e) {}
   applyTheme(theme);
