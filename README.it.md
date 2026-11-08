@@ -10,13 +10,13 @@
 
 [English](README.md) · [日本語](README.ja.md) · [简体中文](README.sc.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · [Español](README.es.md) · **Italiano**
 
-# Frame Audio Mixer
+# 🎚️ Frame Audio Mixer
 
 Un pannello della dashboard di SteamVR per Steam Frame. Mescola l'audio delle app con il microfono del visore e manda quel mix al PC sul flusso wireless. Lì compare come **Steam Streaming Microphone**.
 
 Sta dopo [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), che continua a gestire la cancellazione dell'eco e la riduzione del rumore.
 
-## Installazione
+## 📥 Installazione
 
 In Konsole sul Frame (**+** nella barra in basso, poi l'elenco dei programmi, poi **Konsole**), esegui:
 
@@ -24,24 +24,23 @@ In Konsole sul Frame (**+** nella barra in basso, poi l'elenco dei programmi, po
 curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
-- Prima attiva la modalità sviluppatore: Impostazioni di Steam, poi Sistema, poi **Abilita modalità sviluppatore**. Finché non lo fai, Konsole non è nell'elenco.
-- Per avviare anche il pannello con SteamVR, sostituisci `| sh` con `| sh -s -- --autostart`.
-- Per aggiornare, esegui di nuovo lo stesso comando. Per disinstallare, sostituisci `| sh` con `| sh -s -- --uninstall`.
-- Non usa `sudo` e scrive solo nella tua home. Non riavvia mai PipeWire né WirePlumber, quindi una sessione VR in corso mantiene l'audio.
-- Da un PC: [Installazione via SSH](docs/install-ssh.it.md).
+- 🛠️ Prima attiva la modalità sviluppatore: Impostazioni di Steam, poi Sistema, poi **Abilita modalità sviluppatore**. Finché non lo fai, Konsole non è nell'elenco.
+- 🚀 Per avviare anche il pannello con SteamVR, sostituisci `| sh` con `| sh -s -- --autostart`.
+- 🔄 Per aggiornare, esegui di nuovo lo stesso comando. Per disinstallare, sostituisci `| sh` con `| sh -s -- --uninstall`.
+- 🏠 Non usa `sudo` e scrive solo nella tua home. Non riavvia mai PipeWire né WirePlumber, quindi una sessione VR in corso mantiene l'audio.
+- 💻 Da un PC: [Installazione via SSH](docs/install-ssh.it.md).
 
-## Funzioni
+## ✨ Funzioni
 
-- **Orientamento**: ingressi e uscite passano ciascuno dai fader verticali alle righe.
-- **Bus effetti**: FX1 e FX2, con riverbero, compressore, EQ, pitch, flanger e phaser. Ogni strip può mandare a entrambi.
-- **Microfoni virtuali**: da B1 a B4, con nome, oltre al microfono di streaming del PC.
-- **Altoparlanti, Bluetooth e USB**: il mix esce dagli altoparlanti del Frame, da cuffie Bluetooth o dall'audio USB finché uno è collegato.
-- **Canali software**: fino a 32 canali con nome. Ognuno è un'uscita che qualsiasi app può scegliere.
-- **Vista larga**: un layout 21:9. Si può trascinare la divisione tra le due sezioni. Ogni lato si ferma a un quinto della finestra.
-- **Livelli, mute e aggancio**: la stessa scala su ogni fader, da +6 a −48, un pulsante mute sotto ciascuno, e fader di uscita che si agganciano ai segni.
-- **Prova mix**: in cima alle Uscite. Scegli un'uscita, registrane fino a 10 secondi, poi riproduci o metti in pausa.
-- Sette lingue, e un tema blu o rosa.
-- Sette lingue e un tema colore blu o rosa.
+- 🔄 **Orientamento**: ingressi e uscite passano ciascuno dai fader verticali alle righe.
+- 🎛️ **Bus effetti**: FX1 e FX2, con riverbero, compressore, EQ, pitch, flanger e phaser. Ogni strip può mandare a entrambi.
+- 🎤 **Microfoni virtuali**: da B1 a B4, con nome, oltre al microfono di streaming del PC.
+- 🎧 **Altoparlanti, Bluetooth e USB**: il mix esce dagli altoparlanti del Frame, da cuffie Bluetooth o dall'audio USB finché uno è collegato.
+- 🧩 **Canali software**: fino a 32 canali con nome. Ognuno è un'uscita che qualsiasi app può scegliere.
+- 🖥️ **Vista larga**: un layout 21:9. Si può trascinare la divisione tra le due sezioni. Ogni lato si ferma a un quinto della finestra.
+- 📊 **Livelli, mute e aggancio**: la stessa scala su ogni fader, da +6 a −48, un pulsante mute sotto ciascuno, e fader di uscita che si agganciano ai segni.
+- ⏺️ **Prova mix**: in cima alle Uscite. Scegli un'uscita, registrane fino a 10 secondi, poi riproduci o metti in pausa.
+- 🌐 Sette lingue, e un tema blu o rosa.
 
 <table>
   <tr>
@@ -54,29 +53,29 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
   </tr>
 </table>
 
-## Uso
+## ▶️ Uso
 
 1. Apri la dashboard di SteamVR e scegli **Frame Audio Mixer**.
-2. Attiva **Mix**.
-3. Premi **+** per aggiungere un canale: un suggerimento, un nome tuo o un'app in esecuzione.
-4. In quell'app scegli l'uscita `Frame Mix: <name>`.
-5. Il fader regola il livello della strip. A1 suona nel visore. Il pulsante PC la manda al PC. Il cassetto Uscite regola il livello di ogni uscita.
+2. Attiva il mix. Il PC lo sente come **Steam Streaming Microphone**.
+3. Premi **+** e aggiungi un canale. Dagli un nome, oppure scegli un'app già avviata.
+4. In quell'app scegli l'uscita con il nome del canale.
+5. **Ingressi**, a sinistra, è ciò che entra nel mix. **Uscite**, a destra, è la destinazione: il PC, gli altoparlanti del Frame, Bluetooth, USB o un microfono virtuale.
 
-Se usi gli altoparlanti del Frame, attiva la cancellazione dell'eco in Frame Mic Tuner. Altrimenti il PC può sentire l'audio dell'app due volte.
+🎧 Se ascolti dagli altoparlanti del Frame, attiva la cancellazione dell'eco in Frame Mic Tuner. Altrimenti il PC può sentire quel suono due volte.
 
-## Documentazione
+## 📚 Documentazione
 
-- [Come funziona](docs/how-it-works.it.md): il grafo audio e come vengono instradati VRLink e le app.
-- [Dettagli tecnici](docs/technical.it.md): cosa viene installato, dettagli su microfono e livelli, App e aggiornamenti, disinstallazione, compilazione.
+- 📖 [Come funziona](docs/how-it-works.it.md): il grafo audio e come vengono instradati VRLink e le app.
+- 🔧 [Dettagli tecnici](docs/technical.it.md): cosa viene installato, dettagli su microfono e livelli, App e aggiornamenti, disinstallazione, compilazione.
 
-## Riconoscimenti
+## 🙏 Riconoscimenti
 
 Frame Audio Mixer è ispirato a [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) di [sasaken1102r](https://github.com/sasaken1102r). Altre app Steam Frame di sasaken@ sono su [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
 
 Il pannello, l'overlay OpenVR e l'elenco delle app sono adattati da quel progetto (MIT). Vedi [`NOTICE`](NOTICE).
 
-- [Icone e relative licenze](docs/icons.it.md)
+- 🎨 [Icone e relative licenze](docs/icons.it.md)
 
-## Licenza
+## 📄 Licenza
 
 [MIT](LICENSE)

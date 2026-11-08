@@ -10,13 +10,13 @@
 
 [English](README.md) · [日本語](README.ja.md) · [简体中文](README.sc.md) · [Deutsch](README.de.md) · [Français](README.fr.md) · **Español** · [Italiano](README.it.md)
 
-# Frame Audio Mixer
+# 🎚️ Frame Audio Mixer
 
 Un panel del dashboard de SteamVR para Steam Frame. Mezcla el audio de las apps con el micrófono del visor y envía esa mezcla al PC por el flujo inalámbrico, donde aparece como **Steam Streaming Microphone**.
 
 Va después de [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), que sigue encargándose de la cancelación de eco y la reducción de ruido.
 
-## Instalación
+## 📥 Instalación
 
 En Konsole en el Frame (**+** en la barra de abajo, luego la lista de programas, luego **Konsole**), ejecuta:
 
@@ -24,24 +24,23 @@ En Konsole en el Frame (**+** en la barra de abajo, luego la lista de programas,
 curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ```
 
-- Primero activa el modo de desarrollador: Ajustes de Steam, luego Sistema, luego **Activar modo de desarrollador**. Konsole no aparece en la lista hasta que lo hagas.
-- Para que el panel también arranque con SteamVR, cambia `| sh` por `| sh -s -- --autostart`.
-- Para actualizar, vuelve a ejecutar el mismo comando. Para desinstalar, cambia `| sh` por `| sh -s -- --uninstall`.
-- No usa `sudo` y solo escribe en tu directorio personal. Nunca reinicia PipeWire ni WirePlumber, así que una sesión de VR en marcha conserva el sonido.
-- Desde un PC: [Instalar por SSH](docs/install-ssh.es.md).
+- 🛠️ Primero activa el modo de desarrollador: Ajustes de Steam, luego Sistema, luego **Activar modo de desarrollador**. Konsole no aparece en la lista hasta que lo hagas.
+- 🚀 Para que el panel también arranque con SteamVR, cambia `| sh` por `| sh -s -- --autostart`.
+- 🔄 Para actualizar, vuelve a ejecutar el mismo comando. Para desinstalar, cambia `| sh` por `| sh -s -- --uninstall`.
+- 🏠 No usa `sudo` y solo escribe en tu directorio personal. Nunca reinicia PipeWire ni WirePlumber, así que una sesión de VR en marcha conserva el sonido.
+- 💻 Desde un PC: [Instalar por SSH](docs/install-ssh.es.md).
 
-## Funciones
+## ✨ Funciones
 
-- **Orientación**: las entradas y las salidas cambian cada una entre faders verticales y filas.
-- **Buses de efectos**: FX1 y FX2, con reverberación, compresor, EQ, pitch, flanger y phaser. Cada canal puede enviar a cualquiera de los dos.
-- **Micrófonos virtuales**: B1 a B4, con nombre, además del micrófono de streaming del PC.
-- **Altavoces, Bluetooth y USB**: la mezcla suena en los altavoces del Frame, en auriculares Bluetooth o en audio USB mientras haya uno conectado.
-- **Canales de software**: hasta 32 canales con nombre. Cada uno es una salida que cualquier app puede elegir.
-- **Vista ancha**: un diseño 21:9. Se puede arrastrar la división entre las dos zonas. Cada lado se detiene en un quinto de la ventana.
-- **Medidores, silencio y ajuste**: la misma escala en cada fader, de +6 a −48, un botón de silencio debajo de cada uno, y faders de salida que se ajustan a las marcas.
-- **Prueba de mezcla**: arriba en Salidas. Elige una salida, graba hasta 10 segundos y reproduce o pausa la toma.
-- Siete idiomas, y un tema azul o rosa.
-- Siete idiomas y un tema de color azul o rosa.
+- 🔄 **Orientación**: las entradas y las salidas cambian cada una entre faders verticales y filas.
+- 🎛️ **Buses de efectos**: FX1 y FX2, con reverberación, compresor, EQ, pitch, flanger y phaser. Cada canal puede enviar a cualquiera de los dos.
+- 🎤 **Micrófonos virtuales**: B1 a B4, con nombre, además del micrófono de streaming del PC.
+- 🎧 **Altavoces, Bluetooth y USB**: la mezcla suena en los altavoces del Frame, en auriculares Bluetooth o en audio USB mientras haya uno conectado.
+- 🧩 **Canales de software**: hasta 32 canales con nombre. Cada uno es una salida que cualquier app puede elegir.
+- 🖥️ **Vista ancha**: un diseño 21:9. Se puede arrastrar la división entre las dos zonas. Cada lado se detiene en un quinto de la ventana.
+- 📊 **Medidores, silencio y ajuste**: la misma escala en cada fader, de +6 a −48, un botón de silencio debajo de cada uno, y faders de salida que se ajustan a las marcas.
+- ⏺️ **Prueba de mezcla**: arriba en Salidas. Elige una salida, graba hasta 10 segundos y reproduce o pausa la toma.
+- 🌐 Siete idiomas, y un tema azul o rosa.
 
 <table>
   <tr>
@@ -54,29 +53,29 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
   </tr>
 </table>
 
-## Uso
+## ▶️ Uso
 
 1. Abre el dashboard de SteamVR y elige **Frame Audio Mixer**.
-2. Activa la **mezcla**.
-3. Pulsa **+** para añadir un canal: una sugerencia, un nombre propio o una app en ejecución.
-4. En esa app, elige la salida `Frame Mix: <name>`.
-5. El fader marca el nivel de la tira. A1 suena en el visor. El botón PC la envía al PC. El cajón Salidas ajusta el nivel de cada salida.
+2. Activa la mezcla. El PC la oye como **Steam Streaming Microphone**.
+3. Pulsa **+** y añade un canal. Ponle un nombre, o elige una app que ya esté en marcha.
+4. En esa app, elige la salida con el nombre del canal.
+5. **Entradas**, a la izquierda, es lo que entra en la mezcla. **Salidas**, a la derecha, es el destino: el PC, los altavoces del Frame, Bluetooth, USB o un micrófono virtual.
 
-Si usas los altavoces del Frame, activa la cancelación de eco en Frame Mic Tuner. Si no, el PC puede oír el audio de la app dos veces.
+🎧 Si escuchas por los altavoces del Frame, activa la cancelación de eco en Frame Mic Tuner. Si no, el PC puede oír ese sonido dos veces.
 
-## Documentación
+## 📚 Documentación
 
-- [Cómo funciona](docs/how-it-works.es.md): el grafo de audio y cómo se enrutan VRLink y las apps.
-- [Detalles técnicos](docs/technical.es.md): qué se instala, detalles del micrófono y de los medidores, Apps y actualizaciones, desinstalación, compilación.
+- 📖 [Cómo funciona](docs/how-it-works.es.md): el grafo de audio y cómo se enrutan VRLink y las apps.
+- 🔧 [Detalles técnicos](docs/technical.es.md): qué se instala, detalles del micrófono y de los medidores, Apps y actualizaciones, desinstalación, compilación.
 
-## Créditos
+## 🙏 Créditos
 
 Frame Audio Mixer se inspira en [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner) de [sasaken1102r](https://github.com/sasaken1102r). Más apps de Steam Frame de sasaken@ están en [frame.sasaken1102s.net](https://frame.sasaken1102s.net/).
 
 El panel, el overlay de OpenVR y la lista de apps están adaptados de ese proyecto (MIT). Consulta [`NOTICE`](NOTICE).
 
-- [Iconos y sus licencias](docs/icons.es.md)
+- 🎨 [Iconos y sus licencias](docs/icons.es.md)
 
-## Licencia
+## 📄 Licencia
 
 [MIT](LICENSE)
