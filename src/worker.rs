@@ -2,8 +2,8 @@
 //! Nothing in this module calls `wpctl set-default`. The Microphone fader
 //! writes only `frame_amix_mic_virtual_sink`.
 
-use crate::config::{self, Channel, Config, is_channel_id};
-use crate::graph::{AudioNode, Graph, parse_dump};
+use crate::config::{Channel, Config, is_channel_id};
+use crate::graph::{AudioNode, Graph};
 use crate::apps::{self, Entry};
 use crate::updater::{self, UpdateView};
 use std::collections::HashMap;
@@ -332,7 +332,6 @@ fn apply_config(state: &mut State, config: Config) {
         save_setting("frame-audio-mixer.enabled", "true");
     } else if !state.config.mix_on && (first || was) {
         save_setting("frame-audio-mixer.enabled", "false");
-        restore_vrlink();
         clear_pins(state);
         unpin_vrlink(state);
     }
@@ -354,24 +353,31 @@ fn sync_audio(state: &mut State) {
             clear_pins(state);
         }
         unpin_vrlink(state);
-        restore_vrlink();
         return;
     }
     pin_apps(state, &graph);
     pin_vrlink(state, &graph);
-    touch_vrlink(state, &graph);
 }
 
+/// The engine runs while this app runs. It is started, never enabled, so quitting
+/// the app (see `stop_engine`) leaves no virtual device behind.
 fn ensure_engine(state: &mut State) {
     let want = state.config.mix_on || !state.config.channels.is_empty();
-    let unit = "frame-audio-mixer-engine.service";
+    let unit = ENGINE_UNIT;
     let running = unit_active(unit);
     if want && !running {
-        let _ = Command::new("systemctl").args(["--user", "enable", "--now", unit]).status();
+        let _ = Command::new("systemctl").args(["--user", "start", unit]).status();
     } else if !want && running {
-        let _ = Command::new("systemctl").args(["--user", "disable", "--now", unit]).status();
+        let _ = Command::new("systemctl").args(["--user", "stop", unit]).status();
     }
     state.engine_up = want;
+}
+
+const ENGINE_UNIT: &str = "frame-audio-mixer-engine.service";
+
+/// Removes every mixer device. Apps on a channel and VRLink fall back to the defaults.
+pub fn stop_engine() {
+    let _ = Command::new("systemctl").args(["--user", "stop", ENGINE_UNIT]).status();
 }
 
 fn send_engine(state: &mut State, op: &str) {
@@ -516,43 +522,6 @@ fn clear_pins(state: &mut State) {
         let _ = Command::new("pw-metadata").args(["-n", "default", "-d", &id.to_string(), "target.object"]).status();
     }
     state.pinned.clear();
-}
-
-fn touch_vrlink(state: &State, graph: &Graph) {
-    if (state.config.vrlink_gain - 1.0).abs() < 0.001 {
-        return;
-    }
-    let path = saved_volume_path();
-    if path.exists() {
-        return;
-    }
-    let Some(node) = graph.nodes.iter().find(|node| Graph::is_vrlink(node)) else { return };
-    let current = get_volume(node.id);
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-    if fs::write(&path, current).is_ok() {
-        let _ = Command::new("wpctl")
-            .args(["set-volume", &node.id.to_string(), &format!("{:.3}", config::wpctl_cubic(state.config.vrlink_gain))])
-            .status();
-    }
-}
-
-fn restore_vrlink() {
-    let path = saved_volume_path();
-    let Ok(saved) = fs::read_to_string(&path) else { return };
-    let graph = dump_graph();
-    if let Some(node) = graph.nodes.iter().find(|node| Graph::is_vrlink(node)) {
-        let _ = Command::new("wpctl").args(["set-volume", &node.id.to_string(), saved.trim()]).status();
-    }
-    let _ = fs::remove_file(path);
-}
-
-fn get_volume(id: u32) -> String {
-    let out = Command::new("wpctl").args(["get-volume", &id.to_string()]).output();
-    let Ok(out) = out else { return "1.000".into() };
-    let text = String::from_utf8_lossy(&out.stdout);
-    text.split_whitespace().nth(1).unwrap_or("1.000").to_string()
 }
 
 /// Object serial of Frame Mix. A node name is not a target on this headset.
@@ -834,24 +803,10 @@ fn echo_cancel() -> Option<bool> {
     None
 }
 
-fn dump_graph() -> Graph {
-    let out = Command::new("pw-dump").output();
-    match out {
-        Ok(out) => parse_dump(&String::from_utf8_lossy(&out.stdout)).unwrap_or_default(),
-        Err(_) => Graph::default(),
-    }
-}
-
 fn name_file(id: &str) -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_default();
     let dir = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{home}/.config"));
     PathBuf::from(dir).join("pipewire").join("frame-audio-mixer").join(format!("{id}.name"))
-}
-
-fn saved_volume_path() -> PathBuf {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let dir = std::env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| format!("{home}/.config"));
-    PathBuf::from(dir).join("frame-audio-mixer").join("vrlink-saved-volume")
 }
 
 /// Used by the self-test to prove a picked app is remembered by serial, not re-sent.

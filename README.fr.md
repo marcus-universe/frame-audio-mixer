@@ -32,25 +32,25 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## Fonctionnalités
 
-- **Appareils audio virtuels** : jusqu'à 32 canaux nommés. Chacun est une sortie (`Frame Mix: <name>`) que n'importe quelle appli peut choisir.
-- **Canaux d'appli** : créez un canal à partir d'une appli en cours. Son icône s'affiche à côté du nom.
-- **Mix pour le micro de streaming du PC** : le PC entend votre micro et les canaux.
-- **Sortie PC** : `Frame Mix`, que le PC entend comme Steam Streaming Microphone, est une sortie à part avec une icône PC, donc on voit clairement ce qui part vers le PC.
-- **Routage** : un fader par canal, en dB, avec sourdine et solo. Les boutons de routage sont empilés à côté du fader : A est ce que vous entendez (A1 est le casque), PC est le micro de streaming, B sont d'autres micros virtuels, et FX1 et FX2 sont les envois d'effets. Dans les réglages : 2, 4, 6 ou 8 sorties A et B.
-- **Effets et égaliseur paramétrique** : FX1 et FX2 contiennent chacun jusqu'à trois effets. L'égaliseur a 3, 6, 8 ou 12 points, avec une courbe de réponse. Les points extrêmes peuvent être une cloche, un shelf, un passe-haut ou un passe-bas.
-- **Microphone** : choisissez le micro du mix. Le micro par défaut du système ne change pas.
-- **Indicateurs de niveau** sur chaque fader. Vous pouvez les désactiver.
-- **Contrôle du mix** : en haut du tiroir Sorties. Choisissez une sortie, enregistrez-en jusqu'à 10 secondes, puis lisez ou mettez en pause la prise. La barre de droite contient Sorties (icône haut-parleur), FX1 et FX2.
+- **Orientation** : les entrées et les sorties passent chacune des faders verticaux aux rangées.
+- **Bus d'effets** : FX1 et FX2, avec réverbération, compresseur, EQ, pitch, flanger et phaser. Chaque tranche peut envoyer vers l'un ou l'autre.
+- **Micros virtuels** : B1 à B4, nommés, en plus du micro de streaming du PC.
+- **Haut-parleurs, Bluetooth et USB** : le mix sort sur les haut-parleurs du Frame, un casque Bluetooth ou l'audio USB tant que l'un est connecté.
+- **Canaux logiciels** : jusqu'à 32 canaux nommés. Chacun est une sortie que n'importe quelle appli peut choisir.
+- **Vue large** : une mise en page 21:9. On peut tirer la séparation entre les deux parties. Chaque côté s'arrête à un cinquième de la fenêtre.
+- **Niveaux, sourdine et accroche** : la même échelle sur chaque fader, de +6 à −48, un bouton de sourdine sous chacun, et des faders de sortie qui s'accrochent aux repères.
+- **Contrôle du mix** : en haut des sorties. Choisir une sortie, en enregistrer jusqu'à 10 secondes, puis lire ou mettre en pause.
+- Sept langues, et un thème bleu ou rose.
 - Sept langues, et un thème de couleur bleu ou rose.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="Vue en colonnes, thème bleu" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="Vue en liste, thème bleu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="Vue large, thème bleu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="Entrées en rangées, thème rose" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="Vue en colonnes, thème rose" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="Vue en liste, thème rose" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="Bus d'effets, thème rose" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="Tableau de bord, thème bleu" height="320"></td>
   </tr>
 </table>
 

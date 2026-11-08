@@ -32,25 +32,24 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## 功能
 
-- **虚拟音频设备**：最多 32 个命名通道。每个通道都是一个输出（`Frame Mix: <name>`），任何应用都可以选择它。
-- **应用通道**：用正在运行的应用创建通道。名称旁边会显示它的图标。
-- **PC 串流麦克风混音**：PC 听到的是你的麦克风加上各个通道。
-- **PC 输出**：`Frame Mix` 就是 PC 听到的 Steam Streaming Microphone，它是一个单独的输出，带 PC 图标，所以一眼就能看出什么会送到 PC。
-- **路由**：每个通道一个推子，以 dB 显示，带静音和独奏。路由按钮竖排在推子旁边：A 是你听到的（A1 是头显），PC 是串流麦克风，B 是更多虚拟麦克风，FX1 和 FX2 是效果发送。设置里可选 2、4、6 或 8 个 A 和 B 输出。
-- **效果和参量均衡**：FX1 和 FX2 各可放最多三个效果。均衡有 3、6、8 或 12 个点，带响应曲线。外侧的点可以是钟形、搁架、高通或低通。
-- **麦克风**：选择用于混音的麦克风。系统默认麦克风不会改变。
-- 每个推子上都有 **电平表**。可以关闭。
-- **混音检查**：在输出抽屉顶部。选择一个输出，录制最多 10 秒，然后播放或暂停这段录音。右侧栏是输出（扬声器图标）、FX1 和 FX2。
-- 七种语言，以及蓝色或粉色的配色主题。
+- **方向**：输入和输出各自在直立推子和横排之间切换。
+- **效果总线**：FX1 和 FX2，内有混响、压缩、均衡、变调、镶边和相位。每条通道都可以发送到任意一条总线。
+- **虚拟麦克风**：B1 到 B4，可以命名，加在 PC 串流麦克风之上。
+- **扬声器、蓝牙和 USB**：连接后可以在 Frame 扬声器、蓝牙耳机或 USB 音频上听混音。
+- **软件通道**：最多 32 个命名通道。每个都是任意应用都能选择的输出。
+- **宽屏**：21:9 布局。可以拖动两栏之间的分界。每一侧最少占窗口的五分之一。
+- **电平、静音和吸附**：每个推子用同一刻度，从 +6 到 −48。每个推子下有静音。输出推子会吸到刻度上。
+- **混音检查**：在输出区顶部。选择一个输出，录制最多 10 秒，然后播放或暂停。
+- 七种语言，以及蓝色或粉色主题。
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="分栏视图，蓝色主题" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="列表视图，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="宽屏，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="输入横排，粉色主题" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="分栏视图，粉色主题" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="列表视图，粉色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="效果总线，粉色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="仪表板，蓝色主题" height="320"></td>
   </tr>
 </table>
 

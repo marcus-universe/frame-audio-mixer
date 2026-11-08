@@ -9,8 +9,11 @@ use std::path::{Path, PathBuf};
 /// Each channel is one virtual sink inside the engine process.
 pub const MAX_CHANNELS: usize = 32;
 pub const NAME_MAX_CHARS: usize = 32;
-/// How many output buses a setting may ask for. Split evenly into A and B.
-pub const OUTPUT_CHOICES: [u8; 4] = [2, 4, 6, 8];
+/// Listen outputs, by slot: the Frame speakers, Bluetooth and USB. Bluetooth and
+/// USB only show while such a device is connected.
+pub const A_SLOTS: usize = 3;
+/// Virtual microphones B1..B4. Always present.
+pub const B_SLOTS: usize = 4;
 /// Linear gain on `frame_amix_mic_virtual_sink` at a fader of 1.0.
 /// The filtered Frame mic sits well below a mix bus; 100% is this
 /// trim, not digital unity. 4.0 is +12 dB.
@@ -30,7 +33,7 @@ pub struct Channel {
     pub muted: bool,
     #[serde(default)]
     pub solo: bool,
-    /// Bit 0..3 is A1..A4, bit 4..7 is B1..B4. The PC is `to_pc`.
+    /// Bit 0 is the Frame speakers, 1 Bluetooth, 2 USB; bits 4..7 are B1..B4. The PC is `to_pc`.
     #[serde(default = "default_routes")]
     pub routes: u8,
     /// Heard on the PC streaming microphone (`frame_amix_source`).
@@ -65,7 +68,7 @@ impl Channel {
     }
 }
 
-/// A1. With `to_pc`, a fresh channel is heard in the headset and on the PC.
+/// The Frame speakers. With `to_pc`, a fresh channel is heard in the headset and on the PC.
 pub fn default_routes() -> u8 {
     route_bit(true, 0)
 }
@@ -86,15 +89,6 @@ pub fn route_on(routes: u8, a_side: bool, index: usize) -> bool {
     routes & route_bit(a_side, index) != 0
 }
 
-pub fn output_count(outputs: u8) -> u8 {
-    if OUTPUT_CHOICES.contains(&outputs) { outputs } else { 2 }
-}
-
-/// How many A buses (and the same number of B buses) the current setting shows.
-pub fn side_count(outputs: u8) -> usize {
-    (output_count(outputs) / 2) as usize
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Pin {
     pub app: String,
@@ -109,9 +103,6 @@ pub struct Config {
     pub check_updates: bool,
     #[serde(default)]
     pub mix_on: bool,
-    /// 2, 4, 6 or 8. Split evenly into A (listen) and B (send) buses.
-    #[serde(default = "default_outputs")]
-    pub outputs: u8,
     #[serde(default)]
     pub mic_gain_db: f64,
     #[serde(default)]
@@ -126,7 +117,8 @@ pub struct Config {
     pub mic_send_fx1: bool,
     #[serde(default)]
     pub mic_send_fx2: bool,
-    /// Applied to VRLink only while Mix is on, and only when it is not 1.0.
+    /// No longer applied: the engine keeps VRLink at unity and the PC fader sets the level.
+    /// Kept so older config files load unchanged.
     #[serde(default = "default_unity")]
     pub vrlink_gain: f64,
     #[serde(default)]
@@ -148,22 +140,31 @@ pub struct Config {
     /// Off leaves only the 100 % line and the drag follows the pointer.
     #[serde(default = "default_true")]
     pub snap: bool,
-    /// Channels are a vertical list of sideways sliders. Off keeps upright faders.
+    /// Outputs stand up as columns. Off keeps one horizontal card per output.
     #[serde(default)]
     pub list: bool,
+    /// Inputs are a vertical list of sideways sliders. Off keeps upright faders.
+    #[serde(default)]
+    pub input_list: bool,
     /// Extended dashboard: 21:9, or 9:10 while `list` is on.
     #[serde(default)]
     pub wide: bool,
+    /// Share of the two sections given to the right column. 0 keeps the built-in width.
+    #[serde(default)]
+    pub split: f64,
     #[serde(default)]
     pub a: [Bus; 4],
     #[serde(default)]
     pub b: [Bus; 4],
-    /// Master of the PC streaming microphone. Always present, outside the A/B count.
+    /// Master of the PC streaming microphone. Always present.
     #[serde(default)]
     pub pc: Bus,
     /// Output Mix Check records: "pc", "a:N" or "b:N".
     #[serde(default = "default_check_output")]
     pub check_output: String,
+    /// Listen output a take plays on: "a:N", or empty for the current default output.
+    #[serde(default)]
+    pub check_play: String,
     #[serde(default)]
     pub fx_a: FxBus,
     #[serde(default)]
@@ -289,17 +290,14 @@ pub struct Bus {
     pub gain_db: f64,
     #[serde(default)]
     pub muted: bool,
-    /// Hardware sink `node.name` for A2..A4. Empty follows the current speakers.
-    #[serde(default)]
-    pub target: String,
-    /// Display name for B2..B4.
+    /// Display name for B1..B4.
     #[serde(default)]
     pub name: String,
 }
 
 impl Default for Bus {
     fn default() -> Self {
-        Self { gain_db: 0.0, muted: false, target: String::new(), name: String::new() }
+        Self { gain_db: 0.0, muted: false, name: String::new() }
     }
 }
 
@@ -395,9 +393,6 @@ fn default_low_type() -> BandType {
 fn default_high_type() -> BandType {
     BandType::Bell
 }
-fn default_outputs() -> u8 {
-    2
-}
 fn default_version() -> u32 {
     CONFIG_VERSION
 }
@@ -407,14 +402,23 @@ fn default_check_output() -> String {
 
 pub const CONFIG_VERSION: u32 = 3;
 
-/// Whether a Mix Check target names an output that exists at this count.
-pub fn check_output_valid(value: &str, outputs: u8) -> bool {
+/// Whether a Mix Check target names one of the outputs.
+pub fn check_output_valid(value: &str) -> bool {
     if value == "pc" {
         return true;
     }
     let Some((side, index)) = value.split_once(':') else { return false };
     let Ok(index) = index.parse::<usize>() else { return false };
-    matches!(side, "a" | "b") && index < side_count(outputs)
+    match side {
+        "a" => index < A_SLOTS,
+        "b" => index < B_SLOTS,
+        _ => false,
+    }
+}
+
+/// Whether a Mix Check playback choice names a listen output, or is the default output.
+pub fn check_play_valid(value: &str) -> bool {
+    value.is_empty() || (value.starts_with("a:") && check_output_valid(value))
 }
 
 impl ParamEq {
@@ -530,8 +534,7 @@ impl Default for Config {
         Self {
             language: default_language(),
             check_updates: false,
-            mix_on: false,
-            outputs: 2,
+            mix_on: true,
             mic_gain_db: 0.0,
             mic_muted: false,
             mic_solo: false,
@@ -547,11 +550,14 @@ impl Default for Config {
             accent: default_accent(),
             snap: true,
             list: false,
+            input_list: false,
             wide: false,
+            split: 0.0,
             a: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
             b: [Bus::default(), Bus::default(), Bus::default(), Bus::default()],
             pc: Bus::default(),
             check_output: default_check_output(),
+            check_play: String::new(),
             fx_a: FxBus::default(),
             fx_b: FxBus::default(),
             version: CONFIG_VERSION,
@@ -614,7 +620,7 @@ fn migrate_v2(mut config: Config) -> Config {
         fx.to_pc = pc;
     }
     let old = config.b.clone();
-    config.pc = Bus { gain_db: old[0].gain_db, muted: old[0].muted, target: String::new(), name: String::new() };
+    config.pc = Bus { gain_db: old[0].gain_db, muted: old[0].muted, name: String::new() };
     config.b = [old[1].clone(), old[2].clone(), old[3].clone(), Bus::default()];
     config.check_output = default_check_output();
     config.version = CONFIG_VERSION;
@@ -730,9 +736,17 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
 
 fn sanitize(mut config: Config) -> Config {
     config.version = CONFIG_VERSION;
-    config.outputs = output_count(config.outputs);
-    if !check_output_valid(&config.check_output, config.outputs) {
+    // The PC streaming output fader replaced the Mix switch, and inputs have no Solo.
+    config.mix_on = true;
+    config.mic_solo = false;
+    for channel in &mut config.channels {
+        channel.solo = false;
+    }
+    if !check_output_valid(&config.check_output) {
         config.check_output = default_check_output();
+    }
+    if !check_play_valid(&config.check_play) {
+        config.check_play.clear();
     }
     config.mic_gain_db = clamp_db(config.mic_gain_db);
     config.vrlink_gain = clamp_volume(config.vrlink_gain);
@@ -752,11 +766,9 @@ fn sanitize(mut config: Config) -> Config {
         channel.gain_db = clamp_db(channel.gain_db);
     }
     config.pc.gain_db = clamp_db(config.pc.gain_db);
-    config.pc.target.clear();
     config.pc.name.clear();
     for bus in config.a.iter_mut().chain(config.b.iter_mut()) {
         bus.gain_db = clamp_db(bus.gain_db);
-        bus.target = sanitize_mic_source(&bus.target);
         if bus.name.chars().count() > NAME_MAX_CHARS {
             bus.name = bus.name.chars().take(NAME_MAX_CHARS).collect();
         }
@@ -767,6 +779,9 @@ fn sanitize(mut config: Config) -> Config {
     config.mic_source = sanitize_mic_source(&config.mic_source);
     if config.accent != "pink" {
         config.accent = "blue".into();
+    }
+    if !config.split.is_finite() || config.split <= 0.0 || config.split >= 1.0 {
+        config.split = 0.0;
     }
     config
 }
@@ -1029,7 +1044,7 @@ pub fn self_test() -> Result<(), String> {
     if dj.gain_db.abs() > 0.05 || dj.routes != 0 || !dj.to_pc {
         return Err(format!("migrate {} {:08b} {}", dj.gain_db, dj.routes, dj.to_pc));
     }
-    if migrated.version != CONFIG_VERSION || migrated.outputs != 2 || !migrated.mic_to_pc || migrated.mic_routes != 0 {
+    if migrated.version != CONFIG_VERSION || !migrated.mic_to_pc || migrated.mic_routes != 0 {
         return Err("version".into());
     }
     let v2 = r#"{"version":2,"outputs":4,"mic_routes":16,"channels":[
@@ -1051,8 +1066,11 @@ pub fn self_test() -> Result<(), String> {
     if !moved.pc.muted || (moved.pc.gain_db + 6.0).abs() > 0.01 || moved.b[0].name != "Discord" || moved.version != CONFIG_VERSION {
         return Err("migrate v2 buses".into());
     }
-    if !check_output_valid("pc", 2) || !check_output_valid("b:1", 4) || check_output_valid("b:1", 2) || check_output_valid("x", 8) {
+    if !check_output_valid("pc") || !check_output_valid("b:3") || !check_output_valid("a:2") || check_output_valid("a:3") || check_output_valid("x") {
         return Err("check output".into());
+    }
+    if !check_play_valid("") || !check_play_valid("a:1") || check_play_valid("pc") || check_play_valid("b:0") || check_play_valid("a:3") {
+        return Err("check play".into());
     }
     let _ = fs::remove_dir_all(&dir);
     Ok(())

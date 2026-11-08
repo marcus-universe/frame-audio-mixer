@@ -32,25 +32,25 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## できること
 
-- **仮想オーディオデバイス**: 名前付きのチャンネルを最大 32 個作れます。それぞれが出力（`Frame Mix: <name>`）になり、どのアプリからも選べます。
-- **アプリのチャンネル**: 実行中のアプリからチャンネルを作れます。名前の横にそのアプリのアイコンが表示されます。
-- **PC 配信マイクのミックス**: PC にはマイクとチャンネルの音が届きます。
-- **PC 出力**: PC に Steam Streaming Microphone として届く `Frame Mix` は、PC アイコンの付いた独立した出力です。PC に何が送られるかがすぐ分かります。
-- **ルーティング**: チャンネルごとに 1 本のフェーダー（dB）。ミュートとソロ付き。ルーティングのボタンはフェーダーの横に縦に並びます。A は聞く側（A1 はヘッドセット）、PC は配信マイク、B は追加の仮想マイク、FX1 と FX2 はエフェクトのセンドです。設定で A と B の出力数を 2、4、6、8 から選びます。
-- **エフェクトとパラメトリック EQ**: FX1 と FX2 には、それぞれ最大 3 つのエフェクトを入れられます。EQ は 3、6、8、12 ポイントで、応答カーブを表示します。外側のポイントは、ベル、シェルフ、ハイパス、ローパスにできます。
-- **マイク**: ミックスに使うマイクを選べます。システムの既定マイクは変わりません。
-- **レベルメーター**をすべてのフェーダーに表示します。オフにもできます。
-- **ミックス確認**: Outputs ドロワーの一番上にあります。出力を選んで最大 10 秒録音し、その録音を再生または一時停止します。右のレールは Outputs（スピーカーアイコン）、FX1、FX2 です。
+- **向き**: 入力と出力は、それぞれ縦のフェーダーと横の列を切り替えられます。
+- **エフェクトバス**: FX1 と FX2。リバーブ、コンプ、EQ、ピッチ、フランジャー、フェイザー。各ストリップからどちらのバスにも送れます。
+- **仮想マイク**: B1 から B4。名前を付けられ、PC の配信マイクに加わります。
+- **スピーカー、Bluetooth、USB**: 接続中は Frame のスピーカー、Bluetooth ヘッドホン、USB オーディオで聞けます。
+- **アプリのチャンネル**: 名前付きチャンネルは最大 32。それぞれが出力になり、どのアプリからも選べます。
+- **ワイド表示**: 21:9 のレイアウト。2 つの区画の境をドラッグできます。どちら側も画面の 5 分の 1 で止まります。
+- **メーター、ミュート、スナップ**: すべてのフェーダーが +6 から −48 の同じ目盛り。各フェーダーの下にミュート。出力フェーダーは目盛りに吸着します。
+- **ミックス確認**: 出力の一番上。出力を選んで最大 10 秒録音し、再生または一時停止します。
+- 7 つの言語と、青またはピンクのテーマ。
 - 7 つの言語と、青またはピンクのカラーテーマに対応しています。
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="カラム表示、青のテーマ" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="リスト表示、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="ワイド表示、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="入力が横並び、ピンクのテーマ" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="カラム表示、ピンクのテーマ" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="リスト表示、ピンクのテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="エフェクトバス、ピンクのテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="ダッシュボード、青のテーマ" height="320"></td>
   </tr>
 </table>
 

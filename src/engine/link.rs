@@ -29,6 +29,10 @@ pub fn match_ports<'a>(outs: &[&'a Port], ins: &[&'a Port]) -> Vec<(&'a Port, &'
             pairs.extend(ins.iter().copied().map(|input| (*output, input)));
         }
     }
+    // A Bluetooth headset in hands-free mode has one MONO input. Both sides go into it.
+    if pairs.is_empty() && ins.len() == 1 && ins[0].channel == "MONO" {
+        pairs.extend(outs.iter().copied().map(|output| (output, ins[0])));
+    }
     if pairs.is_empty() && !outs.is_empty() && outs.len() == ins.len() {
         pairs.extend(outs.iter().copied().zip(ins.iter().copied()));
     }
@@ -80,6 +84,11 @@ pub fn self_test() -> Result<(), String> {
     let fanned = match_ports(&[&mono], &[&left_in, &right_in]);
     if fanned.len() != 2 {
         return Err("mono did not fan out".into());
+    }
+    let mono_in = Port { id: 6, node_id: 20, direction: Direction::In, channel: "MONO".into() };
+    let folded = match_ports(&outs, &[&mono_in]);
+    if folded.len() != 2 || folded.iter().any(|(_, input)| input.id != 6) {
+        return Err("stereo did not fold into a mono sink".into());
     }
     Ok(())
 }

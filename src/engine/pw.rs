@@ -1,5 +1,5 @@
 //! In-process PipeWire graph. Loopback modules are the devices apps can see.
-//! Gain, effects and meters run in stream callbacks. Routes are ordinary links.
+//! Gain, effects and meters run in realtime filter nodes. Routes are ordinary links.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::CString;
@@ -9,7 +9,7 @@ use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use libspa::pod::Pod;
 use pipewire::context::ContextRc;
@@ -20,16 +20,15 @@ use pipewire::metadata::Metadata;
 use pipewire::node::Node;
 use pipewire::properties::properties;
 use pipewire::proxy::Listener as ProxyListener;
-use pipewire::stream::{Stream, StreamFlags, StreamListener, StreamRc};
 use pipewire::types::ObjectType;
 
 use crate::config::{self, Config, EffectSlot};
+use crate::engine::bluetooth;
+use crate::engine::filter::{Dsp, Filter, Ports};
 use crate::engine::link::{self, Direction, Port, Wanted};
-use crate::fx::dsp::Processor;
-use crate::graph::{AppRef, AudioNode, Graph};
+use crate::fx::dsp::{soft_ceiling, Processor};
+use crate::graph::{self, AppRef, AudioNode, Graph};
 
-const LATENCY_FRAMES: u32 = 480;
-const RING_FRAMES: u32 = 8192;
 const CHECK_MAX: usize = 48_000 * 10 * 2;
 
 pub fn socket_path() -> std::path::PathBuf {
@@ -38,6 +37,11 @@ pub fn socket_path() -> std::path::PathBuf {
 }
 
 pub fn serve(spike: bool) -> Result<(), String> {
+    let _lock = if spike { None } else { Some(lock_instance()?) };
+    unsafe {
+        libc::signal(libc::SIGTERM, on_stop as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_stop as *const () as libc::sighandler_t);
+    }
     pipewire::init();
     let mainloop = MainLoopRc::new(None).map_err(|err| err.to_string())?;
     let context = ContextRc::new(&mainloop, None).map_err(|err| err.to_string())?;
@@ -58,6 +62,16 @@ pub fn serve(spike: bool) -> Result<(), String> {
                 ObjectType::Node => {
                     if let Some(node) = read_node(global.id, props) {
                         let name = node.name.clone();
+                        let device = is_device_sink(&node);
+                        if name.starts_with("bluez_output") {
+                            if let Some(device) = props.get("device.id").and_then(|id| id.parse().ok()) {
+                                engine.bt_sinks.insert(global.id, bluetooth::BtSink { device });
+                                engine.publish_bt();
+                            }
+                        }
+                        if node.media_class == "Stream/Input/Audio" && !node.is_virtual {
+                            unity_vrlink(node.clone());
+                        }
                         engine.model.nodes.insert(global.id, node);
                         let want = name.starts_with("frame_amix_") && (name.ends_with("_virtual_sink") || engine.pending_volume.contains_key(&name));
                         if want && !engine.bound.contains_key(&name) {
@@ -67,6 +81,10 @@ pub fn serve(spike: bool) -> Result<(), String> {
                                     engine.bound.insert(name, proxy);
                                 }
                             }
+                        }
+                        // A Bluetooth or USB device came up: its output starts playing at once.
+                        if device {
+                            engine.sync_routes();
                         }
                     }
                 }
@@ -108,7 +126,12 @@ pub fn serve(spike: bool) -> Result<(), String> {
                                         }
                                         Some("default.audio.source") => {
                                             if let Some(name) = name {
+                                                let moved = name != engine.model.default_source;
                                                 engine.model.default_source = name;
+                                                if moved && engine.mic.is_some() && engine.config.mic_source.is_empty() {
+                                                    let config = engine.config.clone();
+                                                    engine.apply_config(&config);
+                                                }
                                             }
                                         }
                                         _ => {}
@@ -125,13 +148,21 @@ pub fn serve(spike: bool) -> Result<(), String> {
         })
         .global_remove(move |id| {
             let mut engine = engine_rm.borrow_mut();
+            let mut device_gone = false;
             if let Some(node) = engine.model.nodes.remove(&id) {
+                device_gone = is_device_sink(&node);
                 engine.bound.remove(&node.name);
+            }
+            if engine.bt_sinks.remove(&id).is_some() {
+                engine.publish_bt();
             }
             engine.model.ports.remove(&id);
             engine.model.links.remove(&id);
             let live: HashSet<u32> = engine.model.ports.keys().copied().collect();
             engine.held_links.retain(|ports, _| live.contains(&ports.0) && live.contains(&ports.1));
+            if device_gone {
+                engine.sync_routes();
+            }
         })
         .register();
 
@@ -162,9 +193,22 @@ pub fn serve(spike: bool) -> Result<(), String> {
     let engine_tick = engine.clone();
     let mainloop_tick = mainloop.clone();
     let timer = mainloop.loop_().add_timer(move |_| {
+        if STOP.load(Ordering::Relaxed) {
+            mainloop_tick.quit();
+            return;
+        }
         let mut engine = engine_tick.borrow_mut();
         engine.poll_check();
         if !spike {
+            // The mix comes back after a reboot without the panel open. Waiting a second
+            // lets the default source arrive, so the mic loopback is not built twice.
+            if engine.ready && !engine.applied {
+                engine.boot_waits = engine.boot_waits.saturating_add(1);
+                if engine.boot_waits >= 5 {
+                    let config = config::load(&config::config_path());
+                    engine.apply_config(&config);
+                }
+            }
             return;
         }
         if !engine.ready {
@@ -199,15 +243,64 @@ pub fn serve(spike: bool) -> Result<(), String> {
     std::mem::forget(timer);
 
     mainloop.run();
+    // Every module and filter is owned by this process, so PipeWire removes them all
+    // when it exits. Only the WirePlumber setting outlives it.
+    engine.borrow().bt.finish();
     Ok(())
+}
+
+static STOP: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn on_stop(_: libc::c_int) {
+    STOP.store(true, Ordering::Relaxed);
+}
+
+/// One engine per user. A second one would build every device twice.
+fn lock_instance() -> Result<std::fs::File, String> {
+    use std::os::unix::io::AsRawFd;
+    let path = socket_path().with_file_name("engine.lock");
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(|err| err.to_string())?;
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("another engine is already running".into());
+    }
+    Ok(file)
+}
+
+/// VRLink is the PC streaming microphone. The PC fader sets its level, so the stream
+/// itself stays at unity. WirePlumber restores a stored volume for it (an older
+/// build left 8.0 there, +18 dB into the Opus encoder); setting 1.0 also replaces
+/// that stored value. The delay lets WirePlumber's restore land first.
+/// The registry leaves out `media.name` and the binary, so the stream's own
+/// properties decide whether a capture stream is VRLink.
+fn unity_vrlink(mut node: AudioNode) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        let Ok(out) = std::process::Command::new("pw-dump").arg(node.id.to_string()).output() else { return };
+        let objects: Vec<serde_json::Value> = serde_json::from_slice(&out.stdout).unwrap_or_default();
+        let Some(props) = objects.first().and_then(|object| object.pointer("/info/props")) else { return };
+        let text = |key: &str| props[key].as_str().unwrap_or("").to_string();
+        node.media_name = text("media.name");
+        node.app_name = text("application.name");
+        node.binary = text("application.process.binary");
+        if Graph::is_vrlink(&node) {
+            let _ = std::process::Command::new("wpctl").args(["set-volume", &node.id.to_string(), "1.0"]).status();
+        }
+    });
 }
 
 fn spike_config() -> Config {
     let mut config = Config::default();
     config.mix_on = true;
-    config.outputs = 2;
     config.channels.push(config::Channel::new("ch1", "DJ"));
     config
+}
+
+/// A hardware or Bluetooth sink one of the listen outputs may play on.
+fn is_device_sink(node: &AudioNode) -> bool {
+    node.media_class == "Audio/Sink" && !node.name.starts_with("frame_amix_")
 }
 
 struct Request {
@@ -269,10 +362,14 @@ struct Engine {
     pending_volume: HashMap<String, (f32, bool)>,
     check: Check,
     share: Arc<CheckShare>,
-    any_solo: Arc<AtomicBool>,
     ready: bool,
     spiked: bool,
     spike_waits: u8,
+    /// Set by the first config, from the panel or from disk.
+    applied: bool,
+    boot_waits: u8,
+    bt: bluetooth::Guard,
+    bt_sinks: HashMap<u32, bluetooth::BtSink>,
     quit: bool,
     held_routes: Vec<Wanted>,
 }
@@ -297,15 +394,60 @@ impl Model {
             default_source: String::new(),
         }
     }
+
+    /// The default sink, or the first ALSA sink before WirePlumber has published one.
+    fn default_sink(&self) -> String {
+        if !self.default_sink.is_empty() {
+            return self.default_sink.clone();
+        }
+        self.nodes
+            .values()
+            .find(|node| node.media_class == "Audio/Sink" && node.name.contains("alsa_output"))
+            .map(|node| node.name.clone())
+            .unwrap_or_default()
+    }
+}
+
+/// Loudest left and right sample since the panel last asked, as f32 bits.
+/// Non-negative floats order like their bits, so `fetch_max` holds the peak.
+struct Peaks {
+    left: AtomicU32,
+    right: AtomicU32,
+}
+
+impl Peaks {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { left: AtomicU32::new(0), right: AtomicU32::new(0) })
+    }
+
+    fn hold(&self, left: &[f32], right: &[f32]) {
+        self.left.fetch_max(peak_of(left).to_bits(), Ordering::Relaxed);
+        self.right.fetch_max(peak_of(right).to_bits(), Ordering::Relaxed);
+    }
+
+    /// The held peak, cleared for the next reader. Only the fast meter feed clears it.
+    fn take(&self) -> (f32, f32) {
+        (f32::from_bits(self.left.swap(0, Ordering::Relaxed)), f32::from_bits(self.right.swap(0, Ordering::Relaxed)))
+    }
+
+    fn peek(&self) -> (f32, f32) {
+        (f32::from_bits(self.left.load(Ordering::Relaxed)), f32::from_bits(self.right.load(Ordering::Relaxed)))
+    }
+}
+
+fn peak_of(samples: &[f32]) -> f32 {
+    samples.iter().fold(0.0f32, |peak, sample| {
+        let level = sample.abs();
+        if level > peak && level.is_finite() { level } else { peak }
+    })
 }
 
 struct Controls {
     gain: Arc<AtomicU32>,
     mute: Arc<AtomicBool>,
-    solo: Arc<AtomicBool>,
     hold: Arc<AtomicBool>,
     chain: Arc<Mutex<Vec<EffectSlot>>>,
-    peak: Arc<AtomicU32>,
+    peak: Arc<Peaks>,
 }
 
 impl Controls {
@@ -313,10 +455,9 @@ impl Controls {
         Self {
             gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             mute: Arc::new(AtomicBool::new(false)),
-            solo: Arc::new(AtomicBool::new(false)),
             hold: Arc::new(AtomicBool::new(false)),
             chain: Arc::new(Mutex::new(Vec::new())),
-            peak: Arc::new(AtomicU32::new(0)),
+            peak: Peaks::new(),
         }
     }
 
@@ -335,8 +476,7 @@ enum Kind {
 
 struct Strip {
     _modules: Vec<LoadedModule>,
-    _tap: Live<TapIo>,
-    _play: Live<PlayIo>,
+    _filter: Filter<StripDsp>,
     controls: Controls,
     base: String,
     label: String,
@@ -345,11 +485,9 @@ struct Strip {
 }
 
 impl Strip {
+    /// The filter node: its inputs take the loopback, its outputs feed the routes.
     fn dsp(&self) -> String {
         format!("{}_virtual_sink_dsp", self.base)
-    }
-    fn tap(&self) -> String {
-        format!("{}_virtual_sink_tap", self.base)
     }
     fn loop_out(&self) -> String {
         format!("{}_virtual_sink_out", self.base)
@@ -362,75 +500,63 @@ impl Strip {
     }
 }
 
-struct Bus {
-    _module: LoadedModule,
-    _source: Option<LoadedModule>,
-    sink_name: String,
-    play_name: String,
-}
-
-struct Live<T> {
-    _stream: StreamRc,
-    _listener: StreamListener<T>,
-}
-
-struct TapIo {
-    ring: Arc<Ring>,
-}
-
-struct PlayIo {
-    ring: Arc<Ring>,
+/// Gain, mute, the effect chain and the meter of one strip, in the graph cycle.
+struct StripDsp {
     proc: Processor,
     applied: Vec<EffectSlot>,
     gain: f32,
     target: Arc<AtomicU32>,
     mute: Arc<AtomicBool>,
-    solo: Arc<AtomicBool>,
     hold: Arc<AtomicBool>,
-    any_solo: Arc<AtomicBool>,
     chain: Arc<Mutex<Vec<EffectSlot>>>,
-    peak: Arc<AtomicU32>,
+    peak: Arc<Peaks>,
 }
 
-struct Ring {
-    left: Vec<AtomicU32>,
-    right: Vec<AtomicU32>,
-    write: AtomicU32,
-}
-
-impl Ring {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            left: (0..RING_FRAMES).map(|_| AtomicU32::new(0)).collect(),
-            right: (0..RING_FRAMES).map(|_| AtomicU32::new(0)).collect(),
-            write: AtomicU32::new(0),
-        })
-    }
-
-    fn push(&self, interleaved: &[f32]) {
-        let mut cursor = self.write.load(Ordering::Relaxed);
-        let mut index = 0;
-        while index + 1 < interleaved.len() {
-            let slot = (cursor & (RING_FRAMES - 1)) as usize;
-            self.left[slot].store(interleaved[index].to_bits(), Ordering::Relaxed);
-            self.right[slot].store(interleaved[index + 1].to_bits(), Ordering::Relaxed);
-            cursor = cursor.wrapping_add(1);
-            index += 2;
-        }
-        self.write.store(cursor, Ordering::Release);
-    }
-
-    fn pull(&self, frames: usize, into: &mut [f32]) {
-        let write = self.write.load(Ordering::Acquire);
-        let start = write.wrapping_sub(LATENCY_FRAMES);
-        for frame in 0..frames {
-            let slot = (start.wrapping_add(frame as u32) & (RING_FRAMES - 1)) as usize;
-            let at = frame * 2;
-            if at + 1 >= into.len() {
-                break;
+impl Dsp for StripDsp {
+    fn process(&mut self, input: Option<[&[f32]; 2]>, output: Option<[&mut [f32]; 2]>) {
+        let (Some([in_l, in_r]), Some([out_l, out_r])) = (input, output) else { return };
+        if let Ok(chain) = self.chain.try_lock() {
+            if chain.as_slice() != self.applied.as_slice() {
+                self.proc.set_chain(chain.as_slice());
+                self.applied.clone_from(&chain);
             }
-            into[at] = f32::from_bits(self.left[slot].load(Ordering::Relaxed));
-            into[at + 1] = f32::from_bits(self.right[slot].load(Ordering::Relaxed));
+        }
+        out_l.copy_from_slice(in_l);
+        out_r.copy_from_slice(in_r);
+        self.proc.process_planar(out_l, out_r);
+        let muted = self.mute.load(Ordering::Relaxed) || self.hold.load(Ordering::Relaxed);
+        let dest = if muted { 0.0 } else { f32::from_bits(self.target.load(Ordering::Relaxed)) };
+        // The ceiling is transparent below 0.8. Above it, the +12 dB mic fader rounds off
+        // instead of clipping hard in VRLink's encoder.
+        for (left, right) in out_l.iter_mut().zip(out_r.iter_mut()) {
+            self.gain += 0.02 * (dest - self.gain);
+            *left = soft_ceiling(*left * self.gain);
+            *right = soft_ceiling(*right * self.gain);
+        }
+        self.peak.hold(out_l, out_r);
+    }
+}
+
+struct Bus {
+    _module: LoadedModule,
+    _source: Option<LoadedModule>,
+    _meter: Option<Filter<MeterDsp>>,
+    sink_name: String,
+    play_name: String,
+    /// What leaves this output after its fader: the listen playback, or the PC and B sources.
+    emit_name: String,
+    meter_name: String,
+    peak: Arc<Peaks>,
+}
+
+struct MeterDsp {
+    peak: Arc<Peaks>,
+}
+
+impl Dsp for MeterDsp {
+    fn process(&mut self, input: Option<[&[f32]; 2]>, _output: Option<[&mut [f32]; 2]>) {
+        if let Some([left, right]) = input {
+            self.peak.hold(left, right);
         }
     }
 }
@@ -438,7 +564,10 @@ impl Ring {
 struct CheckShare {
     recording: AtomicBool,
     playing: AtomicBool,
+    /// Interleaved stereo. Capacity is reserved before a take, so the realtime side never allocates.
     samples: Mutex<Vec<f32>>,
+    /// Samples recorded so far, readable without the lock.
+    recorded: AtomicU32,
     play: Mutex<Vec<f32>>,
     play_at: AtomicU32,
     /// Peak of the output being recorded, for the Mix Check level bar.
@@ -451,6 +580,7 @@ impl CheckShare {
             recording: AtomicBool::new(false),
             playing: AtomicBool::new(false),
             samples: Mutex::new(Vec::new()),
+            recorded: AtomicU32::new(0),
             play: Mutex::new(Vec::new()),
             play_at: AtomicU32::new(0),
             peak: AtomicU32::new(0),
@@ -459,16 +589,58 @@ impl CheckShare {
 }
 
 struct CheckLive {
-    _rec: Live<RecIo>,
-    _play: Live<PlayIoCheck>,
+    _rec: Filter<RecDsp>,
+    _play: Filter<PlayDsp>,
 }
 
-struct RecIo {
+struct RecDsp {
     share: Arc<CheckShare>,
 }
 
-struct PlayIoCheck {
+impl Dsp for RecDsp {
+    fn process(&mut self, input: Option<[&[f32]; 2]>, _output: Option<[&mut [f32]; 2]>) {
+        let Some([left, right]) = input else { return };
+        if !self.share.recording.load(Ordering::Relaxed) {
+            return;
+        }
+        self.share.peak.store(peak_of(left).max(peak_of(right)).to_bits(), Ordering::Relaxed);
+        // Held only for a moment by the main thread, when a take starts or ends.
+        let Ok(mut buf) = self.share.samples.try_lock() else { return };
+        let room = CHECK_MAX.saturating_sub(buf.len()) / 2;
+        let room = room.min(buf.capacity().saturating_sub(buf.len()) / 2);
+        for (l, r) in left.iter().zip(right.iter()).take(room) {
+            buf.push(*l);
+            buf.push(*r);
+        }
+        self.share.recorded.store(buf.len() as u32, Ordering::Relaxed);
+    }
+}
+
+struct PlayDsp {
     share: Arc<CheckShare>,
+}
+
+impl Dsp for PlayDsp {
+    fn process(&mut self, _input: Option<[&[f32]; 2]>, output: Option<[&mut [f32]; 2]>) {
+        let Some([left, right]) = output else { return };
+        left.fill(0.0);
+        right.fill(0.0);
+        if !self.share.playing.load(Ordering::Relaxed) {
+            return;
+        }
+        let Ok(play) = self.share.play.try_lock() else { return };
+        let mut at = self.share.play_at.load(Ordering::Relaxed) as usize;
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            if at + 1 >= play.len() {
+                self.share.playing.store(false, Ordering::Relaxed);
+                break;
+            }
+            *l = play[at];
+            *r = play[at + 1];
+            at += 2;
+        }
+        self.share.play_at.store(at as u32, Ordering::Relaxed);
+    }
 }
 
 /// One take. Phases: idle, recording, ready, playing, paused.
@@ -476,12 +648,16 @@ struct Check {
     phase: String,
     /// Output being recorded: "pc", "a:N" or "b:N".
     output: String,
+    /// Listen output the take plays on: "a:N", or empty for the default output.
+    play_to: String,
     take: Vec<f32>,
+    /// When a playing take is over, even if the play node never pulled it.
+    play_until: Option<Instant>,
 }
 
 impl Check {
     fn new() -> Self {
-        Self { phase: "idle".into(), output: "pc".into(), take: Vec::new() }
+        Self { phase: "idle".into(), output: "pc".into(), play_to: String::new(), take: Vec::new(), play_until: None }
     }
 }
 
@@ -510,23 +686,32 @@ impl Engine {
             pending_volume: HashMap::new(),
             check: Check::new(),
             share: CheckShare::new(),
-            any_solo: Arc::new(AtomicBool::new(false)),
             ready: false,
             spiked: false,
             spike_waits: 0,
+            applied: false,
+            boot_waits: 0,
+            bt: bluetooth::Guard::start(),
+            bt_sinks: HashMap::new(),
             quit: false,
             held_routes: Vec::new(),
         }
     }
 
     fn handle(&mut self, body: &str) -> String {
-        self.poll_check();
         let value: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
         let op = value.get("op").and_then(|op| op.as_str()).unwrap_or("");
+        if op == "meters" {
+            return serde_json::json!({ "ok": true, "meters": self.meters(true) }).to_string();
+        }
+        self.poll_check();
         match op {
             "apply" | "levels" => {
                 if let Some(config) = value.get("config").and_then(|config| serde_json::from_value::<Config>(config.clone()).ok()) {
                     if op == "apply" {
+                        if config::check_play_valid(&config.check_play) {
+                            self.check.play_to = config.check_play.clone();
+                        }
                         self.apply_config(&config);
                     } else {
                         self.apply_levels(&config);
@@ -538,7 +723,11 @@ impl Engine {
                 self.start_record(output);
             }
             "stop" => self.finish_record(),
-            "play" => self.play_take(),
+            "play" => {
+                let play_to = value.get("play_to").and_then(|play_to| play_to.as_str()).unwrap_or("");
+                self.check.play_to = if config::check_play_valid(play_to) { play_to.to_string() } else { String::new() };
+                self.play_take();
+            }
             "pause" => self.pause_take(),
             "quit" => {}
             _ => {}
@@ -547,14 +736,14 @@ impl Engine {
     }
 
     fn poll_check(&mut self) {
-        if self.check.phase == "recording" {
-            let n = self.share.samples.lock().map(|samples| samples.len()).unwrap_or(0);
-            if n >= CHECK_MAX {
-                self.finish_record();
-            }
+        if self.check.phase == "recording" && self.share.recorded.load(Ordering::Relaxed) as usize >= CHECK_MAX {
+            self.finish_record();
         }
-        if self.check.phase == "playing" && !self.share.playing.load(Ordering::Relaxed) {
+        let overdue = self.check.play_until.is_some_and(|until| Instant::now() > until);
+        if self.check.phase == "playing" && (!self.share.playing.load(Ordering::Relaxed) || overdue) {
+            self.share.playing.store(false, Ordering::Relaxed);
             self.check.phase = "ready".into();
+            self.check.play_until = None;
             self.share.play_at.store(0, Ordering::Relaxed);
             self.apply_levels(&self.config.clone());
         }
@@ -562,27 +751,47 @@ impl Engine {
 
     fn check_secs(&self) -> f64 {
         match self.check.phase.as_str() {
-            "recording" => stereo_secs(self.share.samples.lock().map(|samples| samples.len()).unwrap_or(0)),
+            "recording" => stereo_secs(self.share.recorded.load(Ordering::Relaxed) as usize),
             "playing" | "paused" => stereo_secs(self.share.play_at.load(Ordering::Relaxed) as usize),
             _ => 0.0,
         }
     }
 
-    fn status(&self) -> String {
+    /// Peaks by key. `take` clears them, so each fast poll shows what happened since the last one.
+    fn meters(&self, take: bool) -> serde_json::Map<String, serde_json::Value> {
+        let read = |peak: &Peaks| if take { peak.take() } else { peak.peek() };
         let mut meters = serde_json::Map::new();
         if let Some(mic) = &self.mic {
-            meters.insert("mic".into(), serde_json::json!(f32::from_bits(mic.controls.peak.load(Ordering::Relaxed))));
+            let (left, right) = read(&mic.controls.peak);
+            meters.insert("mic".into(), serde_json::json!(left.max(right)));
         }
         for (id, strip) in &self.strips {
-            meters.insert(id.clone(), serde_json::json!(f32::from_bits(strip.controls.peak.load(Ordering::Relaxed))));
+            let (left, right) = read(&strip.controls.peak);
+            meters.insert(format!("{id}:l"), serde_json::json!(left));
+            meters.insert(format!("{id}:r"), serde_json::json!(right));
+        }
+        let outputs = self
+            .bus_pc
+            .iter()
+            .map(|bus| ("pc".to_string(), bus))
+            .chain(self.buses_a.iter().enumerate().map(|(index, bus)| (format!("a:{index}"), bus)))
+            .chain(self.buses_b.iter().enumerate().map(|(index, bus)| (format!("b:{index}"), bus)));
+        for (id, bus) in outputs {
+            let (left, right) = read(&bus.peak);
+            meters.insert(format!("out:{id}:l"), serde_json::json!(left));
+            meters.insert(format!("out:{id}:r"), serde_json::json!(right));
         }
         if self.check.phase == "recording" {
             meters.insert("check".into(), serde_json::json!(f32::from_bits(self.share.peak.load(Ordering::Relaxed))));
         }
+        meters
+    }
+
+    fn status(&self) -> String {
         serde_json::json!({
             "ok": true,
             "mix_active": self.config.mix_on && (self.mic.is_some() || !self.strips.is_empty()),
-            "meters": meters,
+            "meters": self.meters(false),
             "graph": self.graph(),
             "check": self.check.phase,
             "check_secs": self.check_secs(),
@@ -597,27 +806,28 @@ impl Engine {
         let mut graph = Graph::default();
         graph.nodes = self.model.nodes.values().cloned().collect();
         graph.clients = self.model.clients.clone();
-        graph.default_sink = self.model.default_sink.clone();
+        graph.default_sink = self.model.default_sink();
         graph.default_source = if self.model.default_source.is_empty() {
             Graph::BUILTIN_SOURCE.into()
         } else {
             self.model.default_source.clone()
         };
-        if graph.default_sink.is_empty() {
-            if let Some(node) = graph.nodes.iter().find(|node| node.media_class == "Audio/Sink" && node.name.contains("alsa_output")) {
-                graph.default_sink = node.name.clone();
-            }
-        }
         graph
+    }
+
+    fn publish_bt(&self) {
+        self.bt.set_sinks(self.bt_sinks.values().cloned().collect());
     }
 
     fn apply_config(&mut self, config: &Config) {
         self.config = config.clone();
+        self.applied = true;
+        self.bt.set_guard(!config.mic_source.starts_with("bluez_"));
         let source = mic_target(&self.config, &self.model.default_source);
         let recreate = self.mic.as_ref().map(|mic| mic.capture != source).unwrap_or(true);
         if recreate {
             self.mic = None;
-            match make_strip(&self.context, &self.core, "mic", "Mic", Kind::Mic, Some(&source), &self.any_solo) {
+            match make_strip(&self.context, &self.core, "mic", "Mic", Kind::Mic, Some(&source)) {
                 Ok(strip) => self.mic = Some(strip),
                 Err(err) => eprintln!("frame-audio-mixer: mic: {err}"),
             }
@@ -632,7 +842,7 @@ impl Engine {
             if self.strips.contains_key(&channel.id) {
                 continue;
             }
-            match make_strip(&self.context, &self.core, &channel.id, &channel.name, Kind::Channel, None, &self.any_solo) {
+            match make_strip(&self.context, &self.core, &channel.id, &channel.name, Kind::Channel, None) {
                 Ok(strip) => {
                     self.strips.insert(channel.id.clone(), strip);
                 }
@@ -640,72 +850,78 @@ impl Engine {
             }
         }
         if self.bus_pc.is_none() {
-            match make_send_bus(&self.context, "frame_amix_pc", "frame_amix_source", "Frame Mix") {
+            match make_send_bus(&self.context, &self.core, "frame_amix_pc", "frame_amix_source", "Frame Mix") {
                 Ok(bus) => self.bus_pc = Some(bus),
                 Err(err) => eprintln!("frame-audio-mixer: pc bus: {err}"),
             }
         }
-        let sides = config::side_count(self.config.outputs);
-        self.buses_a.truncate(sides);
-        self.buses_b.truncate(sides);
-        for index in 0..sides {
-            if self.buses_a.len() == index {
-                let name = format!("frame_amix_a{}", index + 1);
-                if let Ok(bus) = make_listen_bus(&self.context, &name) {
-                    self.buses_a.push(bus);
+        while self.buses_a.len() < config::A_SLOTS {
+            let name = format!("frame_amix_a{}", self.buses_a.len() + 1);
+            match make_listen_bus(&self.context, &self.core, &name) {
+                Ok(bus) => self.buses_a.push(bus),
+                Err(err) => {
+                    eprintln!("frame-audio-mixer: {name}: {err}");
+                    break;
                 }
             }
-            if self.buses_b.len() == index {
-                let custom = self.config.b.get(index).map(|bus| bus.name.clone()).unwrap_or_default();
-                let label = if custom.is_empty() { format!("B{}", index + 1) } else { custom };
-                let name = format!("frame_amix_b{}", index + 1);
-                if let Ok(bus) = make_send_bus(&self.context, &name, &name, &label) {
-                    self.buses_b.push(bus);
+        }
+        while self.buses_b.len() < config::B_SLOTS {
+            let index = self.buses_b.len();
+            let custom = self.config.b.get(index).map(|bus| bus.name.clone()).unwrap_or_default();
+            let label = if custom.is_empty() { format!("B{}", index + 1) } else { custom };
+            let name = format!("frame_amix_b{}", index + 1);
+            match make_send_bus(&self.context, &self.core, &name, &name, &label) {
+                Ok(bus) => self.buses_b.push(bus),
+                Err(err) => {
+                    eprintln!("frame-audio-mixer: {name}: {err}");
+                    break;
                 }
             }
         }
         if self.fx.len() != 2 {
             self.fx.clear();
             for label in ["fx1", "fx2"] {
-                if let Ok(strip) = make_strip(&self.context, &self.core, label, label, Kind::Fx, None, &self.any_solo) {
+                if let Ok(strip) = make_strip(&self.context, &self.core, label, label, Kind::Fx, None) {
                     self.fx.push(strip);
                 }
             }
         }
         if self.check_live.is_none() {
-            self.check_live = make_check(&self.core, &self.share).ok();
+            match make_check(&self.core, &self.share) {
+                Ok(live) => self.check_live = Some(live),
+                Err(err) => eprintln!("frame-audio-mixer: mix check: {err}"),
+            }
         }
         self.apply_levels(config);
     }
 
     fn apply_levels(&mut self, config: &Config) {
         self.config = config.clone();
-        let any = config.mic_solo || config.channels.iter().any(|channel| channel.solo);
-        self.any_solo.store(any, Ordering::Relaxed);
-        let hold_mic = self.check.phase == "recording" || self.check.phase == "playing";
+        // A take is recorded with the mic in it. Only playback on the headset holds the
+        // mic and the headset effect returns, so the clip cannot feed back.
+        let hold_mic = self.check.phase == "playing";
         if let Some(mic) = &self.mic {
             mic.controls.set_gain_db(config.mic_gain_db, config::MIC_PREAMP);
             mic.controls.mute.store(config.mic_muted, Ordering::Relaxed);
-            mic.controls.solo.store(config.mic_solo, Ordering::Relaxed);
             mic.controls.hold.store(hold_mic, Ordering::Relaxed);
         }
         for channel in &config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
                 strip.controls.set_gain_db(channel.gain_db, 1.0);
                 strip.controls.mute.store(channel.muted, Ordering::Relaxed);
-                strip.controls.solo.store(channel.solo, Ordering::Relaxed);
             }
         }
         let pc_name = self.bus_pc.as_ref().map(|bus| bus.sink_name.clone());
         if let Some(name) = pc_name {
             self.set_named_volume(&name, config.pc.gain_db, config.pc.muted);
         }
-        let sides = config::side_count(config.outputs);
-        for index in 0..sides {
+        for index in 0..config::A_SLOTS {
             let a_name = self.buses_a.get(index).map(|bus| bus.sink_name.clone());
             if let Some(name) = a_name {
                 self.set_named_volume(&name, config.a[index].gain_db, config.a[index].muted);
             }
+        }
+        for index in 0..config::B_SLOTS {
             let b_name = self.buses_b.get(index).map(|bus| bus.sink_name.clone());
             if let Some(name) = b_name {
                 self.set_named_volume(&name, config.b[index].gain_db, config.b[index].muted);
@@ -744,44 +960,50 @@ impl Engine {
 
     fn sync_routes(&mut self) {
         let mut routes = Vec::new();
-        let sides = config::side_count(self.config.outputs);
-        let dest = Dest { a: &self.buses_a, b: &self.buses_b, pc: self.bus_pc.as_ref(), fx: &self.fx, sides };
+        let dest = Dest { a: &self.buses_a, b: &self.buses_b, pc: self.bus_pc.as_ref(), fx: &self.fx };
         if let Some(mic) = &self.mic {
             let flow = Flow { bits: self.config.mic_routes, to_pc: self.config.mic_to_pc, fx1: self.config.mic_send_fx1, fx2: self.config.mic_send_fx2 };
             push_routes(&mut routes, &mic.dsp(), &dest, flow);
-            routes.push(Wanted { output_node: mic.loop_out(), input_node: mic.tap() });
+            routes.push(Wanted { output_node: mic.loop_out(), input_node: mic.dsp() });
         }
         for channel in &self.config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
                 let flow = Flow { bits: channel.routes, to_pc: channel.to_pc, fx1: channel.send_fx1, fx2: channel.send_fx2 };
                 push_routes(&mut routes, &strip.dsp(), &dest, flow);
-                routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.tap() });
+                routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.dsp() });
             }
         }
         for (index, fx) in [&self.config.fx_a, &self.config.fx_b].into_iter().enumerate() {
             if let Some(strip) = self.fx.get(index) {
                 let flow = Flow { bits: fx.routes, to_pc: fx.to_pc, fx1: false, fx2: false };
                 push_routes(&mut routes, &strip.dsp(), &dest, flow);
-                routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.tap() });
+                routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.dsp() });
             }
         }
-        let sink = self.graph().default_sink;
-        for (index, bus) in self.buses_a.iter().enumerate() {
-            let chosen = self.config.a.get(index).map(|item| item.target.clone()).unwrap_or_default();
-            let target = if index == 0 { sink.clone() } else { chosen };
-            if !target.is_empty() {
+        let sink = self.model.default_sink();
+        let targets = graph::output_sinks(self.model.nodes.values(), &sink);
+        let play_on = self
+            .check
+            .play_to
+            .strip_prefix("a:")
+            .and_then(|index| index.parse::<usize>().ok())
+            .and_then(|index| targets.get(index).cloned().flatten())
+            .unwrap_or_else(|| sink.clone());
+        for (bus, target) in self.buses_a.iter().zip(targets) {
+            if let Some(target) = target {
                 routes.push(Wanted { output_node: bus.play_name.clone(), input_node: target });
             }
         }
+        for bus in self.bus_pc.iter().chain(self.buses_a.iter()).chain(self.buses_b.iter()) {
+            routes.push(Wanted { output_node: bus.emit_name.clone(), input_node: bus.meter_name.clone() });
+        }
         if self.check.phase == "recording" {
             if let Some(bus) = self.check_bus(&self.check.output) {
-                routes.push(Wanted { output_node: bus.play_name.clone(), input_node: "frame_amix_check_virtual_sink_rec".into() });
+                routes.push(Wanted { output_node: bus.emit_name.clone(), input_node: "frame_amix_check_virtual_sink_rec".into() });
             }
         }
-        if self.check.phase == "playing" {
-            if let Some(bus) = self.buses_a.first() {
-                routes.push(Wanted { output_node: "frame_amix_check_virtual_sink_play".into(), input_node: bus.sink_name.clone() });
-            }
+        if self.check.phase == "playing" && !play_on.is_empty() {
+            routes.push(Wanted { output_node: "frame_amix_check_virtual_sink_play".into(), input_node: play_on });
         }
         self.held_routes = routes;
         self.reconcile();
@@ -829,11 +1051,14 @@ impl Engine {
         }
         if let Ok(mut samples) = self.share.samples.lock() {
             samples.clear();
+            samples.reserve_exact(CHECK_MAX);
         }
-        self.check.output = if config::check_output_valid(&output, self.config.outputs) { output } else { "pc".into() };
-        self.share.recording.store(true, Ordering::Relaxed);
+        self.share.recorded.store(0, Ordering::Relaxed);
+        self.share.peak.store(0, Ordering::Relaxed);
+        self.check.output = if config::check_output_valid(&output) { output } else { "pc".into() };
         self.share.playing.store(false, Ordering::Relaxed);
         self.share.play_at.store(0, Ordering::Relaxed);
+        self.share.recording.store(true, Ordering::Relaxed);
         self.check.phase = "recording".into();
         self.apply_levels(&self.config.clone());
     }
@@ -849,17 +1074,20 @@ impl Engine {
         self.apply_levels(&self.config.clone());
     }
 
-    /// Plays the take on A1, or resumes it where Pause left it.
+    /// Plays the take on the current headset output, past every fader, or resumes it
+    /// where Pause left it.
     fn play_take(&mut self) {
         if self.check.take.is_empty() || self.check.phase == "recording" || self.check.phase == "playing" {
             return;
         }
         if self.check.phase != "paused" {
             if let Ok(mut play) = self.share.play.lock() {
-                *play = self.check.take.clone();
+                play.clone_from(&self.check.take);
             }
             self.share.play_at.store(0, Ordering::Relaxed);
         }
+        let left = self.check.take.len().saturating_sub(self.share.play_at.load(Ordering::Relaxed) as usize);
+        self.check.play_until = Some(Instant::now() + Duration::from_secs_f64(stereo_secs(left) + 0.5));
         self.share.playing.store(true, Ordering::Relaxed);
         self.check.phase = "playing".into();
         self.apply_levels(&self.config.clone());
@@ -871,6 +1099,7 @@ impl Engine {
         }
         self.share.playing.store(false, Ordering::Relaxed);
         self.check.phase = "paused".into();
+        self.check.play_until = None;
         self.apply_levels(&self.config.clone());
     }
 }
@@ -880,7 +1109,6 @@ struct Dest<'a> {
     b: &'a [Bus],
     pc: Option<&'a Bus>,
     fx: &'a [Strip],
-    sides: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -894,16 +1122,14 @@ struct Flow {
 fn push_routes(routes: &mut Vec<Wanted>, from: &str, dest: &Dest, flow: Flow) {
     let Flow { bits, to_pc, fx1, fx2 } = flow;
     let fx = dest.fx;
-    for index in 0..dest.sides {
+    for (index, bus) in dest.a.iter().enumerate() {
         if config::route_on(bits, true, index) {
-            if let Some(bus) = dest.a.get(index) {
-                routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
-            }
+            routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
         }
+    }
+    for (index, bus) in dest.b.iter().enumerate() {
         if config::route_on(bits, false, index) {
-            if let Some(bus) = dest.b.get(index) {
-                routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
-            }
+            routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
         }
     }
     if to_pc {
@@ -933,7 +1159,7 @@ fn mic_target(config: &Config, default_source: &str) -> String {
     }
 }
 
-fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: Kind, capture_target: Option<&str>, any_solo: &Arc<AtomicBool>) -> Result<Strip, String> {
+fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: Kind, capture_target: Option<&str>) -> Result<Strip, String> {
     let base = format!("frame_amix_{id}");
     let module = match kind {
         Kind::Mic => load_loopback(context, &mic_loopback_args(&base, capture_target.unwrap_or(Graph::BUILTIN_SOURCE)))?,
@@ -941,30 +1167,21 @@ fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: K
         Kind::Fx => load_loopback(context, &fx_loopback_args(&base, label))?,
     };
     let controls = Controls::new();
-    let ring = Ring::new();
-    let tap = connect_stream(core, &format!("{base}_virtual_sink_tap"), true, true, TapIo { ring: ring.clone() }, |stream, io| {
-        if let Some(samples) = take_f32(stream) {
-            io.ring.push(&samples);
-        }
-    })?;
-    let play_io = PlayIo {
-        ring,
+    let dsp = StripDsp {
         proc: Processor::new(),
         applied: Vec::new(),
         gain: 1.0,
         target: controls.gain.clone(),
         mute: controls.mute.clone(),
-        solo: controls.solo.clone(),
         hold: controls.hold.clone(),
-        any_solo: any_solo.clone(),
         chain: controls.chain.clone(),
         peak: controls.peak.clone(),
     };
-    let play = connect_stream(core, &format!("{base}_virtual_sink_dsp"), false, false, play_io, |stream, io| render_play(stream, io))?;
+    // Not passive, so a routed strip wakes the output it feeds.
+    let filter = Filter::new(core, &format!("{base}_virtual_sink_dsp"), Ports { input: true, output: true, passive: false }, dsp)?;
     Ok(Strip {
         _modules: vec![module],
-        _tap: tap,
-        _play: play,
+        _filter: filter,
         controls,
         base,
         label: label.to_string(),
@@ -973,194 +1190,57 @@ fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: K
     })
 }
 
-fn make_listen_bus(context: &ContextRc, name: &str) -> Result<Bus, String> {
+fn make_listen_bus(context: &ContextRc, core: &CoreRc, name: &str) -> Result<Bus, String> {
     let module = load_loopback(context, &listen_bus_args(name))?;
-    Ok(Bus {
+    let play_name = format!("{name}_virtual_sink_play");
+    Ok(with_meter(core, name, Bus {
         _module: module,
         _source: None,
+        _meter: None,
         sink_name: format!("{name}_virtual_sink"),
-        play_name: format!("{name}_virtual_sink_play"),
-    })
+        emit_name: play_name.clone(),
+        play_name,
+        meter_name: String::new(),
+        peak: Peaks::new(),
+    }))
 }
 
-fn make_send_bus(context: &ContextRc, name: &str, source_name: &str, label: &str) -> Result<Bus, String> {
+fn make_send_bus(context: &ContextRc, core: &CoreRc, name: &str, source_name: &str, label: &str) -> Result<Bus, String> {
     let module = load_loopback(context, &send_bus_args(name))?;
     let source = load_loopback(context, &source_args(name, source_name, label))?;
-    Ok(Bus {
+    Ok(with_meter(core, name, Bus {
         _module: module,
         _source: Some(source),
+        _meter: None,
         sink_name: format!("{name}_virtual_sink"),
         play_name: format!("{name}_virtual_sink_discard"),
-    })
+        emit_name: source_name.to_string(),
+        meter_name: String::new(),
+        peak: Peaks::new(),
+    }))
 }
 
+/// A passive tap on what the output emits, for its level meter. Passive, so an
+/// idle output stays suspended. A bus without a meter still works.
+fn with_meter(core: &CoreRc, name: &str, mut bus: Bus) -> Bus {
+    bus.meter_name = format!("{name}_virtual_sink_meter");
+    let dsp = MeterDsp { peak: bus.peak.clone() };
+    bus._meter = Filter::new(core, &bus.meter_name, Ports { input: true, output: false, passive: true }, dsp).ok();
+    bus
+}
+
+/// The Mix Check recorder and player. Neither is passive: a take must wake the
+/// output it records, and playback must wake the speakers.
 fn make_check(core: &CoreRc, share: &Arc<CheckShare>) -> Result<CheckLive, String> {
-    let rec = connect_stream(core, "frame_amix_check_virtual_sink_rec", true, false, RecIo { share: share.clone() }, |stream, io| {
-        if !io.share.recording.load(Ordering::Relaxed) {
-            return;
-        }
-        let Some(samples) = take_f32(stream) else { return };
-        let peak = samples.iter().fold(0.0f32, |peak, sample| peak.max(sample.abs()));
-        io.share.peak.store(peak.to_bits(), Ordering::Relaxed);
-        let Ok(mut buf) = io.share.samples.try_lock() else { return };
-        if buf.len() >= CHECK_MAX {
-            return;
-        }
-        let room = CHECK_MAX - buf.len();
-        buf.extend(samples.into_iter().take(room));
-    })?;
-    let play = connect_stream(core, "frame_amix_check_virtual_sink_play", false, false, PlayIoCheck { share: share.clone() }, |stream, io| {
-        render_check_play(stream, io);
-    })?;
+    let rec = Filter::new(core, "frame_amix_check_virtual_sink_rec", Ports { input: true, output: false, passive: false }, RecDsp { share: share.clone() })?;
+    let play = Filter::new(core, "frame_amix_check_virtual_sink_play", Ports { input: false, output: true, passive: false }, PlayDsp { share: share.clone() })?;
     Ok(CheckLive { _rec: rec, _play: play })
 }
 
-fn render_play(stream: &Stream, io: &mut PlayIo) {
-    if let Ok(chain) = io.chain.try_lock() {
-        if chain.as_slice() != io.applied.as_slice() {
-            io.proc.set_chain(chain.as_slice());
-            io.applied = chain.clone();
-        }
-    }
-    let Some(mut buffer) = stream.dequeue_buffer() else { return };
-    let Some(samples) = out_samples(&mut buffer) else { return };
-    io.ring.pull(samples.len() / 2, samples);
-    io.proc.process(samples);
-    let dest = desired_gain(io);
-    let mut peak = 0.0f32;
-    for sample in samples.iter_mut() {
-        io.gain += 0.02 * (dest - io.gain);
-        *sample *= io.gain;
-        peak = peak.max(sample.abs());
-    }
-    io.peak.store(peak.to_bits(), Ordering::Relaxed);
-}
-
-/// Interleaved stereo float32.
-const FRAME_BYTES: usize = 8;
-
-/// The writable samples of a playback buffer, with the chunk already set to cover them.
-/// A playback chunk starts at size 0, so its size is not how much to write.
-fn out_samples<'a>(buffer: &'a mut pipewire::buffer::Buffer<'_>) -> Option<&'a mut [f32]> {
-    let requested = buffer.requested() as usize;
-    let data = buffer.datas_mut().first_mut()?;
-    let room = data.data()?.len() / FRAME_BYTES;
-    let frames = if requested > 0 { requested.min(room) } else { room };
-    if frames == 0 {
-        return None;
-    }
-    let chunk = data.chunk_mut();
-    *chunk.offset_mut() = 0;
-    *chunk.stride_mut() = FRAME_BYTES as i32;
-    *chunk.size_mut() = (frames * FRAME_BYTES) as u32;
-    let bytes = data.data()?;
-    if bytes.as_ptr().align_offset(std::mem::align_of::<f32>()) != 0 {
-        return None;
-    }
-    Some(unsafe { std::slice::from_raw_parts_mut(bytes.as_mut_ptr().cast::<f32>(), frames * 2) })
-}
-
-fn render_check_play(stream: &Stream, io: &mut PlayIoCheck) {
-    let Some(mut buffer) = stream.dequeue_buffer() else { return };
-    let Some(samples) = out_samples(&mut buffer) else { return };
-    for sample in samples.iter_mut() {
-        *sample = 0.0;
-    }
-    if !io.share.playing.load(Ordering::Relaxed) {
-        return;
-    }
-    let Ok(play) = io.share.play.try_lock() else { return };
-    let mut at = io.share.play_at.load(Ordering::Relaxed) as usize;
-    if at >= play.len() {
-        io.share.playing.store(false, Ordering::Relaxed);
-        return;
-    }
-    for sample in samples.iter_mut() {
-        if at >= play.len() {
-            io.share.playing.store(false, Ordering::Relaxed);
-            break;
-        }
-        *sample = play[at];
-        at += 1;
-    }
-    io.share.play_at.store(at as u32, Ordering::Relaxed);
-}
-
-fn desired_gain(io: &PlayIo) -> f32 {
-    let muted = io.mute.load(Ordering::Relaxed)
-        || io.hold.load(Ordering::Relaxed)
-        || (io.any_solo.load(Ordering::Relaxed) && !io.solo.load(Ordering::Relaxed));
-    if muted { 0.0 } else { f32::from_bits(io.target.load(Ordering::Relaxed)) }
-}
-
-fn take_f32(stream: &Stream) -> Option<Vec<f32>> {
-    let mut buffer = stream.dequeue_buffer()?;
-    let datas = buffer.datas_mut();
-    let data = datas.first_mut()?;
-    let n_bytes = data.chunk().size() as usize;
-    let bytes = data.data()?;
-    let bytes = &bytes[..n_bytes.min(bytes.len())];
-    if bytes.as_ptr().align_offset(std::mem::align_of::<f32>()) != 0 {
-        return None;
-    }
-    let n = bytes.len() / 4;
-    let samples = unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<f32>(), n) };
-    Some(samples.to_vec())
-}
-
-/// A passive stream does not wake what it is linked to. Strip outputs and the Mix Check
-/// streams are not passive, or an A bus stays suspended and is never heard.
-fn connect_stream<T: 'static>(
-    core: &CoreRc,
-    name: &str,
-    capture: bool,
-    passive: bool,
-    io: T,
-    process: impl Fn(&Stream, &mut T) + 'static,
-) -> Result<Live<T>, String> {
-    let props = properties! {
-        *pipewire::keys::MEDIA_TYPE => "Audio",
-        *pipewire::keys::MEDIA_CATEGORY => if capture { "Capture" } else { "Playback" },
-        *pipewire::keys::NODE_NAME => name,
-        *pipewire::keys::NODE_AUTOCONNECT => "false",
-        *pipewire::keys::NODE_PASSIVE => if passive { "true" } else { "false" },
-        "node.virtual" => "true",
-        "node.latency" => "480/48000",
-        "audio.rate" => "48000",
-        "state.restore-props" => "false",
-        "node.dont-reconnect" => "true",
-    };
-    let stream = StreamRc::new(core.clone(), name, props).map_err(|err| err.to_string())?;
-    let listener = stream
-        .add_local_listener_with_user_data(io)
-        .process(process)
-        .register()
-        .map_err(|err| err.to_string())?;
-    let mut audio = libspa::param::audio::AudioInfoRaw::new();
-    audio.set_format(libspa::param::audio::AudioFormat::F32LE);
-    audio.set_channels(2);
-    audio.set_rate(48_000);
-    let mut position = [0u32; libspa::sys::SPA_AUDIO_MAX_CHANNELS as usize];
-    position[0] = libspa::sys::SPA_AUDIO_CHANNEL_FL;
-    position[1] = libspa::sys::SPA_AUDIO_CHANNEL_FR;
-    audio.set_position(position);
-    let obj = libspa::pod::Object {
-        type_: libspa::utils::SpaTypes::ObjectParamFormat.as_raw(),
-        id: libspa::param::ParamType::EnumFormat.as_raw(),
-        properties: audio.into(),
-    };
-    let bytes = libspa::pod::serialize::PodSerializer::serialize(std::io::Cursor::new(Vec::new()), &libspa::pod::Value::Object(obj))
-        .map_err(|err| err.to_string())?
-        .0
-        .into_inner();
-    let pod = Pod::from_bytes(&bytes).ok_or("format pod")?;
-    let mut params = [pod];
-    let direction = if capture { libspa::utils::Direction::Input } else { libspa::utils::Direction::Output };
-    stream
-        .connect(direction, None, StreamFlags::MAP_BUFFERS, &mut params)
-        .map_err(|err| err.to_string())?;
-    Ok(Live { _stream: stream, _listener: listener })
-}
+/// Buses and effect sinks are linked by the engine only. pipewire-pulse lists exact
+/// `Audio/Sink` nodes, so this class keeps them and their monitors out of every
+/// device picker, and WirePlumber never chooses one as a default or a target.
+const INTERNAL_SINK: &str = "Audio/Sink/Internal";
 
 fn channel_loopback_args(base: &str, label: &str) -> String {
     serde_json::json!({
@@ -1204,7 +1284,7 @@ fn mic_loopback_args(base: &str, target: &str) -> String {
 fn fx_loopback_args(base: &str, label: &str) -> String {
     serde_json::json!({
         "capture.props": {
-            "media.class": "Audio/Sink",
+            "media.class": INTERNAL_SINK,
             "node.name": format!("{base}_virtual_sink"),
             "node.description": label,
             "node.virtual": true,
@@ -1222,7 +1302,7 @@ fn fx_loopback_args(base: &str, label: &str) -> String {
 fn listen_bus_args(name: &str) -> String {
     serde_json::json!({
         "capture.props": {
-            "media.class": "Audio/Sink",
+            "media.class": INTERNAL_SINK,
             "node.name": format!("{name}_virtual_sink"),
             "node.description": name,
             "node.virtual": true,
@@ -1240,7 +1320,7 @@ fn listen_bus_args(name: &str) -> String {
 fn send_bus_args(name: &str) -> String {
     serde_json::json!({
         "capture.props": {
-            "media.class": "Audio/Sink",
+            "media.class": INTERNAL_SINK,
             "node.name": format!("{name}_virtual_sink"),
             "node.virtual": true,
             "audio.position": ["FL", "FR"],
@@ -1320,6 +1400,18 @@ fn volume_pod(linear: f32, mute: bool) -> Vec<u8> {
             },
             Property {
                 key: libspa::sys::SPA_PROP_mute,
+                flags: PropertyFlags::empty(),
+                value: Value::Bool(mute),
+            },
+            // These sinks keep `monitor.channel-volumes = false`. Frame Mix and the B
+            // sources capture the monitor, so they only follow the fader through these.
+            Property {
+                key: libspa::sys::SPA_PROP_monitorVolumes,
+                flags: PropertyFlags::empty(),
+                value: Value::ValueArray(ValueArray::Float(vec![linear, linear])),
+            },
+            Property {
+                key: libspa::sys::SPA_PROP_monitorMute,
                 flags: PropertyFlags::empty(),
                 value: Value::Bool(mute),
             },

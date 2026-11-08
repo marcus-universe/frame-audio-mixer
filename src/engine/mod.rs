@@ -1,6 +1,8 @@
 //! The mix graph lives in one process. The panel sends one JSON line per
 //! request over a Unix socket and reads one JSON line back.
 
+mod bluetooth;
+mod filter;
 mod link;
 mod pw;
 
@@ -43,11 +45,23 @@ pub struct Status {
 /// One request to the engine. `None` means the socket is not there yet.
 pub fn call(op: &str, config: Option<&Config>) -> Option<Status> {
     let body = match config {
-        Some(config) => serde_json::json!({ "op": op, "config": config, "output": config.check_output }),
+        Some(config) => serde_json::json!({ "op": op, "config": config, "output": config.check_output, "play_to": config.check_play }),
         None => serde_json::json!({ "op": op }),
     };
     let line = roundtrip(&body.to_string())?;
     serde_json::from_str(&line).ok()
+}
+
+#[derive(Deserialize)]
+struct MeterReply {
+    #[serde(default)]
+    meters: HashMap<String, f32>,
+}
+
+/// Peaks since the last call, without the graph. Cheap enough to poll every frame.
+pub fn meters() -> Option<HashMap<String, f32>> {
+    let line = roundtrip(r#"{"op":"meters"}"#)?;
+    serde_json::from_str::<MeterReply>(&line).ok().map(|reply| reply.meters)
 }
 
 fn roundtrip(line: &str) -> Option<String> {

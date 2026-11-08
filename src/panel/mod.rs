@@ -80,7 +80,6 @@ pub(crate) struct Stage {
     pub w: f64,
     pub portrait: bool,
     pub footer: (f64, f64, f64, f64),
-    pub picker: (f64, f64, f64, f64),
     pub mix: (f64, f64, f64, f64),
     pub check: (f64, f64, f64, f64),
     pub rail: (f64, f64, f64, f64),
@@ -100,7 +99,6 @@ pub(crate) const GUTTER: f64 = 16.0;
 pub(crate) const HEADER_H: f64 = 48.0;
 pub(crate) const CONTENT_TOP: f64 = MARGIN + HEADER_H + GUTTER;
 const FOOTER_H: f64 = 80.0;
-const PICKER_H: f64 = 60.0;
 const RAIL_W: f64 = 48.0;
 const DRAWER_W: f64 = 384.0;
 const DRAWER_MS: f64 = 0.22;
@@ -108,6 +106,14 @@ const DRAWER_MS: f64 = 0.22;
 const HSCROLL: &str = "hscroll";
 const PAN: &str = "pan";
 const OUT_PAN: &str = "outpan";
+const SPLIT: &str = "split";
+
+/// The two sections share `span`. Each one keeps at least 20% of the window.
+fn split_limits(w: f64) -> (f64, f64) {
+    let span = (w - 2.0 * MARGIN - RAIL_W - 2.0 * GUTTER).max(0.0);
+    let min_w = (0.20 * w).min(span * 0.5);
+    (min_w, span)
+}
 /// How close, in pixels, a fader drag has to come to a snap point.
 const SNAP_REACH_PX: f64 = 8.0;
 const LEVELS_EVERY: Duration = Duration::from_millis(40);
@@ -119,16 +125,16 @@ pub struct Panel {
     overlay: Overlay,
     language_open: bool,
     color_open: bool,
-    outputs_open: bool,
     /// The Mix Check output menu is open.
     pub(crate) check_open: bool,
+    /// The Mix Check playback output menu is open.
+    pub(crate) play_open: bool,
     /// Vertical scroll of the Outputs drawer.
     pub(crate) out_scroll: f64,
     /// Output containers from the last frame. Empty space here drag-scrolls them.
     pub(crate) out_list: Option<(f64, f64, f64, f64)>,
     eq_band: usize,
     eq_graph: Option<(f64, f64, f64, f64)>,
-    sink_names: Vec<String>,
     quit_until: Option<Instant>,
     delete_until: Option<(String, Instant)>,
     scroll: f64,
@@ -201,13 +207,12 @@ impl Panel {
             overlay: Overlay::None,
             language_open: false,
             color_open: false,
-            outputs_open: false,
             check_open: false,
+            play_open: false,
             out_scroll: 0.0,
             out_list: None,
             eq_band: 0,
             eq_graph: None,
-            sink_names: Vec::new(),
             quit_until: None,
             delete_until: None,
             scroll: 0.0,
@@ -513,15 +518,18 @@ impl Panel {
                     self.set_hscroll(x, y);
                 } else if id == PAN {
                     if let Some((px, py)) = self.pan_at {
-                        let delta = if self.config.list { y - py } else { x - px };
+                        let delta = if self.config.input_list { y - py } else { x - px };
                         self.scroll = (self.scroll - delta).max(0.0);
                     }
                     self.pan_at = Some((x, y));
                 } else if id == OUT_PAN {
-                    if let Some((_, py)) = self.pan_at {
-                        self.out_scroll = (self.out_scroll - (y - py)).max(0.0);
+                    if let Some((px, py)) = self.pan_at {
+                        let delta = if self.config.list { x - px } else { y - py };
+                        self.out_scroll = (self.out_scroll - delta).max(0.0);
                     }
                     self.pan_at = Some((x, y));
+                } else if id == SPLIT {
+                    self.set_split(x);
                 } else if id.starts_with("fxgrip:") {
                     self.fx_reorder(y);
                 } else if let Some(rest) = id.strip_prefix("eqband:") {
@@ -548,7 +556,7 @@ impl Panel {
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
             // List rows and dialogs move on the vertical stick. The channel row moves on the horizontal one.
-            let vertical = self.config.list || matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList);
+            let vertical = matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList);
             let use_y = if vertical { y.abs() >= x.abs() } else { y.abs() > x.abs() };
             let delta = if use_y { y } else { x };
             // A controller notch is about ±1, which used to move the row by one pixel.
@@ -563,6 +571,10 @@ impl Panel {
                 let delta = if y.abs() >= x.abs() { y } else { x };
                 let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
                 self.out_scroll = (self.out_scroll - step * 0.45).max(0.0);
+            } else if self.config.input_list {
+                let delta = if y.abs() >= x.abs() { y } else { x };
+                let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
+                self.scroll = (self.scroll - step).max(0.0);
             } else {
                 self.scroll = (self.scroll - step).max(0.0);
             }
@@ -583,10 +595,12 @@ impl Panel {
         if !matches!(self.overlay, Overlay::None) {
             return self.hit_at(x, y);
         }
-        if self.check_open {
-            let on_menu = self.hot_at(x, y).is_some_and(|id| id.starts_with("check-out"));
+        if self.check_open || self.play_open {
+            let menu = if self.check_open { "check-out" } else { "play-to" };
+            let on_menu = self.hot_at(x, y).is_some_and(|id| id.starts_with(menu));
             if !on_menu {
                 self.check_open = false;
+                self.play_open = false;
                 return Action::None;
             }
             return self.hit_at(x, y);
@@ -684,12 +698,24 @@ impl Panel {
         }
         if id == "list-on" || id == "list-off" {
             self.config.list = id == "list-on";
+            self.out_scroll = 0.0;
+            return Action::Save;
+        }
+        if id == "in-list-on" || id == "in-list-off" {
+            self.config.input_list = id == "in-list-on";
             self.scroll = 0.0;
             return Action::Save;
         }
         if id == "wide-on" || id == "wide-off" {
             self.config.wide = id == "wide-on";
             return Action::Save;
+        }
+        if id == SPLIT {
+            self.drag = Some(SPLIT.to_string());
+            if let Some((x, _)) = self.pointer {
+                self.set_split(x);
+            }
+            return Action::None;
         }
         if id == "color-open" {
             self.color_open = !self.color_open;
@@ -715,10 +741,6 @@ impl Panel {
             self.page = Page::Mix;
             self.overlay = Overlay::None;
             return Action::None;
-        }
-        if id == "mix-on" || id == "mix-off" {
-            self.config.mix_on = id == "mix-on";
-            return Action::Save;
         }
         if id == "mic-open" {
             self.overlay = Overlay::Mic;
@@ -800,35 +822,11 @@ impl Panel {
             self.toggle_bus_mute(rest);
             return Action::Save;
         }
-        if let Some(rest) = id.strip_prefix("adev:") {
-            let index: usize = rest.parse().unwrap_or(9);
-            if index < 4 && !self.sink_names.is_empty() {
-                let current = self.config.a[index].target.clone();
-                let pos = self.sink_names.iter().position(|name| name == &current).map(|pos| pos + 1).unwrap_or(0);
-                self.config.a[index].target = self.sink_names[pos % self.sink_names.len()].clone();
-                return Action::Save;
-            }
-            return Action::None;
-        }
         if let Some(rest) = id.strip_prefix("bname:") {
             let index: usize = rest.parse().unwrap_or(9);
-            if index < 4 {
+            if index < config::B_SLOTS {
                 let existing = self.config.b[index].name.clone();
                 return self.begin_name(NameEdit::Bus(index), existing);
-            }
-        }
-        if id == "outputs-open" {
-            self.outputs_open = !self.outputs_open;
-            self.color_open = false;
-            return Action::None;
-        }
-        if let Some(rest) = id.strip_prefix("outputs:") {
-            if let Ok(count) = rest.parse::<u8>() {
-                if matches!(count, 2 | 4 | 6 | 8) {
-                    self.config.outputs = count;
-                    self.outputs_open = false;
-                    return Action::Save;
-                }
             }
         }
         if let Some(action) = self.handle_fader_toggle(id) {
@@ -856,11 +854,25 @@ impl Panel {
         }
         if id == "check-out-open" {
             self.check_open = !self.check_open;
+            self.play_open = false;
+            return Action::None;
+        }
+        if id == "play-to-open" {
+            self.play_open = !self.play_open;
+            self.check_open = false;
+            return Action::None;
+        }
+        if let Some(value) = id.strip_prefix("play-to:") {
+            self.play_open = false;
+            if !value.is_empty() && config::check_play_valid(value) && self.config.check_play != value {
+                self.config.check_play = value.to_string();
+                return Action::Save;
+            }
             return Action::None;
         }
         if let Some(value) = id.strip_prefix("check-out:") {
             self.check_open = false;
-            if config::check_output_valid(value, self.config.outputs) && self.config.check_output != value {
+            if config::check_output_valid(value) && self.config.check_output != value {
                 self.config.check_output = value.to_string();
                 return Action::Save;
             }
@@ -907,10 +919,6 @@ impl Panel {
         }
         if let Some(rest) = id.strip_prefix("mute:") {
             self.toggle_mute(rest);
-            return Some(Action::Save);
-        }
-        if let Some(rest) = id.strip_prefix("solo:") {
-            self.toggle_solo(rest);
             return Some(Action::Save);
         }
         if let Some(rest) = id.strip_prefix("fxa:") {
@@ -979,14 +987,6 @@ impl Panel {
             self.config.mic_muted = !self.config.mic_muted;
         } else if let Some(item) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
             item.muted = !item.muted;
-        }
-    }
-
-    fn toggle_solo(&mut self, id: &str) {
-        if id == "mic" {
-            self.config.mic_solo = !self.config.mic_solo;
-        } else if let Some(item) = self.config.channels.iter_mut().find(|channel| channel.id == id) {
-            item.solo = !item.solo;
         }
     }
 
@@ -1104,7 +1104,9 @@ impl Panel {
             return;
         }
         let mut db = config::t_to_db(t);
-        if self.config.snap && db.is_finite() {
+        // The snap button sits on Outputs and moves only those faders. Input strips always snap.
+        let magnetic = if id.starts_with("bus:") { self.config.snap } else { true };
+        if magnetic && db.is_finite() {
             let reach = if span > 0.0 { SNAP_REACH_PX / span * (config::FADER_DB_MAX - config::FADER_DB_MIN) } else { 0.8 };
             for mark in [12.0, 6.0, 0.0, -6.0, -12.0, -24.0, -48.0] {
                 if (db - mark).abs() <= reach.max(0.8) {
@@ -1231,7 +1233,7 @@ impl Panel {
     }
 
     pub fn pixel_size(&self) -> (i32, i32) {
-        draw::panel_pixels(self.config.wide, self.config.list)
+        draw::panel_pixels(self.config.wide, false)
     }
 
     pub fn interacting(&self) -> bool {
@@ -1260,17 +1262,69 @@ impl Panel {
         let (w, h) = self.size_f();
         let footer = (MARGIN, h - MARGIN - FOOTER_H, w - 2.0 * MARGIN, FOOTER_H);
         let bottom = footer.1 - GUTTER;
-        let mix_top = CONTENT_TOP + PICKER_H + 12.0;
+        let mix_top = CONTENT_TOP;
         let portrait = h > w && !self.config.list;
         let rail = (w - MARGIN - RAIL_W, CONTENT_TOP, RAIL_W, bottom - CONTENT_TOP);
         let ease = 1.0 - (1.0 - self.drawer_progress).powi(2);
-        let drawer_w = DRAWER_W * ease;
+        let drawer_w = self.drawer_span() * ease;
         let check = (rail.0 - GUTTER - drawer_w, CONTENT_TOP, drawer_w, bottom - CONTENT_TOP);
         let mix_right = if drawer_w > 8.0 { check.0 - GUTTER } else { rail.0 - GUTTER };
-        let mix_w = (mix_right - MARGIN).max(180.0);
-        let picker = (MARGIN, CONTENT_TOP, mix_w, PICKER_H);
+        let mix_w = (mix_right - MARGIN).max(0.0);
         let mix = (MARGIN, mix_top, mix_w, bottom - mix_top);
-        Stage { w, portrait, footer, picker, mix, check, rail }
+        Stage { w, portrait, footer, mix, check, rail }
+    }
+
+    /// Open width of the right column. A saved split follows the pointer; otherwise the
+    /// 21:9 view gives Outputs a third of the screen and the regular view keeps 384.
+    /// Either card stops at 20% of the window.
+    fn drawer_span(&self) -> f64 {
+        let (w, _) = self.size_f();
+        let (min_w, span) = split_limits(w);
+        let raw = if (0.0..1.0).contains(&self.config.split) && self.config.split > 0.0 {
+            self.config.split * span
+        } else if w <= draw::WIDTH as f64 + 1.0 {
+            DRAWER_W
+        } else {
+            w / 3.0
+        };
+        raw.clamp(min_w, (span - min_w).max(min_w))
+    }
+
+    /// Grip in the gutter between the two sections. The hit is wider than the pill.
+    fn split_handle(&mut self, cr: &Context) {
+        let stage = self.stage();
+        if stage.check.2 < 8.0 {
+            return;
+        }
+        let gap_x = stage.mix.0 + stage.mix.2;
+        let gap_w = stage.check.0 - gap_x;
+        if gap_w < 4.0 {
+            return;
+        }
+        let cx = gap_x + gap_w / 2.0;
+        let hit_w = gap_w + 12.0;
+        let hit_x = cx - hit_w / 2.0;
+        let y = stage.mix.1;
+        let h = stage.mix.3;
+        let dragging = self.drag.as_deref() == Some(SPLIT);
+        let hover = dragging || self.pointer.is_some_and(|(px, py)| px >= hit_x && px < hit_x + hit_w && py >= y && py < y + h);
+        let grip_h = 56.0;
+        let grip_w = 6.0;
+        fill_round(cr, cx - grip_w / 2.0, y + (h - grip_h) / 2.0, grip_w, grip_h, 3.0, if hover { draw::accent() } else { draw::MUTED });
+        self.hot(SPLIT, hit_x, y, hit_w, h);
+    }
+
+    /// The pointer sits in the gutter. The right column takes what remains up to the rail.
+    fn set_split(&mut self, x: f64) {
+        let (w, _) = self.size_f();
+        let (min_w, span) = split_limits(w);
+        if span <= 1.0 {
+            return;
+        }
+        let rail_x = w - MARGIN - RAIL_W;
+        let right = rail_x - GUTTER - (x + GUTTER / 2.0);
+        let right = right.clamp(min_w, (span - min_w).max(min_w));
+        self.config.split = right / span;
     }
 
     pub fn render_surface(&mut self, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) -> cairo::ImageSurface {
@@ -1310,10 +1364,11 @@ impl Panel {
             mix::draw(self, cr, fonts, t, snap, peaks);
             match self.drawer {
                 Drawer::Outputs => outputs::draw(self, cr, fonts, t, snap, peaks),
-                Drawer::FxA => fx::draw(self, cr, fonts, t, 0),
-                Drawer::FxB => fx::draw(self, cr, fonts, t, 1),
+                Drawer::FxA => fx::draw(self, cr, fonts, t, 0, &outputs::present_a(&snap.graph)),
+                Drawer::FxB => fx::draw(self, cr, fonts, t, 1, &outputs::present_a(&snap.graph)),
                 Drawer::Closed => {}
             }
+            self.split_handle(cr);
             rail::draw(self, cr);
         }
         footer::draw(self, cr, fonts, t, snap.autostart);
@@ -1528,6 +1583,9 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     snap.update.latest = crate::updater::VERSION.into();
     let peaks = HashMap::new();
     write_surface(&mut panel, fonts, &snap, &peaks, path)?;
+    panel.config.input_list = true;
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "input-rows"))?;
+    panel.config.input_list = false;
     panel.page = Page::Apps;
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "apps"))?;
     panel.overlay = Overlay::AppsList;
@@ -1546,22 +1604,58 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     let mut loud = HashMap::new();
     loud.insert("mic".to_string(), 0.4f32);
     loud.insert("check".to_string(), 0.5f32);
+    for (key, level) in [("ch1:l", 0.6f32), ("ch1:r", 0.35), ("ch2:l", 0.2), ("ch2:r", 0.25), ("out:pc:l", 0.5), ("out:pc:r", 0.45), ("out:a:0:l", 0.3), ("out:a:0:r", 0.32)] {
+        loud.insert(key.to_string(), level);
+    }
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "scrolled"))?;
     snap.check = CheckPhase::Paused;
     snap.check_secs = 1.6;
-    panel.config.outputs = 8;
     panel.config.b[0].name = "Discord".into();
+    let devices = snap.graph.nodes.len();
+    for (id, name, description) in [
+        (900, "bluez_output.40_72_18_B4_2C_11.1", "WH-1000XM5"),
+        (901, "alsa_output.usb-Generic_USB_Audio-00.analog-stereo", "USB Audio"),
+    ] {
+        snap.graph.nodes.push(crate::graph::AudioNode {
+            id,
+            serial: id as u64,
+            name: name.into(),
+            description: description.into(),
+            media_class: "Audio/Sink".into(),
+            media_name: String::new(),
+            app_name: String::new(),
+            binary: String::new(),
+            is_virtual: false,
+            target: String::new(),
+        });
+    }
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight"))?;
+    let many = panel.config.channels.clone();
+    panel.config.channels.truncate(1);
+    panel.config.wide = true;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "wide"))?;
+    panel.config.list = true;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "wide-columns"))?;
+    panel.config.list = false;
+    panel.config.channels = many;
+    panel.config.wide = false;
     panel.out_scroll = 400.0;
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight-scrolled"))?;
     panel.out_scroll = 0.0;
     panel.check_open = true;
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "check-menu"))?;
     panel.check_open = false;
+    panel.play_open = true;
+    panel.config.check_play = "a:1".into();
+    snap.check = CheckPhase::Playing;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "play-menu"))?;
+    panel.play_open = false;
+    panel.config.check_play.clear();
+    snap.check = CheckPhase::Paused;
     panel.config.list = true;
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eight-rows"))?;
     panel.config.list = false;
-    panel.config.outputs = 2;
+    snap.graph.nodes.truncate(devices);
     snap.check = CheckPhase::Ready;
     panel.scroll = 0.0;
     panel.overlay = Overlay::Settings;
@@ -1571,6 +1665,9 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.language_open = true;
     write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "lang"))?;
     panel.language_open = false;
+    panel.overlay = Overlay::Mic;
+    write_surface(&mut panel, fonts, &snap, &peaks, &suffix(path, "mic"))?;
+    panel.overlay = Overlay::None;
     panel.config.list = true;
     panel.scroll = 0.0;
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "rows"))?;
@@ -1770,6 +1867,54 @@ pub fn self_test() -> Result<(), String> {
     }
     if (stage.rail.2 - 48.0).abs() > 0.1 {
         return Err("rail width".into());
+    }
+    let mut wide = crate::config::Config::default();
+    wide.wide = true;
+    wide.channels.push(crate::config::Channel::new("ch1", "Music"));
+    let open = Panel::new(wide.clone()).stage();
+    let third = open.w / 3.0;
+    if (open.check.2 - third).abs() > 1.0 || open.mix.2 < third {
+        return Err(format!("wide outputs {} of {}, mix {}", open.check.2, open.w, open.mix.2));
+    }
+    for n in 2..14 {
+        wide.channels.push(crate::config::Channel::new(format!("ch{n}"), "More"));
+    }
+    let full = Panel::new(wide).stage();
+    if (full.check.2 - third).abs() > 1.0 {
+        return Err(format!("wide outputs stay a third {}", full.check.2));
+    }
+    let mut squeezed = crate::config::Config::default();
+    squeezed.wide = true;
+    squeezed.split = 0.05;
+    let tight = Panel::new(squeezed).stage();
+    let min = tight.w * 0.20;
+    if tight.check.2 + 0.5 < min || tight.mix.2 + 0.5 < min {
+        return Err(format!("split floor mix {} check {} min {}", tight.mix.2, tight.check.2, min));
+    }
+    let mut wide_side = crate::config::Config::default();
+    wide_side.wide = true;
+    wide_side.split = 0.95;
+    let other = Panel::new(wide_side).stage();
+    if other.mix.2 + 0.5 < min || other.check.2 + 0.5 < min {
+        return Err(format!("split ceiling mix {} check {}", other.mix.2, other.check.2));
+    }
+    // The channel scroller used to panic once its track was shorter than the 48px thumb.
+    if let Ok(fonts) = draw::Fonts::load() {
+        let snap = Snapshot::default();
+        let peaks = HashMap::new();
+        for split in [0.05, 0.73, 0.95] {
+            let mut panel = Panel::demo(Lang::En);
+            panel.config.split = split;
+            let _ = panel.render_surface(&fonts, &snap, &peaks);
+            panel.config.input_list = true;
+            let _ = panel.render_surface(&fonts, &snap, &peaks);
+            panel.config.wide = true;
+            panel.config.list = true;
+            let _ = panel.render_surface(&fonts, &snap, &peaks);
+        }
+    }
+    if (draw::scroll_thumb(41.8, 800.0, 48.0) - 41.8).abs() > 0.01 {
+        return Err("short scrollbar thumb".into());
     }
     Ok(())
 }

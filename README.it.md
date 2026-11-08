@@ -32,25 +32,25 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## Funzioni
 
-- **Dispositivi audio virtuali**: fino a 32 canali con nome. Ognuno è un'uscita (`Frame Mix: <name>`) che qualsiasi app può scegliere.
-- **Canali delle app**: crea un canale da un'app in esecuzione. La sua icona compare accanto al nome.
-- **Mix per il microfono di streaming del PC**: il PC sente il tuo microfono più i canali.
-- **Uscita PC**: `Frame Mix`, che il PC sente come Steam Streaming Microphone, è un'uscita a sé con un'icona PC, così è chiaro cosa va al PC.
-- **Instradamento**: un fader per canale, in dB, con mute e solo. I pulsanti di instradamento sono impilati accanto al fader: A è ciò che senti (A1 è il visore), PC è il microfono di streaming, B sono altri microfoni virtuali, e FX1 e FX2 sono le mandate degli effetti. Nelle impostazioni: 2, 4, 6 o 8 uscite A e B.
-- **Effetti ed EQ parametrico**: FX1 e FX2 contengono fino a tre effetti ciascuno. L'EQ ha 3, 6, 8 o 12 punti con curva di risposta. I punti esterni possono essere una campana, uno shelf, un passa-alto o un passa-basso.
-- **Microfono**: scegli il microfono per il mix. Il microfono predefinito di sistema non cambia.
-- **Livelli** su ogni fader. Si possono spegnere.
-- **Prova mix**: in cima al cassetto Uscite. Scegli un'uscita, registrane fino a 10 secondi, poi riproduci o metti in pausa la ripresa. La barra a destra contiene Uscite (icona dell'altoparlante), FX1 e FX2.
+- **Orientamento**: ingressi e uscite passano ciascuno dai fader verticali alle righe.
+- **Bus effetti**: FX1 e FX2, con riverbero, compressore, EQ, pitch, flanger e phaser. Ogni strip può mandare a entrambi.
+- **Microfoni virtuali**: da B1 a B4, con nome, oltre al microfono di streaming del PC.
+- **Altoparlanti, Bluetooth e USB**: il mix esce dagli altoparlanti del Frame, da cuffie Bluetooth o dall'audio USB finché uno è collegato.
+- **Canali software**: fino a 32 canali con nome. Ognuno è un'uscita che qualsiasi app può scegliere.
+- **Vista larga**: un layout 21:9. Si può trascinare la divisione tra le due sezioni. Ogni lato si ferma a un quinto della finestra.
+- **Livelli, mute e aggancio**: la stessa scala su ogni fader, da +6 a −48, un pulsante mute sotto ciascuno, e fader di uscita che si agganciano ai segni.
+- **Prova mix**: in cima alle Uscite. Scegli un'uscita, registrane fino a 10 secondi, poi riproduci o metti in pausa.
+- Sette lingue, e un tema blu o rosa.
 - Sette lingue e un tema colore blu o rosa.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="Vista a colonne, tema blu" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="Vista a elenco, tema blu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="Vista larga, tema blu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="Ingressi in righe, tema rosa" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="Vista a colonne, tema rosa" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="Vista a elenco, tema rosa" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="Bus effetti, tema rosa" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="Dashboard, tema blu" height="320"></td>
   </tr>
 </table>
 

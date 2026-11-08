@@ -32,24 +32,24 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 ## Features
 
-- **Virtual audio devices**: up to 32 named channels. Each one is an output named after the channel (`DJ`) that any app can select. The mix also creates virtual microphones.
-- **PC output**: `Frame Mix`, which the PC hears as Steam Streaming Microphone, is its own output with a PC icon, so it is clear what goes to the PC.
-- **Routing**: one fader per strip, in dB, with Mute and Solo. The route buttons are stacked next to the fader: A is what you hear (A1 is the headset), PC is the streaming microphone, B are more virtual microphones, and FX1 and FX2 are the effect sends. App Settings chooses 2, 4, 6 or 8 A and B outputs.
-- **Effects and parametric EQ**: FX1 and FX2 each hold up to three effects. The EQ has 3, 6, 8 or 12 points with a response curve. The outer points can be a bell, a shelf, a high-pass or a low-pass.
-- **App channels**: make a channel from a running app. Its icon is shown next to the name.
-- **Microphone**: choose the microphone for the mix. The system default microphone does not change.
-- **Level meters** on every fader. They can be turned off.
-- **Mix Check**: at the top of the Outputs drawer. Pick an output, record up to 10 seconds of it, then play or pause the take. The right rail is Outputs (speaker icon), FX1 and FX2.
+- **Orientation**: inputs and outputs each switch between upright faders and rows.
+- **Effect buses**: FX1 and FX2, each with reverb, compressor, EQ, pitch, flanger and phaser. Every strip can send to either bus.
+- **Virtual microphones**: B1 to B4, named, on top of the PC streaming microphone.
+- **Speakers, Bluetooth and USB**: the mix plays on the Frame speakers, Bluetooth headphones, or USB audio while one is connected.
+- **Software channels**: up to 32 named channels. Each one is an output any app can select.
+- **Wide view**: a 21:9 layout. Drag the split between the two sections. Each side stops at a fifth of the window.
+- **Meters, mute and snap**: the same peak scale on every fader, from +6 down to −48, a mute button under each one, and output faders that snap to the marks.
+- **Mix Check**: at the top of Outputs. Pick an output, record up to 10 seconds, then play or pause the take.
 - Seven languages, and a blue or pink color theme.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.png" alt="Column view, blue theme" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.png" alt="List view, blue theme" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="Wide view, blue theme" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="Input rows, pink theme" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.png" alt="Column view, pink theme" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.png" alt="List view, pink theme" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="Effect bus, pink theme" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="Dashboard, blue theme" height="320"></td>
   </tr>
 </table>
 

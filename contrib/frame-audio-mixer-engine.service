@@ -1,5 +1,6 @@
 [Unit]
 Description=Frame Audio Mixer engine
+# Started by the app and stopped when it quits, so it has no [Install] section.
 BindsTo=pipewire.service
 After=pipewire.service
 
@@ -7,6 +8,3 @@ After=pipewire.service
 ExecStart=%h/.local/bin/frame-audio-mixer engine
 Restart=on-failure
 RestartSec=1
-
-[Install]
-WantedBy=pipewire.service

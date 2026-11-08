@@ -93,7 +93,6 @@ pub fn accent_tint() -> Rgb {
 pub const DANGER: Rgb = Rgb { r: 0xe5 as f64 / 255.0, g: 0x53 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
 pub const FX1: Rgb = Rgb { r: 0x7f as f64 / 255.0, g: 0xd8 as f64 / 255.0, b: 0xa8 as f64 / 255.0 };
 pub const FX2: Rgb = Rgb { r: 0xf0 as f64 / 255.0, g: 0xb4 as f64 / 255.0, b: 0x5a as f64 / 255.0 };
-pub const SOLO: Rgb = Rgb { r: 0xf2 as f64 / 255.0, g: 0xd1 as f64 / 255.0, b: 0x4b as f64 / 255.0 };
 pub const DANGER_FILL: Rgb = Rgb { r: 0x3a as f64 / 255.0, g: 0x1d as f64 / 255.0, b: 0x21 as f64 / 255.0 };
 pub const DANGER_HOVER: Rgb = Rgb { r: 0x48 as f64 / 255.0, g: 0x23 as f64 / 255.0, b: 0x28 as f64 / 255.0 };
 pub const DANGER_DOWN: Rgb = Rgb { r: 0x56 as f64 / 255.0, g: 0x29 as f64 / 255.0, b: 0x2e as f64 / 255.0 };
@@ -232,6 +231,27 @@ pub fn fill(cr: &Context, c: Rgb, a: f64) {
 pub fn fill_keep(cr: &Context, c: Rgb, a: f64) {
     cr.set_source_rgba(c.r, c.g, c.b, a);
     let _ = cr.fill_preserve();
+}
+
+/// Thumb length along a scrollbar. The minimum never exceeds the track, so a short section cannot panic.
+pub fn scroll_thumb(track: f64, content: f64, min_px: f64) -> f64 {
+    if !track.is_finite() || track <= 1.0 {
+        return 0.0;
+    }
+    if !content.is_finite() || content <= track {
+        return track;
+    }
+    let min_px = min_px.min(track).max(0.0);
+    (track * track / content).clamp(min_px, track)
+}
+
+/// The thin scrollbar both sections use. The handle is the accent color.
+pub fn paint_scroll_thumb(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
+    if w < 1.0 || h < 1.0 {
+        return;
+    }
+    rounded(cr, x, y, w, h, (w.min(h) / 2.0).max(1.0));
+    fill(cr, accent(), 1.0);
 }
 
 pub fn card(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
@@ -487,21 +507,20 @@ pub fn level_color(fraction: f64) -> Rgb {
 
 const LED_H: f64 = 3.0;
 const LED_GAP: f64 = 1.0;
-const METER_DB_LO: f64 = -48.0;
-const METER_DB_HI: f64 = 6.0;
-const METER_TICKS: [(f64, &'static str); 6] = [(3.0, "+3"), (0.0, "0"), (-6.0, "−6"), (-12.0, "−12"), (-24.0, "−24"), (-48.0, "−48")];
+const METER_TICKS: [(f64, &'static str); 6] = [(6.0, "+6"), (0.0, "0"), (-6.0, "−6"), (-12.0, "−12"), (-24.0, "−24"), (-48.0, "−48")];
 
 fn signal_db(amplitude: f64) -> f64 {
     if amplitude <= 1e-8 { -120.0 } else { 20.0 * amplitude.max(0.0).log10() }
 }
 
-/// 0 at −48 dB, 1 at +6 dB. Speech around −18 dB sits in the column.
+/// Same travel as the fader, so a mark and the number of that level share one position.
 fn db_pos(db: f64) -> f64 {
-    ((db - METER_DB_LO) / (METER_DB_HI - METER_DB_LO)).clamp(0.0, 1.0)
+    crate::config::db_to_t(db)
 }
 
 fn led_db(t: f64) -> f64 {
-    METER_DB_LO + t * (METER_DB_HI - METER_DB_LO)
+    let db = crate::config::t_to_db(t);
+    if db.is_finite() { db } else { crate::config::FADER_DB_MIN }
 }
 
 /// Green below −6 dB, yellow through 0 dB, red above.
@@ -511,7 +530,7 @@ fn led_color(db: f64) -> Rgb {
     } else if db >= -6.0 {
         METER_YELLOW
     } else {
-        let t = ((db - METER_DB_LO) / (-6.0 - METER_DB_LO)).clamp(0.0, 1.0);
+        let t = ((db - crate::config::FADER_DB_MIN) / (-6.0 - crate::config::FADER_DB_MIN)).clamp(0.0, 1.0);
         mix(METER_GREEN_LO, METER_GREEN_HI, t)
     }
 }
@@ -551,14 +570,29 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
         cr.line_to(x + w + 3.0, ty);
         let _ = cr.stroke();
         let tw = text_width(cr, fonts, false, 10.0, text);
-        label(cr, fonts, false, 10.0, MUTED, label_x, ty + 3.0, text);
+        label_at(cr, fonts, 10.0, MUTED, label_x, ty, text);
         right = right.max(label_x + tw);
     }
     right
 }
 
-/// Short LED strip along a side fader. Labels only 0 and −12.
-pub fn paint_led_strip(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
+/// One column per channel: a single 12 px column, or a 7 px pair for stereo.
+/// Returns the right edge of the scale labels.
+pub fn paint_led_columns(cr: &Context, fonts: &Fonts, x: f64, y: f64, h: f64, levels: &[f32]) -> f64 {
+    let (w, gap) = if levels.len() > 1 { (STEREO_LED_W, 2.0) } else { (MONO_LED_W, 0.0) };
+    let mut right = x;
+    for (index, level) in levels.iter().enumerate() {
+        let last = index + 1 == levels.len();
+        right = paint_led_column(cr, fonts, x + index as f64 * (w + gap), y, w, h, *level as f64, last);
+    }
+    right
+}
+
+const MONO_LED_W: f64 = 12.0;
+const STEREO_LED_W: f64 = 7.0;
+
+/// Short LED strip along a side fader. The fader draws 0 and −12 on its own marks.
+pub fn paint_led_strip(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
     if w <= 0.0 || h <= 0.0 {
         return;
     }
@@ -574,10 +608,13 @@ pub fn paint_led_strip(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f
         rounded(cr, lx, y + 1.0, LED_H, h - 2.0, 0.8);
         fill(cr, color, 1.0);
     }
-    for (db, text) in [(0.0, "0"), (-12.0, "−12")] {
-        let tx = x + db_pos(db) * w;
-        label(cr, fonts, false, 9.0, MUTED, tx - 6.0, y - 2.0, text);
-    }
+}
+
+/// `y` is the vertical center of the text, so a number sits on a meter tick.
+fn label_at(cr: &Context, fonts: &Fonts, size: f64, c: Rgb, x: f64, y: f64, text: &str) {
+    set_font(cr, fonts, false, size);
+    let baseline = cr.text_extents(text).ok().map(|ext| y - ext.y_bearing() - ext.height() / 2.0).unwrap_or(y + size * 0.3);
+    label(cr, fonts, false, size, c, x, baseline, text);
 }
 
 /// Horizontal LED meter for Mix Check.
@@ -641,7 +678,7 @@ pub const FADER_MUTE_H: f64 = 28.0;
 pub const FADER_FOOT: f64 = 80.0;
 
 /// One mix fader scaled from silence to +12 dB. `db` is the strip gain.
-/// `peak` is a linear 0–1 level.
+/// `levels` are post-fader linear peaks, one per meter column (one, or left and right).
 pub fn paint_fader(
     cr: &Context,
     fonts: &Fonts,
@@ -649,7 +686,7 @@ pub fn paint_fader(
     top: f64,
     cap_h: f64,
     db: f64,
-    peak: f32,
+    levels: &[f32],
     meters: bool,
     muted: bool,
     glyph: FaderGlyph,
@@ -688,11 +725,10 @@ pub fn paint_fader(
     cr.line_to(x + cap_w - 7.0, notch_y);
     let _ = cr.stroke();
 
-    let post = if muted || !db.is_finite() { 0.0 } else { peak * crate::config::db_to_lin(db) as f32 };
-    let amplitude = post as f64;
     let meter_right = if meters {
-        let mx = x + cap_w + 4.0;
-        paint_led_column(cr, fonts, mx, top, 8.0, cap_h, amplitude, true)
+        let silent = muted || !db.is_finite();
+        let shown: Vec<f32> = levels.iter().map(|level| if silent { 0.0 } else { *level }).collect();
+        paint_led_columns(cr, fonts, x + cap_w + 4.0, top, cap_h, &shown)
     } else {
         x + cap_w
     };
@@ -727,7 +763,7 @@ pub fn paint_side_fader(
     w: f64,
     h: f64,
     db: f64,
-    peak: f32,
+    levels: &[f32],
     meters: bool,
     muted: bool,
     glyph: FaderGlyph,
@@ -770,10 +806,21 @@ pub fn paint_side_fader(
     cr.line_to(notch_x, track_y + track_h - 6.0);
     let _ = cr.stroke();
 
-    let post = if muted || !db.is_finite() { 0.0 } else { peak * crate::config::db_to_lin(db) as f32 };
-    if meters {
+    if meters && !levels.is_empty() {
+        let silent = muted || !db.is_finite();
         let my = (track_y - 10.0).max(y);
-        paint_led_strip(cr, fonts, track_x + 6.0, my, track_w - 12.0, 5.0, post as f64);
+        let strip_h = if levels.len() > 1 { 4.0 } else { 5.0 };
+        for (index, level) in levels.iter().enumerate() {
+            let amplitude = if silent { 0.0 } else { *level as f64 };
+            // The full track width, so a tick lands on the fader mark of the same level.
+            paint_led_strip(cr, track_x, my + index as f64 * (strip_h + 1.0), track_w, strip_h, amplitude);
+        }
+    }
+    // The same marks as the vertical meter: +6, 0, −6, −12, −24, −48.
+    for (db, text) in METER_TICKS {
+        let tx = track_x + track_w * crate::config::db_to_t(db);
+        let tw = text_width(cr, fonts, false, 9.0, text);
+        label_at(cr, fonts, 9.0, MUTED, tx - tw / 2.0, track_y - 14.0, text);
     }
 
     let pct = crate::config::format_db(db);
@@ -901,6 +948,72 @@ pub fn pc_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
     let _ = cr.fill_preserve();
     let _ = cr.stroke();
     let _ = cr.restore();
+}
+
+/// bi:headset-vr, view box 16, MIT, The Bootstrap Authors.
+pub const HEADSET_VR_PATH: &str = "M8 1.248c1.857 0 3.526.641 4.65 1.794a5 5 0 0 1 2.518 1.09C13.907 1.482 11.295 0 8 0C4.75 0 2.12 1.48.844 4.122a5 5 0 0 1 2.289-1.047C4.236 1.872 5.974 1.248 8 1.248M12 12a4 4 0 0 1-2.786-1.13l-.002-.002a1.6 1.6 0 0 0-.276-.167A2.2 2.2 0 0 0 8 10.5c-.414 0-.729.103-.935.201a1.6 1.6 0 0 0-.277.167l-.002.002A4 4 0 1 1 4 4h8a4 4 0 0 1 0 8";
+/// ic:round-bluetooth-searching, view box 24, Apache-2.0, Google.
+pub const BLUETOOTH_PATH: &str = "m15.98 10.28l-1.38 1.38c-.2.2-.2.51 0 .71l1.38 1.38c.28.28.75.15.85-.23c.11-.5.17-1 .17-1.52a6 6 0 0 0-.18-1.48a.5.5 0 0 0-.84-.24m4.12-2.5a.863.863 0 0 0-1.4-.24c-.26.26-.31.64-.17.98c.46 1.07.72 2.24.72 3.47c0 1.24-.26 2.42-.73 3.49a.84.84 0 0 0 .16.94a.84.84 0 0 0 1.35-.23c.63-1.3.98-2.76.98-4.3a10 10 0 0 0-.91-4.11M11.41 12L15 8.42c.39-.39.39-1.02 0-1.42l-4.29-4.29c-.63-.63-1.71-.19-1.71.7v6.18L5.11 5.7A.996.996 0 1 0 3.7 7.11L8.59 12L3.7 16.89a.996.996 0 1 0 1.41 1.41L9 14.41v6.18c0 .89 1.08 1.34 1.71.71L15 17c.39-.39.39-1.02 0-1.42zM11 5.83l1.88 1.88L11 9.59zm0 12.34v-3.76l1.88 1.88z";
+
+/// andrsrxn:usb-port, view box 24, MIT, Andrés Raxón. A stroked duotone like `pc_icon`.
+const USB_RING_STROKE: &str = "M13.5 20.8a1.54 1.54 0 1 1-3.08 0a1.54 1.54 0 0 1 3.08 0M8.84 9.53a1.48 1.48 0 1 1-2.96 0a1.48 1.48 0 0 1 2.96 0";
+const USB_TREE_STROKE: &str = "M11.96 17.19L9.4 15.75c-1-.56-1.49-.84-1.76-1.3c-.28-.47-.28-1.05-.28-2.19v-1.24m4.6 3.4l3.14-1.38c.87-.39 1.3-.58 1.6-.91a2 2 0 0 0 .3-.47c.2-.4.2-.88.2-1.84m-5.24 9.44V1.99";
+const USB_TIP_STROKE: &str = "m9.38 3.93l1.16-1.16c.67-.67 1-1 1.42-1s.75.33 1.41 1l1.17 1.16";
+
+pub fn usb_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
+    let _ = cr.save();
+    cr.translate(x, y);
+    cr.scale(size / 24.0, size / 24.0);
+    cr.set_line_cap(cairo::LineCap::Round);
+    cr.set_line_join(cairo::LineJoin::Round);
+    for (rx, ry, rs) in [(15.72, 6.28, 2.96), (10.53, 19.37, 2.86), (5.85, 7.99, 3.09)] {
+        rounded(cr, rx, ry, rs, rs, 1.0);
+        fill(cr, c, 0.2);
+    }
+    cr.set_source_rgb(c.r, c.g, c.b);
+    cr.set_line_width(1.5);
+    for path in [USB_RING_STROKE, USB_TREE_STROKE, USB_TIP_STROKE] {
+        append_svg(cr, path);
+        let _ = cr.stroke();
+    }
+    rounded(cr, 15.72, 6.28, 2.8, 2.8, 0.5);
+    let _ = cr.stroke();
+    let _ = cr.restore();
+}
+
+/// What an A output plays on. Decides its icon and title.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Device {
+    Headset,
+    Bluetooth,
+    Usb,
+    Other,
+}
+
+impl Device {
+    pub fn of_sink(name: &str) -> Device {
+        let lower = name.to_ascii_lowercase();
+        if lower.starts_with("bluez_output") {
+            Device::Bluetooth
+        } else if lower.contains("usb") {
+            Device::Usb
+        } else if lower.contains("platform-sound") || lower.contains("speaker") {
+            Device::Headset
+        } else {
+            Device::Other
+        }
+    }
+}
+
+/// The headset, Bluetooth or USB glyph in a `size` square. `Other` draws nothing and returns false.
+pub fn device_icon(cr: &Context, device: Device, x: f64, y: f64, size: f64, c: Rgb) -> bool {
+    match device {
+        Device::Headset => icon(cr, HEADSET_VR_PATH, 16.0, x, y, size, c),
+        Device::Bluetooth => icon(cr, BLUETOOTH_PATH, 24.0, x, y, size, c),
+        Device::Usb => usb_icon(cr, x, y, size, c),
+        Device::Other => return false,
+    }
+    true
 }
 
 /// Opaque pixels of one glyph drawn at 64 px. Used to catch a path the parser drops.
@@ -1245,8 +1358,22 @@ pub fn self_test_paths() -> Result<(), String> {
         (CLOSE_PATH, 1024.0),
         (EAR_PATH, 24.0),
         (FX_TAG_PATH, 24.0),
+        (HEADSET_VR_PATH, 16.0),
+        (BLUETOOTH_PATH, 24.0),
     ] {
         icon(&cr, path, view, 0.0, 0.0, 16.0, TEXT);
+    }
+    for (name, path, view) in [("headset", HEADSET_VR_PATH, 16.0), ("bluetooth", BLUETOOTH_PATH, 24.0)] {
+        let ink = icon_coverage(path, view)?;
+        if ink < 300 {
+            return Err(format!("{name} icon coverage {ink}"));
+        }
+    }
+    if Device::of_sink("bluez_output.AA_BB.1") != Device::Bluetooth
+        || Device::of_sink("alsa_output.usb-Generic_USB_Audio-00.analog-stereo") != Device::Usb
+        || Device::of_sink("alsa_output.platform-sound.HiFi__Speaker__sink") != Device::Headset
+    {
+        return Err("device kinds".into());
     }
     let pc_ink = {
         let surface = ImageSurface::create(Format::ARgb32, 64, 64).map_err(|e| e.to_string())?;
@@ -1307,11 +1434,16 @@ pub fn self_test_paths() -> Result<(), String> {
     if (meter_color(0.9).r - METER_YELLOW.r).abs() > 0.01 {
         return Err("meter yellow".into());
     }
+    for mark in [12.0, 6.0, 3.0, 0.0, -6.0, -12.0, -24.0, -48.0] {
+        if (db_pos(mark) - crate::config::db_to_t(mark)).abs() > 1e-9 {
+            return Err(format!("meter mark {mark}"));
+        }
+    }
     record_dot(&cr, 8.0, 8.0, 3.0, DANGER);
     stop_square(&cr, 8.0, 8.0, 6.0, TEXT);
     play_triangle(&cr, 8.0, 8.0, 8.0, TEXT);
     if let Ok(fonts) = Fonts::load() {
-        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, 100.0, 0.2, true, false, FaderGlyph::Mic, true);
+        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, 100.0, &[0.2, 0.1], true, false, FaderGlyph::Mic, true);
         if geom.capsule_w != 32.0 {
             return Err("fader width".into());
         }

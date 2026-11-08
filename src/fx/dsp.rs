@@ -37,6 +37,26 @@ impl Processor {
         }
     }
 
+    /// The same chain on separate left and right buffers, as a PipeWire filter hands them over.
+    pub fn process_planar(&mut self, left: &mut [f32], right: &mut [f32]) {
+        if self.stages.is_empty() {
+            return;
+        }
+        let n = left.len().min(right.len());
+        let mut offset = 0;
+        while offset < n {
+            let end = (offset + FRAMES).min(n);
+            for stage in &mut self.stages {
+                stage.process(&mut left[offset..end], &mut right[offset..end]);
+            }
+            for i in offset..end {
+                left[i] = soft_ceiling(left[i]);
+                right[i] = soft_ceiling(right[i]);
+            }
+            offset = end;
+        }
+    }
+
     pub fn process(&mut self, interleaved: &mut [f32]) {
         if self.stages.is_empty() {
             return;
@@ -63,7 +83,7 @@ impl Processor {
 }
 
 /// Linear through most of the range, then a knee so a hot send does not crackle.
-fn soft_ceiling(sample: f32) -> f32 {
+pub(crate) fn soft_ceiling(sample: f32) -> f32 {
     let x = sample.clamp(-8.0, 8.0);
     let ax = x.abs();
     let shaped = if ax <= 0.8 {

@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::config;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AudioNode {
     pub id: u32,
@@ -274,11 +276,47 @@ impl Graph {
         true
     }
 
+    pub fn output_sinks(&self) -> [Option<String>; config::A_SLOTS] {
+        output_sinks(&self.nodes, &self.default_sink)
+    }
+
     pub fn is_vrlink(node: &AudioNode) -> bool {
         node.media_name == "Valve VRLink Microphone Input"
             || node.app_name == "vrlink"
             || node.binary == "vrlink"
     }
+}
+
+/// The sink each listen output plays on: the Frame speakers, the first Bluetooth
+/// sink and the first USB sink. A slot without a device is None and is hidden.
+pub fn output_sinks<'a>(nodes: impl IntoIterator<Item = &'a AudioNode>, default_sink: &str) -> [Option<String>; config::A_SLOTS] {
+    let mut sinks: Vec<&AudioNode> = nodes
+        .into_iter()
+        .filter(|node| node.media_class == "Audio/Sink" && !node.name.starts_with("frame_amix_"))
+        .collect();
+    sinks.sort_by_key(|node| node.id);
+    let frame = |name: &str| name.contains("platform-sound") && name.contains("Speaker");
+    // The loopback is what apps play to; it carries Valve's speaker EQ.
+    let speakers = sinks
+        .iter()
+        .find(|node| node.name.starts_with("alsa_loopback_device") && frame(&node.name))
+        .or_else(|| sinks.iter().find(|node| frame(&node.name)))
+        .map(|node| node.name.clone())
+        .or_else(|| {
+            let fallback = !default_sink.is_empty() && !is_bluetooth_sink(default_sink) && !is_usb_sink(default_sink);
+            fallback.then(|| default_sink.to_string())
+        });
+    let bluetooth = sinks.iter().find(|node| is_bluetooth_sink(&node.name)).map(|node| node.name.clone());
+    let usb = sinks.iter().find(|node| is_usb_sink(&node.name)).map(|node| node.name.clone());
+    [speakers, bluetooth, usb]
+}
+
+pub fn is_bluetooth_sink(name: &str) -> bool {
+    name.starts_with("bluez_output")
+}
+
+pub fn is_usb_sink(name: &str) -> bool {
+    name.starts_with("alsa_output") && name.to_ascii_lowercase().contains("usb")
 }
 
 fn same_name(left: &str, right: &str) -> bool {
@@ -358,6 +396,35 @@ pub fn self_test() -> Result<(), String> {
     }
     if object.targets.get(&46).map(String::as_str) != Some("92") {
         return Err(format!("targets {:?}", object.targets));
+    }
+    let sink = |id: u32, name: &str| AudioNode {
+        id,
+        serial: 0,
+        name: name.into(),
+        description: String::new(),
+        media_class: "Audio/Sink".into(),
+        media_name: String::new(),
+        app_name: String::new(),
+        binary: String::new(),
+        is_virtual: false,
+        target: String::new(),
+    };
+    let nodes = vec![
+        sink(1, "alsa_output.platform-sound.HiFi__Speaker__sink"),
+        sink(2, "alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink"),
+        sink(3, "frame_amix_a1_virtual_sink"),
+        sink(4, "bluez_output.1C_6E_4C_A2_FE_3D.1"),
+    ];
+    let found = output_sinks(&nodes, "bluez_output.1C_6E_4C_A2_FE_3D.1");
+    if found[0].as_deref() != Some("alsa_loopback_device.stereo.alsa_output.platform-sound.HiFi__Speaker__sink")
+        || found[1].as_deref() != Some("bluez_output.1C_6E_4C_A2_FE_3D.1")
+        || found[2].is_some()
+    {
+        return Err(format!("output sinks {found:?}"));
+    }
+    let usb = output_sinks(&[sink(9, "alsa_output.usb-Generic_USB_Audio-00.analog-stereo")], "");
+    if usb[0].is_some() || usb[2].is_none() {
+        return Err(format!("usb sinks {usb:?}"));
     }
     Ok(())
 }

@@ -67,6 +67,18 @@ remove_legacy_mix() {
     systemctl --user reset-failed frame-mic-mix.service 'frame-mic-mix-channel@*.service' >/dev/null 2>&1 || true
 }
 
+# What earlier versions of this app left behind. The engine is started by the
+# app and stopped when it quits, so it is no longer enabled with PipeWire.
+remove_leftovers() {
+    systemctl --user disable frame-audio-mixer-engine.service >/dev/null 2>&1 || true
+    find "$unit_dir" -xtype l -name 'frame-audio-mixer*' -delete 2>/dev/null || true
+    systemctl --user reset-failed frame-audio-mixer-graph.service 'frame-audio-mixer-channel@*.service' \
+        'frame-audio-mixer-fx@*.service' >/dev/null 2>&1 || true
+    wpctl settings --delete frame-audio-mixer.mic-source >/dev/null 2>&1 || true
+    wpctl settings --delete frame-audio-mixer.vrlink-gain >/dev/null 2>&1 || true
+    rm -f "$app_config/vrlink-saved-volume"
+}
+
 stop_mixer() {
     systemctl --user disable --now frame-audio-mixer.service >/dev/null 2>&1 || true
     systemctl --user disable --now frame-audio-mixer-graph.service >/dev/null 2>&1 || true
@@ -164,6 +176,7 @@ rm -f "$unit_dir/frame-audio-mixer-graph.service" \
     "$unit_dir/frame-audio-mixer-channel@.service" \
     "$unit_dir/frame-audio-mixer-fx@.service"
 systemctl --user daemon-reload
+remove_leftovers
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$desktop" || true
 fi
@@ -216,7 +229,7 @@ Frame Audio Mixer is installed:
   $desktop
   $unit_dir/frame-audio-mixer.service (start with SteamVR: ${autostart_state:-unknown})
 Open it from the SteamVR dashboard: + > Frame Audio Mixer, then the Mix icon.
-The mix graph stays off until you turn Mix on in the panel.
+The PC streaming microphone fader in Outputs sets what the PC hears.
 EOF
 if pgrep -x frame-audio-mixer >/dev/null 2>&1; then
     echo "A running Frame Audio Mixer keeps the old version until you quit it or restart SteamVR."

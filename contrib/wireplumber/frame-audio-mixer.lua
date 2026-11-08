@@ -9,11 +9,9 @@
 -- The WirePlumber script sandbox on this headset has no mixer API.
 
 local source_name = "frame_amix_source"
-local from_mic_name = "frame_amix_from_mic"
 
 local routed = {}
 local channel_pinned = {}
-local mic_pinned = {}
 
 local default_om = ObjectManager {
   Interest {
@@ -57,25 +55,6 @@ local function node_serial (name)
     end
   end
   return nil
-end
-
-local function metadata_name (metadata, key)
-  if metadata == nil or metadata.find == nil then
-    return nil
-  end
-  local ok, value = pcall (function ()
-    return metadata:find (0, key)
-  end)
-  if not ok or value == nil or value == "" then
-    return nil
-  end
-  local parsed_ok, parsed = pcall (function ()
-    return Json.Raw (value):parse ()
-  end)
-  if not parsed_ok or parsed == nil then
-    return nil
-  end
-  return parsed.name
 end
 
 -- metadata:set relinks a stream even when the serial has not changed. Adding a
@@ -146,66 +125,6 @@ local function apply_route ()
   end
 end
 
--- End of the Valve chain that Frame Mic Tuner already configured.
-local builtin_source = "alsa_loopback_device.alsa_input.platform-sound.HiFi__Mic__source"
-
-local function setting_string (key)
-  if Settings.get_string == nil then
-    return ""
-  end
-  local ok, value = pcall (Settings.get_string, key)
-  if ok and type (value) == "string" then
-    return value
-  end
-  return ""
-end
-
--- frame-audio-mixer.mic-source: "" follows the system default, "builtin" is the
--- loopback after Frame Mic Tuner, anything else is a source node.name.
--- A missing node, or our own mix source, falls back to the system default.
--- This never calls wpctl set-default.
-local function pin_from_mic ()
-  local metadata = default_om:lookup ()
-  if metadata == nil then
-    return
-  end
-  local chosen = setting_string ("frame-audio-mixer.mic-source")
-  local name
-  if chosen == "" then
-    name = metadata_name (metadata, "default.audio.source")
-  elseif chosen == "builtin" then
-    name = builtin_source
-  else
-    name = chosen
-  end
-  if name == nil or name == "" or name == source_name or name:find ("^frame_amix_") then
-    name = metadata_name (metadata, "default.audio.source")
-  end
-  if name == nil or name == source_name then
-    return
-  end
-  local serial = node_serial (name)
-  if serial == nil then
-    name = metadata_name (metadata, "default.audio.source")
-    if name == nil or name == source_name then
-      return
-    end
-    serial = node_serial (name)
-  end
-  if serial == nil then
-    return
-  end
-  for node in capture_om:iterate () do
-    if node.properties["node.name"] == from_mic_name then
-      local id = tonumber (node.properties["object.id"])
-      if id ~= nil then
-        set_target (metadata, id, serial)
-        mic_pinned[id] = true
-      end
-    end
-  end
-end
-
 -- SteamOS wraps a stream that targets a channel sink. Write that sink's
 -- object.serial again so the stream stays on the channel. Clear those entries
 -- when the sink is gone, so the app falls back instead of playing into nothing.
@@ -238,7 +157,6 @@ end
 
 local function apply_all ()
   apply_route ()
-  pin_from_mic ()
   pin_channel_targets ()
 end
 
@@ -247,20 +165,17 @@ default_om:connect ("object-added", function ()
 end)
 capture_om:connect ("object-added", function ()
   apply_route ()
-  pin_from_mic ()
 end)
 playback_om:connect ("object-added", function ()
   pin_channel_targets ()
 end)
 -- Opening the Steam menu adds and removes many unrelated streams. Only this
--- app's nodes, VRLink and microphones can change a route.
+-- app's nodes and VRLink can change a route.
 local function on_node (node)
   local props = node.properties
   local name = props["node.name"] or ""
   if name:find ("^frame_amix_") or is_vrlink (node) then
     apply_all ()
-  elseif props["media.class"] == "Audio/Source" then
-    pin_from_mic ()
   end
 end
 
@@ -290,7 +205,6 @@ SimpleEventHook {
     },
   },
   execute = function ()
-    pin_from_mic ()
     apply_route ()
   end
 }:register ()

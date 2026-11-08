@@ -29,9 +29,21 @@ use panel::Action;
 use worker::Job;
 
 static SHOW: AtomicBool = AtomicBool::new(false);
+static STOP: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn on_usr1(_: i32) {
     SHOW.store(true, Ordering::Relaxed);
+}
+
+extern "C" fn on_term(_: i32) {
+    STOP.store(true, Ordering::Relaxed);
+}
+
+/// Closing the app removes its devices: the engine stops with it. A panel that
+/// crashes is restarted by systemd and finds the engine still running.
+fn quit() -> ! {
+    worker::stop_engine();
+    std::process::exit(3);
 }
 
 fn main() {
@@ -108,11 +120,15 @@ fn main() {
     };
     let mut ui = panel::Panel::new(config);
     let mut levels = meter::Meter::new();
+    let feed = MeterFeed::start();
     let mut session: Option<overlay::Session> = None;
     // Accent of the dashboard icon SteamVR has now. A color change sends the icon again.
     let mut thumb_accent: Option<String> = None;
     let mut last_draw = Instant::now() - Duration::from_secs(1);
     loop {
+        if STOP.load(Ordering::Relaxed) {
+            quit();
+        }
         if session.is_none() {
             match overlay::Session::connect() {
                 Ok(connected) => {
@@ -144,7 +160,7 @@ fn main() {
         }
         for event in events {
             if event.kind == overlay::QUIT || event.kind == overlay::OVERLAY_CLOSED {
-                std::process::exit(3);
+                quit();
             }
             if event.kind == overlay::KEYBOARD_CHAR || event.kind == overlay::KEYBOARD_DONE || event.kind == overlay::KEYBOARD_CLOSED {
                 let text = session.keyboard_text();
@@ -157,7 +173,7 @@ fn main() {
             }
             let action = ui.pointer(event.kind, event.x, event.y, event.button);
             if matches!(action, Action::Quit) {
-                std::process::exit(3);
+                quit();
             }
             if let Action::ShowKeyboard { description, existing } = &action {
                 session.show_keyboard(description, existing);
@@ -170,9 +186,11 @@ fn main() {
         ui.tick();
         let visible = session.dashboard_visible();
         let snap = worker.snapshot();
-        let empty_meters = std::collections::HashMap::new();
-        levels.ingest(if visible { &snap.meters } else { &empty_meters });
-        let meters_live = visible && !snap.meters.is_empty();
+        // Also with meters off: the Mix Check level bar uses the same feed.
+        feed.want(visible);
+        let raw = feed.latest();
+        levels.ingest(&raw);
+        let meters_live = !raw.is_empty();
         let interval = if ui.animating() {
             Duration::from_millis(16)
         } else if meters_live {
@@ -206,6 +224,44 @@ fn main() {
     }
 }
 
+/// Polls the engine's peaks at 30 Hz while the panel shows meters. The worker's
+/// status poll is every 2 s, far too slow for a meter.
+struct MeterFeed {
+    wanted: std::sync::Arc<AtomicBool>,
+    latest: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, f32>>>,
+}
+
+impl MeterFeed {
+    fn start() -> Self {
+        let feed = Self { wanted: Default::default(), latest: Default::default() };
+        let wanted = feed.wanted.clone();
+        let latest = feed.latest.clone();
+        std::thread::spawn(move || loop {
+            if !wanted.load(Ordering::Relaxed) {
+                if let Ok(mut map) = latest.lock() {
+                    map.clear();
+                }
+                std::thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+            let fresh = engine::meters().unwrap_or_default();
+            if let Ok(mut map) = latest.lock() {
+                *map = fresh;
+            }
+            std::thread::sleep(Duration::from_millis(33));
+        });
+        feed
+    }
+
+    fn want(&self, on: bool) {
+        self.wanted.store(on, Ordering::Relaxed);
+    }
+
+    fn latest(&self) -> std::collections::HashMap<String, f32> {
+        self.latest.lock().map(|map| map.clone()).unwrap_or_default()
+    }
+}
+
 fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
     match action {
         Action::None => {}
@@ -214,7 +270,7 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
             worker.send(Job::Apply(ui.config.clone()));
         }
         Action::Levels => worker.send(Job::Levels(ui.config.clone())),
-        Action::Quit => std::process::exit(3),
+        Action::Quit => quit(),
         Action::ShowKeyboard { description, existing } => {
             // The session is needed; the caller handles the keyboard when it sees this
             // only from the event loop, which has the session. Re-sent below.
@@ -335,6 +391,8 @@ fn started_by_service() -> bool {
 
 fn install_signals() {
     unsafe {
-        libc::signal(libc::SIGUSR1, on_usr1 as libc::sighandler_t);
+        libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, on_term as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, on_term as *const () as libc::sighandler_t);
     }
 }
