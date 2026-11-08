@@ -109,18 +109,88 @@
 
   var lightbox = document.querySelector(".lightbox");
   var lightboxImg = lightbox && lightbox.querySelector("img");
+  var lightboxFrom = null;
+  var lightboxBusy = false;
+  var motionOk = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function shiftTo(from, to) {
+    var scale = to.width > 0 ? from.width / to.width : 1;
+    var dx = from.left - to.left;
+    var dy = from.top - to.top;
+    lightboxImg.style.transformOrigin = "top left";
+    lightboxImg.style.transform = "translate(" + dx + "px," + dy + "px) scale(" + scale + ")";
+  }
+
+  function clearShift() {
+    lightboxImg.style.transform = "";
+    lightboxImg.style.transformOrigin = "";
+  }
+
+  function showShot(thumb) {
+    if (!lightbox || !lightboxImg || lightboxBusy) return;
+    lightboxFrom = thumb;
+    lightboxImg.src = thumb.currentSrc || thumb.src;
+    lightboxImg.alt = thumb.alt;
+    lightbox.showModal();
+    if (!motionOk) {
+      lightbox.classList.add("is-shown");
+      return;
+    }
+    var from = thumb.getBoundingClientRect();
+    var to = lightboxImg.getBoundingClientRect();
+    if (to.width < 1) {
+      lightbox.classList.add("is-shown");
+      return;
+    }
+    lightboxImg.style.transition = "none";
+    shiftTo(from, to);
+    lightbox.getBoundingClientRect();
+    requestAnimationFrame(function () {
+      lightboxImg.style.transition = "";
+      lightbox.classList.add("is-shown");
+      clearShift();
+    });
+  }
+
+  function hideShot() {
+    if (!lightbox || !lightbox.open || lightboxBusy) return;
+    if (!motionOk || !lightboxFrom) {
+      lightbox.classList.remove("is-shown");
+      lightbox.close();
+      return;
+    }
+    lightboxBusy = true;
+    var from = lightboxImg.getBoundingClientRect();
+    var to = lightboxFrom.getBoundingClientRect();
+    lightbox.classList.remove("is-shown");
+    shiftTo(to, from);
+    var finished = false;
+    function done(event) {
+      if (finished) return;
+      if (event && event.target !== lightboxImg) return;
+      finished = true;
+      lightboxImg.removeEventListener("transitionend", done);
+      clearShift();
+      lightbox.close();
+      lightboxBusy = false;
+    }
+    lightboxImg.addEventListener("transitionend", done);
+    window.setTimeout(done, 420);
+  }
+
   document.querySelectorAll(".gallery .shot").forEach(function (button) {
     button.addEventListener("click", function () {
       var img = button.querySelector("img");
-      if (!lightbox || !lightboxImg || !img) return;
-      lightboxImg.src = img.currentSrc || img.src;
-      lightboxImg.alt = img.alt;
-      if (typeof lightbox.showModal === "function") lightbox.showModal();
+      if (img) showShot(img);
     });
   });
   if (lightbox) {
     lightbox.addEventListener("click", function (event) {
-      if (event.target === lightbox || event.target.closest("[data-lightbox-close]")) lightbox.close();
+      if (event.target === lightbox || event.target === lightboxImg || event.target.closest("[data-lightbox-close]")) hideShot();
+    });
+    lightbox.addEventListener("cancel", function (event) {
+      event.preventDefault();
+      hideShot();
     });
   }
 
