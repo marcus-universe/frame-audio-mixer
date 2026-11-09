@@ -120,9 +120,10 @@
   var ignoreClick = false;
   var swipeX = null;
   var motionOk = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  var OPEN_MS = 620;
-  var CLOSE_MS = 460;
-  var SLIDE_MS = 420;
+  var OPEN_MS = 680;
+  var CLOSE_MS = 520;
+  var SLIDE_MS = 540;
+  var REST = "translate(0px, 0px) scale(1)";
   var EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
   var EASE_IN_OUT = "cubic-bezier(0.4, 0, 0.2, 1)";
 
@@ -176,11 +177,14 @@
     var gen = (el._famPlay || 0) + 1;
     el._famPlay = gen;
     Object.keys(from).forEach(function (key) { el.style[key] = from[key]; });
-    var anim = el.animate([from, to], { duration: duration, easing: easing, fill: "forwards" });
-    anim.ready.then(function () {
+    void el.offsetWidth;
+    var anim = el.animate([from, to], { duration: duration, easing: easing, fill: "both" });
+    function commit() {
       if (el._famPlay !== gen) return;
       Object.keys(to).forEach(function (key) { el.style[key] = to[key]; });
-    });
+      anim.cancel();
+    }
+    anim.onfinish = commit;
     return anim;
   }
 
@@ -209,10 +213,12 @@
       return;
     }
     var start = pose(from);
-    var anim = play(frame, start, { transform: "none" }, OPEN_MS, EASE_OUT);
+    var anim = play(frame, start, { transform: REST }, OPEN_MS, EASE_OUT);
     fade(scrim, 1, 480);
     fade(controls, 1, OPEN_MS);
-    anim.onfinish = function () {
+    var commit = anim.onfinish;
+    anim.onfinish = function (event) {
+      if (commit) commit(event);
       if (phase === "opening") phase = "open";
     };
     window.setTimeout(function () {
@@ -270,16 +276,17 @@
     incoming.alt = thumb.alt;
     incoming.src = src;
     frame.appendChild(incoming);
-    var shift = dir > 0 ? 56 : -56;
+    var outTo = dir > 0 ? "-100%" : "100%";
+    var inFrom = dir > 0 ? "100%" : "-100%";
     var settled = false;
     lightboxImg.animate([
-      { opacity: 1, transform: "translateX(0px)" },
-      { opacity: 0, transform: "translateX(" + (-shift) + "px)" }
+      { transform: "translateX(0%)" },
+      { transform: "translateX(" + outTo + ")" }
     ], { duration: SLIDE_MS, easing: EASE_IN_OUT, fill: "forwards" });
     var enter = incoming.animate([
-      { opacity: 0, transform: "translateX(" + shift + "px)" },
-      { opacity: 1, transform: "translateX(0px)" }
-    ], { duration: SLIDE_MS, easing: EASE_OUT, fill: "forwards" });
+      { transform: "translateX(" + inFrom + ")" },
+      { transform: "translateX(0%)" }
+    ], { duration: SLIDE_MS, easing: EASE_IN_OUT, fill: "forwards" });
     function settle() {
       if (settled) return;
       settled = true;
