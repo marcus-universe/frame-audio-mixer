@@ -1,5 +1,10 @@
 //! Stereo effects at 48 kHz. Parameters are 0..1.
 
+use std::sync::Arc;
+
+use super::analyzer::Scope;
+use super::pitch::Pitcher;
+use super::reverb::Reverb;
 use crate::config::{EffectKind, EffectSlot};
 
 const RATE: f64 = 48_000.0;
@@ -8,29 +13,35 @@ const FRAMES: usize = 480;
 
 pub struct Processor {
     stages: Vec<Stage>,
+    /// Taps one chain position for the EQ's analyzer while a panel is watching.
+    scope: Option<Arc<Scope>>,
 }
 
 enum Stage {
-    Reverb(Reverb),
+    Reverb(Box<Reverb>),
     Comp(Comp),
-    Eq(Eq),
-    Pitcher(Pitcher),
+    /// Boxed: the biquad pairs dwarf every other variant.
+    Eq(Box<Eq>),
+    Pitcher(Box<Pitcher>),
     Flanger(Flanger),
-    Phaser(Phaser),
+    Phaser(Box<Phaser>),
     Delay(Delay),
+    Vst(Box<VstLink>),
 }
 
 impl Processor {
     pub fn new() -> Self {
-        Self { stages: Vec::new() }
+        Self { stages: Vec::new(), scope: None }
+    }
+
+    pub fn with_scope(scope: Arc<Scope>) -> Self {
+        Self { stages: Vec::new(), scope: Some(scope) }
     }
 
     pub fn set_chain(&mut self, chain: &[EffectSlot]) {
-        let kinds: Vec<EffectKind> = chain.iter().map(|slot| slot.kind).collect();
-        let same = self.stages.len() == kinds.len()
-            && self.stages.iter().zip(&kinds).all(|(stage, kind)| stage.kind() == *kind);
+        let same = self.stages.len() == chain.len() && self.stages.iter().zip(chain).all(|(stage, slot)| stage.matches(slot));
         if !same {
-            self.stages = kinds.into_iter().map(Stage::new).collect();
+            self.stages = chain.iter().map(Stage::new).collect();
         }
         for (stage, slot) in self.stages.iter_mut().zip(chain) {
             stage.apply(slot);
@@ -46,8 +57,14 @@ impl Processor {
         let mut offset = 0;
         while offset < n {
             let end = (offset + FRAMES).min(n);
-            for stage in &mut self.stages {
+            let tapped = self.scope.as_ref().map_or(u32::MAX, |scope| scope.armed_slot());
+            for (index, stage) in self.stages.iter_mut().enumerate() {
                 stage.process(&mut left[offset..end], &mut right[offset..end]);
+                if index as u32 == tapped {
+                    if let Some(scope) = &self.scope {
+                        scope.push(&left[offset..end], &right[offset..end]);
+                    }
+                }
             }
             for i in offset..end {
                 left[i] = soft_ceiling(left[i]);
@@ -96,15 +113,27 @@ pub(crate) fn soft_ceiling(sample: f32) -> f32 {
 }
 
 impl Stage {
-    fn new(kind: EffectKind) -> Self {
-        match kind {
-            EffectKind::Reverb => Stage::Reverb(Reverb::new()),
+    fn new(slot: &EffectSlot) -> Self {
+        if let (EffectKind::Vst, Some(plugin)) = (slot.kind, &slot.vst) {
+            return Stage::Vst(Box::new(VstLink::new(&plugin.instance)));
+        }
+        match slot.kind {
+            EffectKind::Reverb => Stage::Reverb(Box::new(Reverb::new())),
             EffectKind::Comp => Stage::Comp(Comp::new()),
-            EffectKind::Eq => Stage::Eq(Eq::new()),
-            EffectKind::Pitcher => Stage::Pitcher(Pitcher::new()),
+            EffectKind::Eq => Stage::Eq(Box::new(Eq::new())),
+            EffectKind::Pitcher => Stage::Pitcher(Box::new(Pitcher::new())),
             EffectKind::Flanger => Stage::Flanger(Flanger::new()),
-            EffectKind::Phaser => Stage::Phaser(Phaser::new()),
+            EffectKind::Phaser => Stage::Phaser(Box::new(Phaser::new())),
             EffectKind::Delay => Stage::Delay(Delay::new()),
+            // A VST slot without its plugin passes audio through.
+            EffectKind::Vst => Stage::Vst(Box::new(VstLink::new(""))),
+        }
+    }
+
+    fn matches(&self, slot: &EffectSlot) -> bool {
+        match (self, &slot.vst) {
+            (Stage::Vst(link), Some(plugin)) => link.instance == plugin.instance,
+            _ => self.kind() == slot.kind,
         }
     }
 
@@ -117,18 +146,21 @@ impl Stage {
             Stage::Flanger(_) => EffectKind::Flanger,
             Stage::Phaser(_) => EffectKind::Phaser,
             Stage::Delay(_) => EffectKind::Delay,
+            Stage::Vst(_) => EffectKind::Vst,
         }
     }
 
     fn apply(&mut self, slot: &EffectSlot) {
+        let extra = slot.extra.map(|value| value.clamp(0.0, 1.0));
         match self {
-            Stage::Reverb(fx) => fx.set(slot.params),
-            Stage::Comp(fx) => fx.set(slot.params),
+            Stage::Reverb(fx) => fx.set(slot.params, extra),
+            Stage::Comp(fx) => fx.set(slot.params, extra),
             Stage::Eq(fx) => fx.apply(slot),
             Stage::Pitcher(fx) => fx.set(slot.params),
-            Stage::Flanger(fx) => fx.set(slot.params),
-            Stage::Phaser(fx) => fx.set(slot.params),
-            Stage::Delay(fx) => fx.set(slot.params),
+            Stage::Flanger(fx) => fx.set(slot.params, extra),
+            Stage::Phaser(fx) => fx.set(slot.params, extra),
+            Stage::Delay(fx) => fx.set(slot.params, extra),
+            Stage::Vst(_) => {}
         }
     }
 
@@ -141,7 +173,65 @@ impl Stage {
             Stage::Flanger(fx) => fx.process(left, right),
             Stage::Phaser(fx) => fx.process(left, right),
             Stage::Delay(fx) => fx.process(left, right),
+            Stage::Vst(link) => link.process(left, right),
         }
+    }
+}
+
+/// Retry the region about once a second while the host is starting.
+const VST_RETRY_BLOCKS: u32 = 100;
+
+/// Trades blocks with a plugin host through shared memory. Output is one block
+/// late, so this thread never waits. While the host is starting, crashed or
+/// behind, audio passes through unchanged, like a bypassed plugin.
+struct VstLink {
+    instance: String,
+    region: Option<crate::vst::shared::Region>,
+    retry: u32,
+    held: [Vec<f32>; 2],
+}
+
+impl VstLink {
+    fn new(instance: &str) -> Self {
+        let frames = crate::vst::shared::MAX_FRAMES;
+        Self { instance: instance.to_string(), region: None, retry: 0, held: [vec![0.0; frames], vec![0.0; frames]] }
+    }
+
+    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        use crate::vst::shared::{Plane, Region, STATUS_RUNNING};
+        use std::sync::atomic::Ordering;
+        if self.instance.is_empty() {
+            return;
+        }
+        if self.region.is_none() {
+            if self.retry == 0 {
+                // Only a few syscalls, about once a second, until the engine has made the region.
+                self.region = Region::open(&crate::vst::region_path(&self.instance)).ok();
+                self.retry = VST_RETRY_BLOCKS;
+            }
+            self.retry -= 1;
+            return;
+        }
+        let Some(region) = &self.region else { return };
+        let header = region.header();
+        let frames = left.len().min(right.len()).min(crate::vst::shared::MAX_FRAMES);
+        if header.status.load(Ordering::Acquire) != STATUS_RUNNING {
+            return;
+        }
+        let input = header.input_seq.load(Ordering::Relaxed);
+        if header.output_seq.load(Ordering::Acquire) != input {
+            header.late.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        let [held_l, held_r] = &mut self.held;
+        region.read(Plane::OutLeft, &mut held_l[..frames]);
+        region.read(Plane::OutRight, &mut held_r[..frames]);
+        region.write(Plane::InLeft, &left[..frames]);
+        region.write(Plane::InRight, &right[..frames]);
+        header.frames.store(frames as u32, Ordering::Relaxed);
+        header.input_seq.store(input.wrapping_add(1), Ordering::Release);
+        left[..frames].copy_from_slice(&held_l[..frames]);
+        right[..frames].copy_from_slice(&held_r[..frames]);
     }
 }
 
@@ -402,29 +492,35 @@ struct Comp {
     threshold: f32,
     ratio: f32,
     makeup: f32,
+    attack: f32,
+    release: f32,
     env: f32,
+}
+
+/// One-pole smoothing coefficient for a time constant in seconds.
+fn time_coeff(seconds: f64) -> f32 {
+    (1.0 - (-1.0 / (seconds * RATE)).exp()) as f32
 }
 
 impl Comp {
     fn new() -> Self {
-        Self { threshold: 0.3, ratio: 4.0, makeup: 1.0, env: 0.0 }
+        Self { threshold: 0.3, ratio: 4.0, makeup: 1.0, attack: time_coeff(0.010), release: time_coeff(0.120), env: 0.0 }
     }
 
-    fn set(&mut self, params: [f64; 3]) {
+    fn set(&mut self, params: [f64; 3], extra: [f64; 3]) {
         let thresh_db = -40.0 + params[0] * 40.0;
         self.threshold = 10f32.powf((thresh_db as f32) / 20.0);
         self.ratio = 1.0 + params[1] as f32 * 19.0;
         self.makeup = 10f32.powf((params[2] as f32) * 24.0 / 20.0);
+        // 0.5 is 10 ms attack and 120 ms release; each end is four times that way.
+        self.attack = time_coeff(0.010 * 4f64.powf(2.0 * extra[0] - 1.0));
+        self.release = time_coeff(0.120 * 4f64.powf(2.0 * extra[1] - 1.0));
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        // 10 ms attack and 120 ms release. The old per-sample coefficients followed
-        // the waveform itself, which is the fizz people hear as over-compression.
-        let attack = (1.0 - (-1.0 / (0.010 * RATE)).exp()) as f32;
-        let release = (1.0 - (-1.0 / (0.120 * RATE)).exp()) as f32;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             let peak = l.abs().max(r.abs());
-            let coeff = if peak > self.env { attack } else { release };
+            let coeff = if peak > self.env { self.attack } else { self.release };
             self.env += coeff * (peak - self.env);
             let mut gain = 1.0;
             if self.env > self.threshold && self.threshold > 1e-6 {
@@ -438,131 +534,28 @@ impl Comp {
     }
 }
 
-struct Comb {
-    buf: Vec<f32>,
-    pos: usize,
-    feedback: f32,
-    /// Length at size 1. The knob scales this, not the buffer's current length.
-    base: usize,
-}
-
-fn comb_len(base: usize, size: f64) -> usize {
-    ((base.max(1) as f64) * size).clamp(64.0, 4000.0) as usize
-}
-
-impl Comb {
-    fn new(len: usize) -> Self {
-        let len = len.max(1);
-        Self { buf: vec![0.0; len], pos: 0, feedback: 0.7, base: len }
-    }
-
-    fn set_length(&mut self, size: f64) {
-        let len = comb_len(self.base, size);
-        if self.buf.len() == len {
-            return;
-        }
-        self.buf.resize(len, 0.0);
-        if self.pos >= self.buf.len() {
-            self.pos = 0;
-        }
-    }
-
-    fn tick(&mut self, x: f32) -> f32 {
-        let y = self.buf[self.pos];
-        self.buf[self.pos] = x + y * self.feedback;
-        self.pos += 1;
-        if self.pos >= self.buf.len() {
-            self.pos = 0;
-        }
-        y
-    }
-}
-
-struct Allpass {
-    buf: Vec<f32>,
-    pos: usize,
-}
-
-impl Allpass {
-    fn new(len: usize) -> Self {
-        Self { buf: vec![0.0; len.max(1)], pos: 0 }
-    }
-
-    fn tick(&mut self, x: f32) -> f32 {
-        let buf = self.buf[self.pos];
-        let y = buf - x;
-        self.buf[self.pos] = x + buf * 0.5;
-        self.pos += 1;
-        if self.pos >= self.buf.len() {
-            self.pos = 0;
-        }
-        y
-    }
-}
-
-struct Reverb {
-    combs_l: [Comb; 4],
-    combs_r: [Comb; 4],
-    ap_l: [Allpass; 2],
-    ap_r: [Allpass; 2],
-    mix: f32,
-}
-
-impl Reverb {
-    fn new() -> Self {
-        Self {
-            combs_l: [Comb::new(1116), Comb::new(1188), Comb::new(1277), Comb::new(1356)],
-            combs_r: [Comb::new(1139), Comb::new(1211), Comb::new(1300), Comb::new(1379)],
-            ap_l: [Allpass::new(556), Allpass::new(441)],
-            ap_r: [Allpass::new(579), Allpass::new(464)],
-            mix: 0.25,
-        }
-    }
-
-    fn set(&mut self, params: [f64; 3]) {
-        let size = 0.5 + params[0] * 1.5;
-        let decay = 0.35 + params[1] * 0.55;
-        self.mix = params[2] as f32;
-        for comb in self.combs_l.iter_mut().chain(self.combs_r.iter_mut()) {
-            comb.feedback = decay as f32;
-            comb.set_length(size);
-        }
-    }
-
-    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let mix = self.mix;
-        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let dry_l = *l;
-            let dry_r = *r;
-            let mut wet_l = 0.0;
-            let mut wet_r = 0.0;
-            for comb in &mut self.combs_l {
-                wet_l += comb.tick(dry_l);
-            }
-            for comb in &mut self.combs_r {
-                wet_r += comb.tick(dry_r);
-            }
-            wet_l *= 0.25;
-            wet_r *= 0.25;
-            for ap in &mut self.ap_l {
-                wet_l = ap.tick(wet_l);
-            }
-            for ap in &mut self.ap_r {
-                wet_r = ap.tick(wet_r);
-            }
-            *l = dry_l * (1.0 - mix) + wet_l * mix;
-            *r = dry_r * (1.0 - mix) + wet_r * mix;
-        }
-    }
+/// Linear read `delay` samples behind `pos` in a ring buffer.
+fn read_ring(buf: &[f32], pos: usize, delay: f32) -> f32 {
+    let len = buf.len();
+    let whole = delay as usize;
+    let frac = delay - whole as f32;
+    let newer = buf[(pos + len - whole % len) % len];
+    let older = buf[(pos + len - (whole + 1) % len) % len];
+    newer * (1.0 - frac) + older * frac
 }
 
 struct Delay {
     buf_l: Vec<f32>,
     buf_r: Vec<f32>,
     pos: usize,
-    time: usize,
+    time: f32,
+    time_now: f32,
     feedback: f32,
     mix: f32,
+    tone: f32,
+    spread: f32,
+    tone_l: f32,
+    tone_r: f32,
 }
 
 impl Delay {
@@ -571,33 +564,41 @@ impl Delay {
             buf_l: vec![0.0; 48_000],
             buf_r: vec![0.0; 48_000],
             pos: 0,
-            time: 12_000,
+            time: 12_000.0,
+            time_now: 12_000.0,
             feedback: 0.3,
             mix: 0.3,
+            tone: 0.5,
+            spread: 0.0,
+            tone_l: 0.0,
+            tone_r: 0.0,
         }
     }
 
-    fn set(&mut self, params: [f64; 3]) {
-        self.time = ((0.02 + params[0] * 0.78) * RATE) as usize;
-        self.time = self.time.clamp(1, self.buf_l.len() - 1);
+    fn set(&mut self, params: [f64; 3], extra: [f64; 3]) {
+        self.time = (((0.02 + params[0] * 0.78) * RATE) as f32).clamp(1.0, (self.buf_l.len() - 2) as f32);
         self.feedback = params[1] as f32 * 0.92;
         self.mix = params[2] as f32;
+        self.tone = time_coeff(1.0 / (std::f64::consts::TAU * 1200.0 * 16f64.powf(extra[0])));
+        self.spread = ((extra[1] as f32 - 0.5) * 2.0).max(0.0);
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let len = self.buf_l.len();
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let read = (self.pos + len - self.time) % len;
-            let delayed_l = self.buf_l[read];
-            let delayed_r = self.buf_r[read];
-            self.buf_l[self.pos] = *l + delayed_l * self.feedback;
-            self.buf_r[self.pos] = *r + delayed_r * self.feedback;
+            // Gliding to a new time bends the echo instead of clicking.
+            self.time_now += (self.time - self.time_now) * 0.000_8;
+            let delayed_l = read_ring(&self.buf_l, self.pos, self.time_now);
+            let delayed_r = read_ring(&self.buf_r, self.pos, self.time_now);
+            self.tone_l += self.tone * (delayed_l - self.tone_l);
+            self.tone_r += self.tone * (delayed_r - self.tone_r);
+            let back_l = self.tone_l * (1.0 - self.spread) + self.tone_r * self.spread;
+            let back_r = self.tone_r * (1.0 - self.spread) + self.tone_l * self.spread;
+            self.buf_l[self.pos] = *l + *r * self.spread + back_l * self.feedback;
+            self.buf_r[self.pos] = *r * (1.0 - self.spread) + back_r * self.feedback;
             *l = *l * (1.0 - self.mix) + delayed_l * self.mix;
             *r = *r * (1.0 - self.mix) + delayed_r * self.mix;
-            self.pos += 1;
-            if self.pos >= len {
-                self.pos = 0;
-            }
+            self.pos = (self.pos + 1) % len;
         }
     }
 }
@@ -610,6 +611,9 @@ struct Flanger {
     rate: f64,
     depth: f32,
     mix: f32,
+    feedback: f32,
+    last_l: f32,
+    last_r: f32,
 }
 
 impl Flanger {
@@ -622,30 +626,33 @@ impl Flanger {
             rate: 0.3,
             depth: 0.5,
             mix: 0.35,
+            feedback: 0.0,
+            last_l: 0.0,
+            last_r: 0.0,
         }
     }
 
-    fn set(&mut self, params: [f64; 3]) {
+    fn set(&mut self, params: [f64; 3], extra: [f64; 3]) {
         self.rate = 0.05 + params[0] * 4.0;
         self.depth = params[1] as f32;
         self.mix = params[2] as f32;
+        self.feedback = (extra[0] as f32 - 0.5) * 1.7;
+    }
+
+    fn sweep(&self, offset: f64) -> f32 {
+        let wave = (((self.phase + offset) * std::f64::consts::TAU).sin() * 0.5 + 0.5) as f32;
+        40.0 + 400.0 * self.depth * wave
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
         let len = self.buf_l.len();
-        let min_d = 40.0;
-        let max_d = 40.0 + 400.0 * self.depth as f64;
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            self.buf_l[self.pos] = *l;
-            self.buf_r[self.pos] = *r;
-            let sweep = (self.phase * std::f64::consts::TAU).sin() * 0.5 + 0.5;
-            let delay = min_d + (max_d - min_d) * sweep;
-            let read = self.pos as f64 - delay;
-            let i0 = ((read as i32).rem_euclid(len as i32)) as usize;
-            let i1 = (i0 + 1) % len;
-            let frac = (read.fract() + 1.0).fract() as f32;
-            let wet_l = self.buf_l[i0] * (1.0 - frac) + self.buf_l[i1] * frac;
-            let wet_r = self.buf_r[i0] * (1.0 - frac) + self.buf_r[i1] * frac;
+            self.buf_l[self.pos] = *l + self.last_l * self.feedback;
+            self.buf_r[self.pos] = *r + self.last_r * self.feedback;
+            let wet_l = read_ring(&self.buf_l, self.pos, self.sweep(0.0));
+            let wet_r = read_ring(&self.buf_r, self.pos, self.sweep(0.25));
+            self.last_l = wet_l;
+            self.last_r = wet_r;
             *l = *l * (1.0 - self.mix) + wet_l * self.mix;
             *r = *r * (1.0 - self.mix) + wet_r * self.mix;
             self.pos = (self.pos + 1) % len;
@@ -661,7 +668,14 @@ struct Phaser {
     rate: f64,
     depth: f64,
     mix: f32,
+    feedback: f64,
+    last_l: f64,
+    last_r: f64,
+    until_retune: u32,
 }
+
+/// Samples between filter updates. Small enough that the sweep has no audible steps.
+const PHASER_RETUNE: u32 = 32;
 
 impl Phaser {
     fn new() -> Self {
@@ -672,13 +686,18 @@ impl Phaser {
             rate: 0.3,
             depth: 0.5,
             mix: 0.4,
+            feedback: 0.0,
+            last_l: 0.0,
+            last_r: 0.0,
+            until_retune: 0,
         }
     }
 
-    fn set(&mut self, params: [f64; 3]) {
+    fn set(&mut self, params: [f64; 3], extra: [f64; 3]) {
         self.rate = 0.05 + params[0] * 3.5;
         self.depth = params[1];
         self.mix = params[2] as f32;
+        self.feedback = (extra[0] - 0.5) * 1.5;
     }
 
     fn retune(&mut self) {
@@ -695,104 +714,28 @@ impl Phaser {
     }
 
     fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        // Once per block. Retuning every sample wiped the allpass history and blew the budget.
-        self.retune();
+        let mix = f64::from(self.mix);
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let dry_l = *l as f64;
-            let dry_r = *r as f64;
-            let mut wet_l = dry_l;
-            let mut wet_r = dry_r;
+            if self.until_retune == 0 {
+                self.until_retune = PHASER_RETUNE;
+                self.retune();
+            }
+            self.until_retune -= 1;
+            let dry_l = f64::from(*l);
+            let dry_r = f64::from(*r);
+            let mut wet_l = dry_l + self.last_l * self.feedback;
+            let mut wet_r = dry_r + self.last_r * self.feedback;
             for ap in &mut self.left {
                 wet_l = ap.tick(wet_l);
             }
             for ap in &mut self.right {
                 wet_r = ap.tick(wet_r);
             }
-            *l = (dry_l * (1.0 - self.mix as f64) + wet_l * self.mix as f64) as f32;
-            *r = (dry_r * (1.0 - self.mix as f64) + wet_r * self.mix as f64) as f32;
+            self.last_l = wet_l;
+            self.last_r = wet_r;
+            *l = (dry_l * (1.0 - mix) + wet_l * mix) as f32;
+            *r = (dry_r * (1.0 - mix) + wet_r * mix) as f32;
             self.phase = (self.phase + self.rate / RATE).fract();
-        }
-    }
-}
-
-/// Delay-line pitch shifter. The read delay moves at `1 - ratio` samples per
-/// sample, so the read head itself moves at `ratio`. Two grains a half window
-/// apart crossfade with complementary sin² windows, which is what keeps a
-/// jump from clicking. At 0 semitones the delay stays put and the signal
-/// passes through a fixed delay.
-struct Pitcher {
-    buf_l: Vec<f32>,
-    buf_r: Vec<f32>,
-    write: usize,
-    /// 0..1 position inside the grain. Starts mid-window so the first samples
-    /// are not faded to silence.
-    phasor: f64,
-    ratio: f64,
-}
-
-const PITCH_LEN: usize = 8192;
-/// 40 ms at 48 kHz. Long enough that the splice is hard to hear, short enough
-/// that a +12 jump does not lag the phrase.
-const PITCH_WINDOW: f64 = 1920.0;
-
-impl Pitcher {
-    fn new() -> Self {
-        Self {
-            buf_l: vec![0.0; PITCH_LEN],
-            buf_r: vec![0.0; PITCH_LEN],
-            write: 0,
-            phasor: 0.25,
-            ratio: 1.0,
-        }
-    }
-
-    fn set(&mut self, params: [f64; 3]) {
-        let semitones = (params[0] - 0.5) * 24.0;
-        self.ratio = 2f64.powf(semitones / 12.0);
-    }
-
-    fn read_at(buf: &[f32], write: usize, delay: f64) -> f32 {
-        let pos = write as f64 - delay;
-        let base = pos.floor();
-        let frac = (pos - base) as f32;
-        let at = |offset: i64| -> f32 {
-            let i = (base as i64 + offset).rem_euclid(buf.len() as i64) as usize;
-            buf[i]
-        };
-        // Catmull-Rom through the four samples around the fractional read.
-        let y0 = at(-1);
-        let y1 = at(0);
-        let y2 = at(1);
-        let y3 = at(2);
-        let c0 = y1;
-        let c1 = 0.5 * (y2 - y0);
-        let c2 = y0 - 2.5 * y1 + 2.0 * y2 - 0.5 * y3;
-        let c3 = 0.5 * (y3 - y0) + 1.5 * (y1 - y2);
-        ((c3 * frac + c2) * frac + c1) * frac + c0
-    }
-
-    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
-        let len = self.buf_l.len();
-        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            self.buf_l[self.write] = *l;
-            self.buf_r[self.write] = *r;
-            let mut acc_l = 0.0;
-            let mut acc_r = 0.0;
-            for tap in 0..2 {
-                let phase = (self.phasor + tap as f64 * 0.5).fract();
-                // +2 keeps the cubic kernel behind the write head.
-                let delay = phase * PITCH_WINDOW + 2.0;
-                let rise = (std::f64::consts::PI * phase).sin();
-                let weight = (rise * rise) as f32;
-                acc_l += Self::read_at(&self.buf_l, self.write, delay) * weight;
-                acc_r += Self::read_at(&self.buf_r, self.write, delay) * weight;
-            }
-            *l = acc_l;
-            *r = acc_r;
-            self.write = (self.write + 1) % len;
-            // ratio 2 reads twice as fast, so the delay shrinks by one sample
-            // per sample. ratio 1 holds the delay. ratio 0.5 lets it grow.
-            self.phasor = (self.phasor + (1.0 - self.ratio) / PITCH_WINDOW).rem_euclid(1.0);
         }
     }
 }
@@ -810,7 +753,7 @@ pub fn self_test() -> Result<(), String> {
 
     let mut eq = Processor::new();
     let eq_slot = EffectSlot { params: [0.9, 0.5, 0.5], ..EffectSlot::new(EffectKind::Eq) };
-    eq.set_chain(&[eq_slot.clone()]);
+    eq.set_chain(std::slice::from_ref(&eq_slot));
     let mut impulse = vec![0.0f32; FRAMES * 2];
     // Last frame, so the next block is pure filter tail. A wiped history is silence.
     impulse[FRAMES * 2 - 2] = 1.0;
@@ -824,19 +767,17 @@ pub fn self_test() -> Result<(), String> {
         return Err(format!("eq state cleared {energy}"));
     }
 
-    let mut reverb = Processor::new();
-    let reverb_slot = EffectSlot::new(EffectKind::Reverb);
-    reverb.set_chain(std::slice::from_ref(&reverb_slot));
-    let first = reverb_comb_lengths(&reverb);
-    reverb.set_chain(std::slice::from_ref(&reverb_slot));
-    reverb.set_chain(std::slice::from_ref(&reverb_slot));
-    let settled = reverb_comb_lengths(&reverb);
-    if first.is_empty() || first != settled {
-        return Err(format!("reverb grew {first:?} -> {settled:?}"));
+    let presets = super::presets::of(EffectKind::Reverb);
+    let bathroom = reverb_tail_ms(&presets[1]);
+    let cathedral = reverb_tail_ms(&presets[7]);
+    if cathedral < bathroom * 4.0 || bathroom < 40.0 {
+        return Err(format!("reverb tails bathroom {bathroom} ms, cathedral {cathedral} ms"));
     }
-    let size = 0.5 + reverb_slot.params[0] * 1.5;
-    if first[0] != comb_len(1116, size) {
-        return Err(format!("reverb length {} size {size}", first[0]));
+    for preset in presets {
+        let level = reverb_wet_level(preset);
+        if !(0.05..=1.5).contains(&level) {
+            return Err(format!("reverb {} wet level {level}", preset.name(crate::i18n::Lang::En)));
+        }
     }
 
     // +12 used to play the buffer backwards at the original speed, so it
@@ -866,6 +807,13 @@ pub fn self_test() -> Result<(), String> {
         let hz = pitched_hz(semitones);
         if (hz - expect).abs() / expect > 0.03 {
             return Err(format!("pitch {semitones:+} measured {hz:.1} Hz, expected {expect}"));
+        }
+    }
+    for semitones in [-12.0, -5.0, 7.0, 12.0] {
+        let tone = pitched(semitones, |t| (std::f64::consts::TAU * 440.0 * t).sin() as f32 * 0.5);
+        let snr = tone_snr(&tone, 440.0 * 2f64.powf(semitones / 12.0));
+        if snr < 20.0 {
+            return Err(format!("pitch {semitones:+} tone SNR {snr:.1} dB"));
         }
     }
     Ok(())
@@ -919,12 +867,160 @@ fn pitched_hz(semitones: f64) -> f64 {
     rate / (periods.iter().sum::<f64>() / periods.len() as f64)
 }
 
-fn reverb_comb_lengths(proc: &Processor) -> Vec<usize> {
-    let mut lens = Vec::new();
-    for stage in &proc.stages {
-        if let Stage::Reverb(reverb) = stage {
-            lens.extend(reverb.combs_l.iter().chain(reverb.combs_r.iter()).map(|comb| comb.buf.len()));
+fn reverb_with(preset: &super::presets::Preset) -> Processor {
+    let mut slot = EffectSlot::new(EffectKind::Reverb);
+    preset.apply(&mut slot);
+    slot.params[2] = 1.0;
+    let mut proc = Processor::new();
+    proc.set_chain(std::slice::from_ref(&slot));
+    proc
+}
+
+fn test_noise() -> impl FnMut() -> f32 {
+    let mut seed = 0x9E37_79B9u32;
+    move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        (seed as f32 / u32::MAX as f32 - 0.5) * 0.5
+    }
+}
+
+/// Milliseconds for the fully wet tail to fall 30 dB after a noise burst stops.
+fn reverb_tail_ms(preset: &super::presets::Preset) -> f64 {
+    let mut proc = reverb_with(preset);
+    let mut noise = test_noise();
+    for _ in 0..30 {
+        let mut left = [0.0f32; FRAMES];
+        let mut right = [0.0f32; FRAMES];
+        left.iter_mut().for_each(|s| *s = noise());
+        right.iter_mut().for_each(|s| *s = noise());
+        proc.process_planar(&mut left, &mut right);
+    }
+    let mut start = None;
+    for block in 0..1500 {
+        let mut left = [0.0f32; FRAMES];
+        let mut right = [0.0f32; FRAMES];
+        proc.process_planar(&mut left, &mut right);
+        let energy: f32 = left.iter().map(|s| s * s).sum();
+        // Skips pre-delay and the early reflections as the reference level.
+        if block == 12 {
+            start = Some(energy);
+        }
+        if let Some(reference) = start {
+            if energy < reference * 0.001 {
+                return (block - 12) as f64 * 10.0;
+            }
         }
     }
-    lens
+    15_000.0
+}
+
+/// Output against input RMS of a fully wet reverb on steady noise.
+fn reverb_wet_level(preset: &super::presets::Preset) -> f32 {
+    let mut proc = reverb_with(preset);
+    let mut noise = test_noise();
+    let (mut input, mut output) = (0.0f32, 0.0f32);
+    for block in 0..400 {
+        let mut left = [0.0f32; FRAMES];
+        let mut right = [0.0f32; FRAMES];
+        left.iter_mut().for_each(|s| *s = noise());
+        right.iter_mut().for_each(|s| *s = noise());
+        let energy: f32 = left.iter().map(|s| s * s).sum();
+        proc.process_planar(&mut left, &mut right);
+        if block > 200 {
+            input += energy;
+            output += left.iter().map(|s| s * s).sum::<f32>();
+        }
+    }
+    (output / input.max(1e-12)).sqrt()
+}
+
+/// Prints CPU load per effect and pitch-shift quality. Run a release build:
+/// `frame-audio-mixer --dsp-report`. Debug timings mean nothing here.
+pub fn report() {
+    const SECONDS: usize = 10;
+    let mut seed = 0x1234_5678u32;
+    let mut noise = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        (seed as f32 / u32::MAX as f32 - 0.5) * 0.5
+    };
+    println!("effect      load of one core");
+    for kind in EffectKind::ALL {
+        let mut proc = Processor::new();
+        proc.set_chain(&[EffectSlot::new(kind)]);
+        let mut left = [0.0f32; FRAMES];
+        let mut right = [0.0f32; FRAMES];
+        let blocks = SECONDS * RATE as usize / FRAMES;
+        let mut worst = std::time::Duration::ZERO;
+        let start = std::time::Instant::now();
+        for _ in 0..blocks {
+            left.iter_mut().for_each(|s| *s = noise());
+            right.iter_mut().for_each(|s| *s = noise());
+            let block = std::time::Instant::now();
+            proc.process_planar(&mut left, &mut right);
+            worst = worst.max(block.elapsed());
+        }
+        let share = start.elapsed().as_secs_f64() / SECONDS as f64 * 100.0;
+        println!("{:<10}  {share:5.2}%   worst block {:.0} us of 10000", kind.key(), worst.as_secs_f64() * 1e6);
+    }
+    println!("semitones   tone SNR dB   tone ripple dB   voice ripple dB");
+    for semitones in [-12.0, -7.0, -5.0, -2.0, 2.0, 5.0, 7.0, 12.0] {
+        let ratio = 2f64.powf(semitones / 12.0);
+        let tone = pitched(semitones, |t| (std::f64::consts::TAU * 440.0 * t).sin() as f32 * 0.5);
+        let voice = pitched(semitones, |t| {
+            (1..=24).map(|h| (std::f64::consts::TAU * 130.0 * f64::from(h) * t).sin() as f32 / h as f32).sum::<f32>() * 0.25
+        });
+        println!("{semitones:+6.0}      {:8.1}   {:12.2}   {:12.2}", tone_snr(&tone, 440.0 * ratio), ripple_db(&tone), ripple_db(&voice));
+    }
+}
+
+/// The settled second of a two-second signal through the pitcher, left channel.
+fn pitched(semitones: f64, signal: impl Fn(f64) -> f32) -> Vec<f32> {
+    let mut proc = Processor::new();
+    let mut slot = EffectSlot::new(EffectKind::Pitcher);
+    slot.params[0] = crate::config::pitch_param(semitones);
+    proc.set_chain(std::slice::from_ref(&slot));
+    let total = RATE as usize * 2;
+    let mut out = Vec::with_capacity(total);
+    let mut at = 0;
+    while at < total {
+        let mut left = [0.0f32; FRAMES];
+        for (i, sample) in left.iter_mut().enumerate() {
+            *sample = signal((at + i) as f64 / RATE);
+        }
+        let mut right = left;
+        proc.process_planar(&mut left, &mut right);
+        out.extend_from_slice(&left);
+        at += FRAMES;
+    }
+    out.split_off(RATE as usize)
+}
+
+/// Signal against everything that is not a pure sine at `hz`, by least squares.
+fn tone_snr(samples: &[f32], hz: f64) -> f64 {
+    let w = std::f64::consts::TAU * hz / RATE;
+    let (mut a, mut b, n) = (0.0, 0.0, samples.len() as f64);
+    for (i, s) in samples.iter().enumerate() {
+        a += f64::from(*s) * (w * i as f64).sin();
+        b += f64::from(*s) * (w * i as f64).cos();
+    }
+    let (a, b) = (2.0 * a / n, 2.0 * b / n);
+    let (mut signal, mut rest) = (0.0, 0.0);
+    for (i, s) in samples.iter().enumerate() {
+        let fit = a * (w * i as f64).sin() + b * (w * i as f64).cos();
+        signal += fit * fit;
+        rest += (f64::from(*s) - fit).powi(2);
+    }
+    10.0 * (signal / rest.max(1e-30)).log10()
+}
+
+/// Loudest against quietest 20 ms of a steady signal. Grain splices show up here.
+fn ripple_db(samples: &[f32]) -> f64 {
+    let levels: Vec<f64> = samples.as_chunks::<960>().0.iter().map(|c| c.iter().map(|s| f64::from(*s).powi(2)).sum::<f64>()).collect();
+    let high = levels.iter().copied().fold(0.0, f64::max);
+    let low = levels.iter().copied().fold(f64::MAX, f64::min);
+    10.0 * (high / low.max(1e-30)).log10()
 }

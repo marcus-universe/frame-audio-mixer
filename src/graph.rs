@@ -35,6 +35,10 @@ pub struct Graph {
     pub default_sink: String,
     /// `target.object` in the default metadata, by node id. The value is a serial or a name.
     pub targets: std::collections::HashMap<u32, String>,
+    /// Live links folded to node pairs (output node id, input node id).
+    /// Only the engine fills this; a `pw-dump` parse leaves it empty.
+    #[serde(default)]
+    pub edges: Vec<(u32, u32)>,
 }
 
 pub fn parse_dump(text: &str) -> Result<Graph, String> {
@@ -173,6 +177,18 @@ impl Graph {
         self.nodes.iter().find(|node| node.name == name)
     }
 
+    /// True when a live link leaves the node named `from` and enters the node named `to`.
+    pub fn linked(&self, from: &str, to: &str) -> bool {
+        let (Some(from), Some(to)) = (self.node_by_name(from), self.node_by_name(to)) else { return false };
+        self.edges.contains(&(from.id, to.id))
+    }
+
+    /// True when a live link leaves node `from` and enters the node named `to`.
+    pub fn linked_into(&self, from: u32, to: &str) -> bool {
+        let Some(to) = self.node_by_name(to) else { return false };
+        self.edges.contains(&(from, to.id))
+    }
+
     /// `pw-record --target` on this headset follows an object serial, not a node name.
     pub fn link_target(&self, name: &str) -> String {
         match self.node_by_name(name) {
@@ -280,6 +296,18 @@ impl Graph {
         output_sinks(&self.nodes, &self.default_sink)
     }
 
+    /// The source "System default" means for the mixer. A Bluetooth headset mic
+    /// as the default would put the headset in hands-free mode and take its
+    /// stereo output away, so the Frame mic stands in. Picking the headset mic
+    /// by name still uses it.
+    pub fn mixer_default_source(default_source: &str) -> &str {
+        if default_source.is_empty() || default_source.starts_with("bluez_") {
+            Self::BUILTIN_SOURCE
+        } else {
+            default_source
+        }
+    }
+
     pub fn is_vrlink(node: &AudioNode) -> bool {
         node.media_name == "Valve VRLink Microphone Input"
             || node.app_name == "vrlink"
@@ -381,6 +409,12 @@ pub fn self_test() -> Result<(), String> {
     let names: Vec<_> = extra.pickable_sources().into_iter().map(|node| node.name).collect();
     if names != vec!["bluez_input.headset".to_string()] {
         return Err(format!("pickable {names:?}"));
+    }
+    if Graph::mixer_default_source("bluez_input.1C_6E_4C_A2_FE_3D.0") != Graph::BUILTIN_SOURCE
+        || Graph::mixer_default_source("") != Graph::BUILTIN_SOURCE
+        || Graph::mixer_default_source("alsa_input.usb") != "alsa_input.usb"
+    {
+        return Err("mixer default source".into());
     }
     if graph.link_target("frame_amix_source") != "42" {
         return Err("serial target".into());

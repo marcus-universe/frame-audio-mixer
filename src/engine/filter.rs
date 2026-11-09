@@ -147,7 +147,7 @@ unsafe extern "C" fn on_process<D: Dsp>(data: *mut c_void, position: *mut spa::s
     dsp.process(input, output);
 }
 
-unsafe fn read_port<'a>(port: *mut c_void, frames: usize, silence: &'a [f32]) -> &'a [f32] {
+unsafe fn read_port(port: *mut c_void, frames: usize, silence: &[f32]) -> &[f32] {
     let buffer = pw::pw_filter_get_dsp_buffer(port, frames as u32) as *const f32;
     if buffer.is_null() {
         &silence[..frames]
@@ -158,7 +158,7 @@ unsafe fn read_port<'a>(port: *mut c_void, frames: usize, silence: &'a [f32]) ->
 
 /// An output nobody is linked to has no buffer. The DSP still runs, into scratch,
 /// so its meter keeps moving.
-unsafe fn write_port<'a>(port: *mut c_void, frames: usize, scratch: &'a mut [f32]) -> &'a mut [f32] {
+unsafe fn write_port(port: *mut c_void, frames: usize, scratch: &mut [f32]) -> &mut [f32] {
     let buffer = pw::pw_filter_get_dsp_buffer(port, frames as u32) as *mut f32;
     if buffer.is_null() {
         &mut scratch[..frames]

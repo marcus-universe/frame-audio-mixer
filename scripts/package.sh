@@ -8,10 +8,17 @@ cd "$here"
 export PATH="$HOME/.cargo/bin:$PATH"
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1 | tr -d '\r')"
 cargo build --release
+cargo build --release --manifest-path vst-host/Cargo.toml
 stage="$(mktemp -d)"
 trap 'rm -rf "$stage"' EXIT
 mkdir -p "$stage/contrib/wireplumber" "$stage/assets/icons" "$stage/scripts"
 cp target/release/frame-audio-mixer "$stage/frame-audio-mixer"
+cp vst-host/target/release/frame-vst-host "$stage/frame-vst-host"
+if [[ -f vst-host/prebuilt/frame-vst-host.exe ]]; then
+    cp vst-host/prebuilt/frame-vst-host.exe "$stage/frame-vst-host.exe"
+else
+    echo "warning: vst-host/prebuilt/frame-vst-host.exe is missing; run scripts/build-vst-host-windows.ps1 on Windows" >&2
+fi
 cp install.sh LICENSE NOTICE "$stage/"
 cp contrib/*.service contrib/*.desktop "$stage/contrib/"
 cp contrib/wireplumber/* "$stage/contrib/wireplumber/"

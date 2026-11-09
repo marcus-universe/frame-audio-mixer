@@ -32,6 +32,12 @@ Desde un checkout de git, `./install.sh` compila con `cargo` e instala. `./insta
 - Cuando la fila es más ancha que el panel, desplázala con el stick del mando o arrastra la barra bajo los canales.
 - Cada tira tiene un fader, desde el silencio total hasta +12 dB, con un tope en 0 dB. Los botones de silencio y solo están debajo. Los botones de ruta están apilados junto al fader: A1 a A4 (lo que oyes), PC (el micrófono de streaming del PC), B1 a B4 (micrófonos virtuales) y luego FX1 y FX2. Con 6 u 8 salidas, los botones A y B se reparten en dos columnas. En la vista de lista quedan en una fila junto a silencio y solo.
 
+Un stream que cae en un canal al que no está anclado se devuelve: a su propio canal, o fuera del mezclador para que suene en la salida normal. Los anclajes comparan el binario de la app cuando se conoce — dos apps con el mismo nombre (las apps Electron se presentan todas como «Chromium») no pueden quitarse el canal.
+
+## Proyectos
+
+El botón de carpeta de la cabecera guarda configuraciones de enrutado. Un proyecto almacena canales, anclajes, rutas, cadenas de efectos y niveles en un archivo JSON bajo `~/.config/frame-audio-mixer/projects/`. Cargarlo reemplaza la configuración actual; las preferencias de pantalla (idioma, tema, diseño) se mantienen.
+
 ## Salidas
 
 El micrófono de streaming del PC siempre está ahí. Ajustes añade 2, 4, 6 u 8 salidas más: 2 son A1 y B1, 8 son A1 a A4 y B1 a B4. Un número menor conserva las rutas guardadas y no las conecta.
@@ -43,6 +49,10 @@ El micrófono de streaming del PC siempre está ahí. Ajustes añade 2, 4, 6 u 8
 El cajón Salidas (icono de altavoz en la barra derecha) tiene la prueba de mezcla arriba y luego un contenedor por salida: su nombre, el fader maestro debajo y el silencio a la derecha. PC va primero.
 
 Los ajustes de la versión 2 se trasladan en la primera carga: el antiguo B1 pasa a ser PC (con su fader y su silencio), y los antiguos B2 a B4 pasan a ser B1 a B3.
+
+## Flujo de señal
+
+La página Flujo de señal (junto a «Apps y actualizaciones» en la cabecera) dibuja toda la mezcla como un grafo por carriles: fuentes, canales del mezclador, salidas y los dispositivos a los que llegan. Las conexiones salen del enrutado guardado, y cada una se comprueba contra los enlaces PipeWire reales del motor: una ruta cuyo enlace desapareció se dibuja como línea roja discontinua. La señal audible ensancha un enlace vivo con un brillo del color del nivel. Arrastrar desplaza, el stick hace scroll, y al seleccionar un nodo se ve el nodo PipeWire que hay detrás. El botón «Otras apps» muestra además cada app que no está en ningún canal, con el dispositivo en el que realmente suena.
 
 ## Micrófono
 

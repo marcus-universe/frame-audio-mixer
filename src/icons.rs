@@ -235,7 +235,7 @@ pub fn self_test() -> Result<(), String> {
     fs::create_dir_all(&png_dir).map_err(|e| e.to_string())?;
     fs::write(apps.join("zen.desktop"), text).map_err(|e| e.to_string())?;
     fs::write(png_dir.join("zen.png"), b"not-a-real-png").map_err(|e| e.to_string())?;
-    let mut index = build(&[dir.clone()]);
+    let mut index = build(std::slice::from_ref(&dir));
     let found = index.lookup("playback", "zen").ok_or("missed zen by binary")?;
     if found != png_dir.join("zen.png") {
         return Err(format!("resolved {found:?}"));

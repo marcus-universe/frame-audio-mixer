@@ -5,8 +5,8 @@
 mod check;
 mod install;
 
-pub use check::{check, current_view, url_allowed, version_core, vercmp, Asset, UpdateState, UpdateView, ASSET, REPO, VERSION};
-pub use install::{detach, path_allowed, run};
+pub use check::{check, current_view, url_allowed, UpdateState, UpdateView, VERSION};
+pub use install::{detach, run};
 
 pub fn self_test() -> Result<(), String> {
     check::self_test()?;

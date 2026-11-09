@@ -37,13 +37,18 @@ pub(crate) fn sheet(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, wh
     let gh = (h - 220.0).max(180.0);
     panel.eq_graph = Some((gx, gy, gw, gh));
     fill_round(cr, gx, gy, gw, gh, 12.0, draw::BG);
+    let _ = cr.save();
+    draw::rounded(cr, gx, gy, gw, gh, 12.0);
+    cr.clip();
+    panel.spectrum.paint(cr, panel.config.eq_view, gx, gy, gw, gh);
+    let _ = cr.restore();
     paint_curve(cr, &eq, gx, gy, gw, gh);
     let band = panel.eq_band.min(eq.bands.len().saturating_sub(1));
     for (index, item) in eq.bands.iter().enumerate() {
         let px = gx + freq_x(item.freq, gw);
         let py = gy + gain_y(item.gain_db, gh);
         let fill = if index == band { draw::accent() } else { TEXT };
-        let _ = cr.arc(px, py, 11.0, 0.0, std::f64::consts::TAU);
+        cr.arc(px, py, 11.0, 0.0, std::f64::consts::TAU);
         draw::fill(cr, fill, 1.0);
         let num = (index + 1).to_string();
         centered(cr, fonts, true, 11.0, draw::BG, px - 11.0, 22.0, py, &num);
@@ -67,6 +72,26 @@ pub(crate) fn sheet(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, wh
         centered(cr, fonts, true, 12.0, if item.on { draw::on_accent() } else { MUTED }, gx + gw - 72.0, 64.0, by + 16.0, t.eq_band);
         panel.hot("eq-on", gx + gw - 72.0, by, 64.0, 32.0);
     }
+    menus_row(panel, cr, fonts, t, who, gx, by + 46.0);
+}
+
+/// The preset and analyzer dropdowns under the band controls.
+fn menus_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, who: &str, x: f64, y: f64) {
+    const W: f64 = 260.0;
+    const H: f64 = 40.0;
+    let lang = panel.lang;
+    if let Some((bus, index)) = fx_position(who) {
+        let caption = slot_mut(panel, who).map(|slot| super::menu::preset_caption(slot, lang, t)).unwrap_or_default();
+        super::menu::button(panel, cr, fonts, super::menu::Menu::Preset { bus, index }, x, y, W, H, &caption);
+    }
+    let caption = format!("{}: {}", t.eq_view, super::menu::view_name(t, panel.config.eq_view));
+    super::menu::button(panel, cr, fonts, super::menu::Menu::EqView, x + W + 12.0, y, W, H, &caption);
+}
+
+/// Effect bus and chain position from a sheet id, `fx:{bus}:{index}`.
+pub(crate) fn fx_position(who: &str) -> Option<(usize, usize)> {
+    let (bus, index) = who.strip_prefix("fx:")?.split_once(':')?;
+    Some((bus.parse().ok()?, index.parse().ok()?))
 }
 
 fn text_btn(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, label: &str, id: &str) {
@@ -99,9 +124,6 @@ fn paint_curve(cr: &Context, eq: &ParamEq, x: f64, y: f64, w: f64, h: f64) {
         cr.line_to(x + w, py);
     }
     let _ = cr.stroke();
-    let accent = draw::accent();
-    cr.set_source_rgba(accent.r, accent.g, accent.b, 0.95);
-    cr.set_line_width(3.0);
     let n = 240;
     for i in 0..n {
         let freq = 20.0 * (1000.0_f64).powf(i as f64 / (n - 1) as f64);
@@ -110,6 +132,13 @@ fn paint_curve(cr: &Context, eq: &ParamEq, x: f64, y: f64, w: f64, h: f64) {
         let py = y + gain_y(db, h);
         if i == 0 { cr.move_to(px, py); } else { cr.line_to(px, py); }
     }
+    // A dark edge keeps the curve readable on the brightest part of the heat map.
+    cr.set_source_rgba(draw::BG.r, draw::BG.g, draw::BG.b, 0.65);
+    cr.set_line_width(6.0);
+    let _ = cr.stroke_preserve();
+    let accent = draw::accent();
+    cr.set_source_rgba(accent.r, accent.g, accent.b, 0.95);
+    cr.set_line_width(3.0);
     let _ = cr.stroke();
 }
 

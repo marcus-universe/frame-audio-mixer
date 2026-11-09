@@ -13,6 +13,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libloading = "0.8"
 libc = "0.2"
+memmap2 = "0.9"
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 sha2 = "0.10"
 flate2 = "1"
@@ -37,3 +38,10 @@ opt-level = 3
 
 [profile.dev.package.pipewire-sys]
 opt-level = 3
+
+[lints.clippy]
+# Immediate-mode drawing helpers take their geometry as plain arguments;
+# bundling them into structs would hide the call sites' intent.
+too_many_arguments = "allow"
+# Self-tests and demos build configs by assigning onto a default.
+field_reassign_with_default = "allow"

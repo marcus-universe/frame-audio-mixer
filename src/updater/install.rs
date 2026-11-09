@@ -43,7 +43,7 @@ pub fn detach() -> Result<(), String> {
         "--unit=frame-audio-mixer-update",
         "--collect",
         "--quiet",
-        &format!("--description=Update frame-audio-mixer"),
+        "--description=Update frame-audio-mixer",
     ]);
     for key in ["HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "PATH"] {
         if let Ok(value) = std::env::var(key) {
@@ -79,7 +79,7 @@ pub fn run() -> Result<(), String> {
 }
 
 fn run_inner(log_path: &Path) -> Result<(), String> {
-    let asset = fetch().map_err(|e| e)?;
+    let asset = fetch()?;
     let latest = version_core(&asset.version).ok_or_else(|| format!("bad version {}", asset.tag))?;
     let current = version_core(VERSION).unwrap_or_else(|| VERSION.into());
     if vercmp(&latest, &current) != 1 {

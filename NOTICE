@@ -28,9 +28,9 @@ https://api.iconify.design/collection?prefix=<set>&info=1):
   https://icon-sets.iconify.design/at-icons/headphones/
   https://icon-sets.iconify.design/at-icons/magnet/
   https://github.com/Voxybuns/at-icons/blob/main/LICENSE
-- fluent:table-resize-column-24-filled and fluent:table-resize-row-24-filled —
+- fluent:full-screen-maximize-16-filled and fluent:full-screen-minimize-16-filled —
   Fluent UI System Icons, Microsoft Corporation, MIT
-  https://icon-sets.iconify.design/fluent/table-resize-column-24-filled/
+  https://icon-sets.iconify.design/fluent/full-screen-maximize-16-filled/
   https://github.com/microsoft/fluentui-system-icons/blob/main/LICENSE
 - fa6-solid:list-ul and fa-solid:columns — Font Awesome Free, Fonticons Inc, CC BY 4.0
   https://icon-sets.iconify.design/fa6-solid/list-ul/

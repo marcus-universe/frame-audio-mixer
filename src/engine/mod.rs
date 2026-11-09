@@ -5,6 +5,7 @@ mod bluetooth;
 mod filter;
 mod link;
 mod pw;
+mod vst;
 
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -20,8 +21,13 @@ pub fn serve(spike: bool) -> Result<(), String> {
     pw::serve(spike)
 }
 
+pub fn vst_bridge_test(bundle: &str, arch: &str) -> Result<(), String> {
+    vst::bridge_test(bundle, arch)
+}
+
 pub fn self_test() -> Result<(), String> {
-    link::self_test()
+    link::self_test()?;
+    pw::self_test()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -40,6 +46,9 @@ pub struct Status {
     pub has_take: bool,
     #[serde(default)]
     pub take_secs: f64,
+    /// Plugin host progress by instance: starting, running, failed or stopped.
+    #[serde(default)]
+    pub vst: HashMap<String, String>,
 }
 
 /// One request to the engine. `None` means the socket is not there yet.
@@ -62,6 +71,24 @@ struct MeterReply {
 pub fn meters() -> Option<HashMap<String, f32>> {
     let line = roundtrip(r#"{"op":"meters"}"#)?;
     serde_json::from_str::<MeterReply>(&line).ok().map(|reply| reply.meters)
+}
+
+#[derive(Deserialize)]
+struct SpectrumReply {
+    #[serde(default)]
+    bands: Vec<f32>,
+}
+
+/// Spectrum after one effect of one bus, in dBFS. Also keeps its capture running.
+pub fn spectrum(bus: usize, slot: usize) -> Option<Vec<f32>> {
+    let line = roundtrip(&format!(r#"{{"op":"spectrum","bus":{bus},"slot":{slot}}}"#))?;
+    serde_json::from_str::<SpectrumReply>(&line).ok().map(|reply| reply.bands)
+}
+
+/// Asks the host of one plugin to open its editor.
+pub fn open_vst_editor(instance: &str) -> bool {
+    let line = serde_json::json!({ "op": "vst_gui", "instance": instance }).to_string();
+    roundtrip(&line).is_some()
 }
 
 fn roundtrip(line: &str) -> Option<String> {

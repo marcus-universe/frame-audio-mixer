@@ -74,7 +74,7 @@ fn update_box(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, update: 
 
 fn update_line(t: &Text, update: &UpdateView) -> (String, bool) {
     match update.state {
-        UpdateState::UpToDate => (fmt_token(t.up_to_date_fmt, "version", &crate::updater::VERSION), false),
+        UpdateState::UpToDate => (fmt_token(t.up_to_date_fmt, "version", crate::updater::VERSION), false),
         UpdateState::Available => (fmt_token(t.update_to_fmt, "version", &update.latest), false),
         UpdateState::Installing => (format!("{} {}", t.installing, update.step), false),
         UpdateState::Installed => (fmt_token(t.up_to_date_fmt, "version", &update.version), false),
@@ -178,7 +178,7 @@ pub(crate) fn list(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (content - list_h).max(0.0));
     let _ = cr.save();
     cr.rectangle(x + 16.0, list_top, w - 32.0, list_h);
-    let _ = cr.clip();
+    cr.clip();
     let mut row = list_top - panel.dialog_scroll;
     let apps = snap.apps.clone();
     for entry in &apps {

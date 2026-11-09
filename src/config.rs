@@ -152,6 +152,16 @@ pub struct Config {
     /// Share of the two sections given to the right column. 0 keeps the built-in width.
     #[serde(default)]
     pub split: f64,
+    /// Signal Flow also shows apps that are not on any channel, playing on the
+    /// normal output.
+    #[serde(default)]
+    pub flow_apps: bool,
+    /// Folder scanned for VST3 plugins. `~/` is the home folder.
+    #[serde(default = "default_vst_folder")]
+    pub vst_folder: String,
+    /// What is drawn behind the parametric EQ curve.
+    #[serde(default)]
+    pub eq_view: EqView,
     #[serde(default)]
     pub a: [Bus; 4],
     #[serde(default)]
@@ -173,6 +183,22 @@ pub struct Config {
     pub version: u32,
 }
 
+/// The analyzer drawn behind the parametric EQ.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum EqView {
+    Off,
+    Line,
+    #[default]
+    Area,
+    Bars,
+    Heat,
+}
+
+impl EqView {
+    pub const ALL: [EqView; 5] = [EqView::Off, EqView::Line, EqView::Area, EqView::Bars, EqView::Heat];
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum EffectKind {
@@ -183,6 +209,8 @@ pub enum EffectKind {
     Flanger,
     Phaser,
     Delay,
+    /// A VST3 plugin, run by a host process. Not in `ALL`: it is picked from a scan.
+    Vst,
 }
 
 impl EffectKind {
@@ -205,6 +233,7 @@ impl EffectKind {
             EffectKind::Flanger => "flanger",
             EffectKind::Phaser => "phaser",
             EffectKind::Delay => "delay",
+            EffectKind::Vst => "vst",
         }
     }
 
@@ -215,6 +244,7 @@ impl EffectKind {
     pub fn param_count(self) -> usize {
         match self {
             EffectKind::Pitcher => 1,
+            EffectKind::Vst => 0,
             _ => 3,
         }
     }
@@ -228,6 +258,7 @@ impl EffectKind {
             EffectKind::Flanger => [0.35, 0.5, 0.35],
             EffectKind::Phaser => [0.3, 0.55, 0.4],
             EffectKind::Delay => [0.35, 0.3, 0.3],
+            EffectKind::Vst => [0.5; 3],
         }
     }
 }
@@ -243,11 +274,17 @@ pub struct EffectSlot {
     /// Set for a parametric EQ. Absent means the three legacy Low/Mid/High knobs.
     #[serde(default)]
     pub eq: Option<ParamEq>,
+    /// Character the sliders do not show, set by presets. See `fx::presets`.
+    #[serde(default = "default_effect_params")]
+    pub extra: [f64; 3],
+    /// The plugin, for a VST slot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vst: Option<crate::vst::VstRef>,
 }
 
 impl EffectSlot {
     pub fn new(kind: EffectKind) -> Self {
-        Self { kind, params: kind.defaults(), pitch_snap: true, eq: None }
+        Self { kind, params: kind.defaults(), pitch_snap: true, eq: None, extra: default_effect_params(), vst: None }
     }
 }
 
@@ -329,27 +366,6 @@ pub enum BandType {
     Shelf,
     HighPass,
     LowPass,
-}
-
-impl BandType {
-    pub fn key(self) -> &'static str {
-        match self {
-            BandType::Bell => "bell",
-            BandType::Shelf => "shelf",
-            BandType::HighPass => "highpass",
-            BandType::LowPass => "lowpass",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "bell" => BandType::Bell,
-            "shelf" => BandType::Shelf,
-            "highpass" => BandType::HighPass,
-            "lowpass" => BandType::LowPass,
-            _ => return None,
-        })
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -560,9 +576,16 @@ impl Default for Config {
             check_play: String::new(),
             fx_a: FxBus::default(),
             fx_b: FxBus::default(),
+            flow_apps: false,
+            eq_view: EqView::default(),
+            vst_folder: default_vst_folder(),
             version: CONFIG_VERSION,
         }
     }
+}
+
+fn default_vst_folder() -> String {
+    "~/.vst3".into()
 }
 
 pub fn config_path() -> PathBuf {
@@ -898,6 +921,103 @@ pub fn name_from_app(app: &str) -> Option<String> {
 }
 
 /// Trim, collapse spaces, and reject names that would break a PipeWire property.
+/// One saved routing setup. The whole config is stored; the live config's
+/// screen preferences win when a project is loaded, so loading a setup does not
+/// change language, theme or layout.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Project {
+    pub name: String,
+    /// Unix seconds when the project was written.
+    #[serde(default)]
+    pub saved: u64,
+    pub config: Config,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectInfo {
+    pub name: String,
+    pub path: PathBuf,
+}
+
+pub fn projects_dir() -> PathBuf {
+    config_path().with_file_name("projects")
+}
+
+pub fn list_projects() -> Vec<ProjectInfo> {
+    list_projects_in(&projects_dir())
+}
+
+pub fn list_projects_in(dir: &Path) -> Vec<ProjectInfo> {
+    let Ok(entries) = fs::read_dir(dir) else { return Vec::new() };
+    let mut out: Vec<ProjectInfo> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("json"))
+        .filter_map(|path| {
+            let text = fs::read_to_string(&path).ok()?;
+            let project: Project = serde_json::from_str(&text).ok()?;
+            Some(ProjectInfo { name: project.name, path })
+        })
+        .collect();
+    out.sort_by_key(|info| info.name.to_lowercase());
+    out
+}
+
+/// The file a project saves under. Saving the same name overwrites its file.
+fn project_slug(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c.to_lowercase().next().unwrap_or(c) } else { '-' })
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() { "project".into() } else { slug.to_string() }
+}
+
+pub fn save_project(name: &str, config: &Config) -> Result<(), String> {
+    save_project_in(&projects_dir(), name, config).map(|_| ())
+}
+
+pub fn save_project_in(dir: &Path, name: &str, config: &Config) -> Result<PathBuf, String> {
+    fs::create_dir_all(dir).map_err(|err| err.to_string())?;
+    let saved = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .unwrap_or(0);
+    let project = Project { name: name.to_string(), saved, config: config.clone() };
+    let text = serde_json::to_string_pretty(&project).map_err(|err| err.to_string())?;
+    let path = dir.join(format!("{}.json", project_slug(name)));
+    fs::write(&path, text).map_err(|err| err.to_string())?;
+    Ok(path)
+}
+
+/// The project's routing, with the live config's screen preferences kept.
+pub fn load_project(path: &Path, current: &Config) -> Option<Config> {
+    let text = fs::read_to_string(path).ok()?;
+    let project: Project = serde_json::from_str(&text).ok()?;
+    Some(adopt_project(project.config, current))
+}
+
+fn adopt_project(mut loaded: Config, current: &Config) -> Config {
+    loaded.language = current.language.clone();
+    loaded.accent = current.accent.clone();
+    loaded.meters = current.meters;
+    loaded.snap = current.snap;
+    loaded.list = current.list;
+    loaded.input_list = current.input_list;
+    loaded.wide = current.wide;
+    loaded.split = current.split;
+    loaded.flow_apps = current.flow_apps;
+    loaded.eq_view = current.eq_view;
+    loaded.vst_folder = current.vst_folder.clone();
+    loaded.check_updates = current.check_updates;
+    loaded.version = current.version;
+    loaded
+}
+
+pub fn delete_project(path: &Path) {
+    let _ = fs::remove_file(path);
+}
+
 pub fn normalize_name(raw: &str) -> Result<String, &'static str> {
     let collapsed = raw.split_whitespace().collect::<Vec<_>>().join(" ");
     if collapsed.is_empty() {
@@ -950,13 +1070,39 @@ pub fn self_test() -> Result<(), String> {
         channel.id = format!("ch{}", n + 1);
     }
     assert!(next_channel_id(&channels).is_none());
-    assert!(MAX_CHANNELS > 8);
+    const { assert!(MAX_CHANNELS > 8) };
     for good in ["ch1", "ch9", "ch10", &format!("ch{MAX_CHANNELS}")] {
         assert!(is_channel_id(good), "{good}");
     }
     for bad in ["ch", "ch0", "ch01", "ch-1", "chx", "ch1 ", &format!("ch{}", MAX_CHANNELS + 1)] {
         assert!(!is_channel_id(bad), "{bad}");
     }
+    if project_slug("VR Night!") != "vr-night" || project_slug("  ") != "project" {
+        return Err(format!("project slug {}", project_slug("VR Night!")));
+    }
+    let dir = std::env::temp_dir().join(format!("famx-projects-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    let mut setup = Config::default();
+    setup.mix_on = true;
+    setup.channels.push(Channel::new("ch1", "Music"));
+    save_project_in(&dir, "VR Night", &setup)?;
+    save_project_in(&dir, "Stream", &setup)?;
+    let listed = list_projects_in(&dir);
+    if listed.len() != 2 || listed[0].name != "Stream" || listed[1].name != "VR Night" {
+        return Err(format!("project list {listed:?}"));
+    }
+    let mut current = Config::default();
+    current.language = "de".into();
+    current.wide = true;
+    let loaded = load_project(&listed[1].path, &current).ok_or("project load")?;
+    if !loaded.mix_on || loaded.channels.len() != 1 || loaded.language != "de" || !loaded.wide {
+        return Err("project merge".into());
+    }
+    delete_project(&listed[0].path);
+    if list_projects_in(&dir).len() != 1 {
+        return Err("project delete".into());
+    }
+    let _ = fs::remove_dir_all(&dir);
     assert_eq!(snap_volume(0.49, 0.02), 0.5);
     assert_eq!(snap_volume(1.015, 0.02), 1.0);
     assert_eq!(snap_volume(0.65, 0.02), 0.65);

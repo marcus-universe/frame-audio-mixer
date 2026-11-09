@@ -8,8 +8,8 @@
 mod catalog;
 mod manager;
 
-pub use catalog::{bundled, embedded_png, parse_catalog, self_test as catalog_test, AppInfo};
-pub use manager::{AppState, Entry, LaunchError, Manager};
+pub use catalog::{bundled, embedded_png, self_test as catalog_test};
+pub use manager::{AppState, Entry, Manager};
 
 pub fn self_test() -> Result<(), String> {
     catalog_test()?;

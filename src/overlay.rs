@@ -18,7 +18,6 @@ const COLOR_GAMMA: u32 = 1;
 const MOUSE_LEFT: u32 = 1;
 const EVENT_SIZE: u32 = 60;
 
-const FIND_OVERLAY: usize = 0;
 const SET_FLAG: usize = 11;
 const SET_WIDTH: usize = 22;
 const POLL_OVERLAY: usize = 48;
@@ -40,7 +39,6 @@ const COMP_DEVICE_EXT: usize = 42;
 pub const MOUSE_MOVE: u32 = 300;
 pub const MOUSE_DOWN: u32 = 301;
 pub const MOUSE_UP: u32 = 302;
-pub const FOCUS_LEAVE: u32 = 304;
 pub const SCROLL_DISCRETE: u32 = 305;
 pub const SCROLL_SMOOTH: u32 = 309;
 pub const OVERLAY_CLOSED: u32 = 534;
@@ -56,7 +54,6 @@ pub struct Session {
     _lib: libloading::Library,
     shutdown: unsafe extern "C" fn(),
     system: *mut c_void,
-    compositor: *mut c_void,
     overlay: *mut c_void,
     handle: u64,
     thumb: u64,
@@ -178,7 +175,6 @@ impl Session {
             _lib: lib,
             shutdown,
             system,
-            compositor,
             overlay,
             handle,
             thumb,
@@ -455,11 +451,3 @@ pub fn self_test() -> Result<(), String> {
     Ok(())
 }
 
-/// Confirms the overlay key still belongs to this process.
-pub fn owns_overlay(session: &Session) -> bool {
-    let find: unsafe extern "C" fn(*mut c_void, *const std::ffi::c_char, *mut u64) -> u32 = unsafe { vslot(session.overlay, FIND_OVERLAY) };
-    let key = c_str(KEY);
-    let mut found = 0u64;
-    let rc = unsafe { find(session.overlay, key.as_ptr(), &mut found) };
-    rc == 0 && found == session.handle
-}

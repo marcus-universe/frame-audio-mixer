@@ -15,6 +15,7 @@ mod meter;
 mod overlay;
 mod panel;
 mod updater;
+mod vst;
 mod vulkan;
 mod worker;
 
@@ -65,6 +66,18 @@ fn main() {
             eprintln!("frame-audio-mixer: {err}");
             std::process::exit(1);
         }
+        return;
+    }
+    if let Some(pos) = args.iter().position(|arg| arg == "--vst-bridge-test") {
+        let (bundle, arch) = (args.get(pos + 1).cloned().unwrap_or_default(), args.get(pos + 2).cloned().unwrap_or_default());
+        if let Err(err) = engine::vst_bridge_test(&bundle, &arch) {
+            eprintln!("bridge test failed: {err}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if args.iter().any(|arg| arg == "--dsp-report") {
+        fx::dsp::report();
         return;
     }
     if args.iter().any(|arg| arg == "--help") {
@@ -165,9 +178,8 @@ fn main() {
             if event.kind == overlay::KEYBOARD_CHAR || event.kind == overlay::KEYBOARD_DONE || event.kind == overlay::KEYBOARD_CLOSED {
                 let text = session.keyboard_text();
                 let finished = event.kind != overlay::KEYBOARD_CHAR;
-                if ui.apply_keyboard_text(&text, &event.text, finished) {
-                    dirty = true;
-                }
+                // A keyboard event always redraws, even when the merge kept the draft.
+                let _ = ui.apply_keyboard_text(&text, &event.text, finished);
                 dirty = true;
                 continue;
             }
@@ -188,6 +200,10 @@ fn main() {
         let snap = worker.snapshot();
         // Also with meters off: the Mix Check level bar uses the same feed.
         feed.want(visible);
+        feed.want_spectrum(if visible { ui.spectrum_target() } else { None });
+        if let Some(bands) = feed.take_spectrum() {
+            ui.ingest_spectrum(&bands);
+        }
         let raw = feed.latest();
         levels.ingest(&raw);
         let meters_live = !raw.is_empty();
@@ -229,13 +245,18 @@ fn main() {
 struct MeterFeed {
     wanted: std::sync::Arc<AtomicBool>,
     latest: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, f32>>>,
+    /// Effect bus and chain position the open EQ wants a spectrum for.
+    spectrum_target: std::sync::Arc<std::sync::Mutex<Option<(usize, usize)>>>,
+    spectrum: std::sync::Arc<std::sync::Mutex<Option<Vec<f32>>>>,
 }
 
 impl MeterFeed {
     fn start() -> Self {
-        let feed = Self { wanted: Default::default(), latest: Default::default() };
+        let feed = Self { wanted: Default::default(), latest: Default::default(), spectrum_target: Default::default(), spectrum: Default::default() };
         let wanted = feed.wanted.clone();
         let latest = feed.latest.clone();
+        let target = feed.spectrum_target.clone();
+        let spectrum = feed.spectrum.clone();
         std::thread::spawn(move || loop {
             if !wanted.load(Ordering::Relaxed) {
                 if let Ok(mut map) = latest.lock() {
@@ -248,6 +269,12 @@ impl MeterFeed {
             if let Ok(mut map) = latest.lock() {
                 *map = fresh;
             }
+            if let Some((bus, slot)) = target.lock().ok().and_then(|target| *target) {
+                let bands = engine::spectrum(bus, slot);
+                if let (Some(bands), Ok(mut shared)) = (bands, spectrum.lock()) {
+                    *shared = Some(bands);
+                }
+            }
             std::thread::sleep(Duration::from_millis(33));
         });
         feed
@@ -255,6 +282,17 @@ impl MeterFeed {
 
     fn want(&self, on: bool) {
         self.wanted.store(on, Ordering::Relaxed);
+    }
+
+    fn want_spectrum(&self, target: Option<(usize, usize)>) {
+        if let Ok(mut wanted) = self.spectrum_target.lock() {
+            *wanted = target;
+        }
+    }
+
+    /// The newest spectrum, once. None until the feed has a new one.
+    fn take_spectrum(&self) -> Option<Vec<f32>> {
+        self.spectrum.lock().ok().and_then(|mut shared| shared.take())
     }
 
     fn latest(&self) -> std::collections::HashMap<String, f32> {
@@ -287,6 +325,8 @@ fn apply(worker: &worker::Worker, ui: &mut panel::Panel, action: Action) {
         Action::InstallUpdate => worker.send(Job::InstallUpdate),
         Action::OpenInstaller(key) => worker.send(Job::OpenInstaller(key)),
         Action::Autostart(on) => worker.send(Job::Autostart(on)),
+        Action::ScanVst => worker.send(Job::ScanVst(ui.config.vst_folder.clone())),
+        Action::OpenVst(instance) => worker.send(Job::VstGui(instance)),
     }
 }
 
@@ -304,6 +344,7 @@ fn self_test() -> Result<(), String> {
     worker::self_test()?;
     updater::self_test()?;
     apps::self_test()?;
+    vst::self_test()?;
     let mut seen = std::collections::HashMap::new();
     let stream = graph::AudioNode {
         id: 9,
@@ -364,7 +405,8 @@ fn instance_lock() -> Result<std::fs::File, i32> {
     if let Some(dir) = path.parent() {
         let _ = fs::create_dir_all(dir);
     }
-    let mut file = OpenOptions::new().read(true).write(true).create(true).open(&path).map_err(|_| 1)?;
+    // Not truncated on open: a second instance still reads the owner's pid below.
+    let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(&path).map_err(|_| 1)?;
     let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
     if rc != 0 {
         let mut pid_text = String::new();

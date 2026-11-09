@@ -2,11 +2,11 @@
 //! Nothing in this module calls `wpctl set-default`. The Microphone fader
 //! writes only `frame_amix_mic_virtual_sink`.
 
-use crate::config::{Channel, Config, is_channel_id};
+use crate::config::{Channel, Config, Pin, is_channel_id};
 use crate::graph::{AudioNode, Graph};
 use crate::apps::{self, Entry};
 use crate::updater::{self, UpdateView};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
@@ -28,7 +28,6 @@ pub struct Snapshot {
     pub mix_active: bool,
     pub echo_cancel: Option<bool>,
     pub autostart: bool,
-    pub tuner_version: String,
     pub update: UpdateView,
     pub check: CheckPhase,
     /// Seconds recorded so far, or the play position.
@@ -41,6 +40,10 @@ pub struct Snapshot {
     pub apps: Vec<Entry>,
     pub menu_busy: bool,
     pub meters: HashMap<String, f32>,
+    /// Plugins from the last scan.
+    pub vsts: Vec<crate::vst::VstInfo>,
+    /// Host progress by plugin instance.
+    pub vst_status: HashMap<String, String>,
 }
 
 impl Default for Snapshot {
@@ -50,7 +53,6 @@ impl Default for Snapshot {
             mix_active: false,
             echo_cancel: None,
             autostart: false,
-            tuner_version: String::new(),
             update: UpdateView::default(),
             check: CheckPhase::Idle,
             check_secs: 0.0,
@@ -61,6 +63,8 @@ impl Default for Snapshot {
             apps: Vec::new(),
             menu_busy: false,
             meters: HashMap::new(),
+            vsts: Vec::new(),
+            vst_status: HashMap::new(),
         }
     }
 }
@@ -69,7 +73,6 @@ pub enum Job {
     Apply(Config),
     /// Fader volumes during a drag. Applied on this worker turn, nothing else changes.
     Levels(Config),
-    Refresh,
     Autostart(bool),
     /// Records the output named by `Config::check_output`.
     Record(Config),
@@ -79,6 +82,10 @@ pub enum Job {
     CheckUpdates,
     InstallUpdate,
     OpenInstaller(String),
+    /// Scans a folder for VST3 plugins.
+    ScanVst(String),
+    /// Opens the editor of the plugin with this instance id.
+    VstGui(String),
     Quit,
 }
 
@@ -121,9 +128,11 @@ struct State {
     mix_active: bool,
     echo_cancel: Option<bool>,
     autostart: bool,
-    tuner_version: String,
     facts_at: Option<Instant>,
     pinned: HashMap<u64, u32>,
+    /// (stream serial, wrong sink serial) pairs already moved once. A stream the
+    /// user deliberately puts back is not moved again.
+    bounced: HashSet<(u64, u64)>,
     /// Stream serial to (stream id, channel sink serial) for streams that named a channel sink.
     target_pins: HashMap<u64, (u32, u64)>,
     /// VRLink capture id to the Frame Mix serial written for it.
@@ -140,6 +149,8 @@ struct State {
     booted: bool,
     meters: HashMap<String, f32>,
     engine_up: bool,
+    vsts: Vec<crate::vst::VstInfo>,
+    vst_status: HashMap<String, String>,
 }
 
 fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
@@ -149,9 +160,9 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         mix_active: false,
         echo_cancel: None,
         autostart: false,
-        tuner_version: String::new(),
         facts_at: None,
         pinned: HashMap::new(),
+        bounced: HashSet::new(),
         target_pins: HashMap::new(),
         vrlink_pins: HashMap::new(),
         check_phase: CheckPhase::Idle,
@@ -166,6 +177,8 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         booted: false,
         meters: HashMap::new(),
         engine_up: false,
+        vsts: crate::vst::load_cache(),
+        vst_status: HashMap::new(),
     };
     install_icons(&state.config.accent);
     refresh_facts(&mut state, true);
@@ -228,8 +241,12 @@ fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
         Job::Autostart(on) => set_autostart(on),
         Job::Record(config) => {
             state.config.check_output = config.check_output;
-            ensure_engine(state);
-            send_engine(state, "record");
+            // The socket first: the engine is almost always up, and a
+            // `systemctl is-active` round trip would delay the take's start.
+            if !send_engine(state, "record") {
+                ensure_engine(state);
+                send_engine(state, "record");
+            }
             return true;
         }
         Job::StopCheck => {
@@ -237,8 +254,10 @@ fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
             return true;
         }
         Job::PlayTake => {
-            ensure_engine(state);
-            send_engine(state, "play");
+            if !send_engine(state, "play") {
+                ensure_engine(state);
+                send_engine(state, "play");
+            }
             return true;
         }
         Job::PauseTake => {
@@ -257,12 +276,19 @@ fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
                 state.message = err;
             }
         }
+        Job::ScanVst(folder) => {
+            state.vsts = crate::vst::scan(&crate::vst::expand(&folder));
+            crate::vst::save_cache(&state.vsts);
+        }
+        Job::VstGui(instance) => {
+            crate::engine::open_vst_editor(&instance);
+        }
         Job::OpenInstaller(key) => {
             if let Err(err) = state.apps.launch(&key) {
                 state.message = format!("{err:?}");
             }
         }
-        Job::Refresh | Job::Quit => {}
+        Job::Quit => {}
     }
     false
 }
@@ -278,9 +304,6 @@ fn refresh_facts(state: &mut State, force: bool) {
     }
     state.echo_cancel = echo_cancel();
     state.autostart = unit_enabled("frame-audio-mixer.service");
-    if state.tuner_version.is_empty() {
-        state.tuner_version = tuner_version();
-    }
     state.facts_at = Some(Instant::now());
 }
 
@@ -304,7 +327,6 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         mix_active: state.mix_active,
         echo_cancel: state.echo_cancel,
         autostart: state.autostart,
-        tuner_version: state.tuner_version.clone(),
         update: updater::current_view(),
         check: state.check_phase,
         check_secs: state.check_secs,
@@ -315,6 +337,8 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         apps: state.apps.entries().to_vec(),
         menu_busy: state.apps.menu_busy(),
         meters: state.meters.clone(),
+        vsts: state.vsts.clone(),
+        vst_status: state.vst_status.clone(),
     };
 }
 
@@ -356,7 +380,91 @@ fn sync_audio(state: &mut State) {
         return;
     }
     pin_apps(state, &graph);
+    enforce_channels(state, &graph);
     pin_vrlink(state, &graph);
+}
+
+/// The channel a stream is pinned to. A matching binary wins outright; a pin by
+/// display name only counts while the binaries do not disagree. Electron apps
+/// often all report "Chromium", so a name alone used to move the wrong app.
+pub fn pin_channel_for<'a>(pins: &'a [Pin], channels: &[Channel], stream: &AudioNode) -> Option<&'a str> {
+    if !stream.binary.is_empty() {
+        let by_binary = channels
+            .iter()
+            .find(|channel| !channel.binary.is_empty() && channel.binary.eq_ignore_ascii_case(&stream.binary))
+            .and_then(|channel| pins.iter().find(|pin| pin.channel == channel.id));
+        if let Some(pin) = by_binary {
+            return Some(&pin.channel);
+        }
+    }
+    let label = if stream.app_name.is_empty() { &stream.binary } else { &stream.app_name };
+    let pin = pins.iter().find(|pin| &pin.app == label)?;
+    if let Some(channel) = channels.iter().find(|channel| channel.id == pin.channel) {
+        let other_binary = !channel.binary.is_empty()
+            && !stream.binary.is_empty()
+            && !channel.binary.eq_ignore_ascii_case(&stream.binary);
+        if other_binary {
+            return None;
+        }
+    }
+    Some(&pin.channel)
+}
+
+/// Streams sitting on a channel they are not pinned to are moved once: onto
+/// their own channel, or off the mixer so unassigned audio plays on the normal
+/// output. A stream whose own target names a channel is the app's choice and
+/// `pin_targets` already honors it.
+fn enforce_channels(state: &mut State, graph: &Graph) {
+    let sinks: Vec<(&Channel, &AudioNode)> = state
+        .config
+        .channels
+        .iter()
+        .filter_map(|channel| graph.node_by_name(&format!("frame_amix_{}", channel.id)).map(|node| (channel, node)))
+        .collect();
+    if sinks.is_empty() || graph.edges.is_empty() {
+        return;
+    }
+    let streams = graph.playback_apps();
+    let live: HashSet<u64> = streams.iter().map(|stream| stream.serial).collect();
+    state.bounced.retain(|(serial, _)| live.contains(serial));
+    for stream in &streams {
+        if stream.target.strip_prefix("frame_amix_").is_some_and(is_channel_id) {
+            continue;
+        }
+        let Some((channel, sink)) = sinks.iter().find(|(_, sink)| graph.edges.contains(&(stream.id, sink.id))) else {
+            continue;
+        };
+        let expected = pin_channel_for(&state.config.pins, &state.config.channels, stream);
+        if expected == Some(channel.id.as_str()) {
+            continue;
+        }
+        if !state.bounced.insert((stream.serial, sink.serial)) {
+            continue;
+        }
+        let wanted = expected.and_then(|id| graph.node_by_name(&format!("frame_amix_{id}")));
+        if let Some(wanted) = wanted {
+            // Pinned to another channel: send it there.
+            let _ = Command::new("pw-metadata")
+                .args(["-n", "default", &stream.id.to_string(), "target.object", &wanted.serial.to_string(), "Spa:Id"])
+                .status();
+            state.pinned.insert(stream.serial, stream.id);
+        } else if graph.default_sink.starts_with("frame_amix_") {
+            // The session default itself is a mixer channel, so dropping the
+            // target would land right back here. Aim at the real device.
+            let devices = graph.output_sinks();
+            let device = devices[1].as_deref().or(devices[2].as_deref()).or(devices[0].as_deref());
+            if let Some(serial) = device.and_then(|name| graph.node_by_name(name)).map(|node| node.serial) {
+                let _ = Command::new("pw-metadata")
+                    .args(["-n", "default", &stream.id.to_string(), "target.object", &serial.to_string(), "Spa:Id"])
+                    .status();
+            }
+        } else {
+            // Unassigned: drop the stray target so the stream follows the
+            // normal output again.
+            let _ = Command::new("pw-metadata").args(["-n", "default", "-d", &stream.id.to_string(), "target.object"]).status();
+            state.pinned.remove(&stream.serial);
+        }
+    }
 }
 
 /// The engine runs while this app runs. It is started, never enabled, so quitting
@@ -380,9 +488,14 @@ pub fn stop_engine() {
     let _ = Command::new("systemctl").args(["--user", "stop", ENGINE_UNIT]).status();
 }
 
-fn send_engine(state: &mut State, op: &str) {
-    if let Some(status) = crate::engine::call(op, Some(&state.config)) {
-        apply_status(state, status);
+/// One request to the engine. False means the engine socket did not answer.
+fn send_engine(state: &mut State, op: &str) -> bool {
+    match crate::engine::call(op, Some(&state.config)) {
+        Some(status) => {
+            apply_status(state, status);
+            true
+        }
+        None => false,
     }
 }
 
@@ -394,6 +507,7 @@ fn apply_status(state: &mut State, status: crate::engine::Status) {
     state.check_secs = status.check_secs;
     state.has_take = status.has_take;
     state.take_secs = status.take_secs;
+    state.vst_status = status.vst;
     state.check_phase = match status.check.as_str() {
         "recording" => CheckPhase::Recording,
         "ready" => CheckPhase::Ready,
@@ -472,12 +586,11 @@ fn unpin_vrlink(state: &mut State) {
 
 fn pin_apps(state: &mut State, graph: &Graph) {
     for stream in graph.playback_apps() {
-        let app = if stream.app_name.is_empty() { stream.binary.clone() } else { stream.app_name.clone() };
-        let Some(pin) = state.config.pins.iter().find(|pin| pin.app == app) else { continue };
+        let Some(channel) = pin_channel_for(&state.config.pins, &state.config.channels, &stream) else { continue };
         if state.pinned.contains_key(&stream.serial) {
             continue;
         }
-        let Some(sink) = graph.node_by_name(&format!("frame_amix_{}", pin.channel)) else { continue };
+        let Some(sink) = graph.node_by_name(&format!("frame_amix_{channel}")) else { continue };
         let _ = Command::new("pw-metadata")
             .args(["-n", "default", &stream.id.to_string(), "target.object", &sink.serial.to_string(), "Spa:Id"])
             .status();
@@ -645,7 +758,7 @@ fn sample_abs(pcm: &[u8], offset: usize, format: u16, bits: u16) -> Option<f32> 
 }
 
 pub fn self_test() -> Result<(), String> {
-    if solo_mute(false, false, true) != true || solo_mute(false, true, true) != false || solo_mute(true, true, false) != true {
+    if !solo_mute(false, false, true) || solo_mute(false, true, true) || !solo_mute(true, true, false) {
         return Err("solo mute".into());
     }
     let mut frames = vec![[0i16, 0i16]; 480];
@@ -668,6 +781,48 @@ pub fn self_test() -> Result<(), String> {
     let float_peak = float_wave.first().copied().unwrap_or(0.0);
     if (float_peak - 1.25).abs() > 0.001 {
         return Err(format!("float peak {float_peak}"));
+    }
+    let channel = |id: &str, name: &str, app: &str, binary: &str| {
+        let mut channel = Channel::new(id, name);
+        channel.app = app.into();
+        channel.binary = binary.into();
+        channel
+    };
+    let stream = |app_name: &str, binary: &str| AudioNode {
+        id: 1,
+        serial: 1,
+        name: "stream".into(),
+        description: String::new(),
+        media_class: "Stream/Output/Audio".into(),
+        media_name: String::new(),
+        app_name: app_name.into(),
+        binary: binary.into(),
+        is_virtual: false,
+        target: String::new(),
+    };
+    let channels = vec![channel("ch1", "Feishin", "Feishin", "feishin")];
+    let pins = vec![Pin { app: "Feishin".into(), channel: "ch1".into() }];
+    if pin_channel_for(&pins, &channels, &stream("Feishin", "feishin")) != Some("ch1") {
+        return Err("feishin not pinned to its channel".into());
+    }
+    if pin_channel_for(&pins, &channels, &stream("Chromium", "chromium")).is_some() {
+        return Err("chromium stole the feishin channel".into());
+    }
+    // Electron apps often report the shared name; the binary still finds the channel.
+    if pin_channel_for(&pins, &channels, &stream("Chromium", "feishin")) != Some("ch1") {
+        return Err("binary match ignored".into());
+    }
+    // A name pin with a different binary behind the channel must not match.
+    let shared = vec![channel("ch2", "Browser", "Chromium", "chromium")];
+    let shared_pin = vec![Pin { app: "Chromium".into(), channel: "ch2".into() }];
+    if pin_channel_for(&shared_pin, &shared, &stream("Chromium", "feishin")).is_some() {
+        return Err("shared name matched across binaries".into());
+    }
+    // A custom channel without a stored binary still pins by name alone.
+    let open = vec![channel("ch3", "Music", "", "")];
+    let open_pin = vec![Pin { app: "Spotify".into(), channel: "ch3".into() }];
+    if pin_channel_for(&open_pin, &open, &stream("Spotify", "spotify")) != Some("ch3") {
+        return Err("name pin without binary".into());
     }
     Ok(())
 }
@@ -772,19 +927,6 @@ fn unit_active(unit: &str) -> bool {
 
 fn unit_enabled(unit: &str) -> bool {
     Command::new("systemctl").args(["--user", "is-enabled", "--quiet", unit]).status().is_ok_and(|s| s.success())
-}
-
-fn tuner_version() -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    let bin = PathBuf::from(home).join(".local/bin/frame-mic-tuner");
-    if !bin.exists() {
-        return String::new();
-    }
-    let out = Command::new(&bin).arg("--version").output();
-    match out {
-        Ok(out) => String::from_utf8_lossy(&out.stdout).split_whitespace().last().unwrap_or("").to_string(),
-        Err(_) => "installed".into(),
-    }
 }
 
 fn echo_cancel() -> Option<bool> {

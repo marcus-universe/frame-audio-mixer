@@ -32,6 +32,12 @@ Da un checkout git, `./install.sh` compila con `cargo` e installa. `./install.sh
 - Quando la riga è più larga del pannello, scorrila con la levetta del controller o trascina la barra sotto i canali.
 - Ogni strip ha un fader, dal silenzio a +12 dB, con uno scatto a 0 dB. Mute e Solo sono sotto. I pulsanti di instradamento sono impilati accanto al fader: da A1 ad A4 (ciò che senti), PC (il microfono di streaming del PC), da B1 a B4 (microfoni virtuali), poi FX1 e FX2. Con 6 o 8 uscite i pulsanti A e B si dividono in due colonne. Nella vista a elenco stanno in una riga accanto a Mute e Solo.
 
+Uno stream che finisce su un canale a cui non è fissato viene riportato indietro: sul proprio canale, o fuori dal mixer così suona sull'uscita normale. I pin confrontano il binario dell'app quando è noto — due app con lo stesso nome (le app Electron si presentano tutte come «Chromium») non possono rubarsi il canale.
+
+## Progetti
+
+Il pulsante cartella nell'intestazione contiene le configurazioni salvate. Un progetto memorizza canali, pin, rotte, catene di effetti e livelli in un file JSON sotto `~/.config/frame-audio-mixer/projects/`. Caricarlo sostituisce la configurazione attuale; le preferenze dello schermo (lingua, tema, layout) restano invariate.
+
 ## Uscite
 
 Il microfono di streaming del PC c'è sempre. Le impostazioni dell'app aggiungono altre 2, 4, 6 o 8 uscite: 2 sono A1 e B1, 8 sono da A1 ad A4 e da B1 a B4. Un numero più basso mantiene gli instradamenti salvati e non li collega.
@@ -43,6 +49,10 @@ Il microfono di streaming del PC c'è sempre. Le impostazioni dell'app aggiungon
 Il cassetto Uscite (icona dell'altoparlante sulla barra a destra) contiene Prova mix in cima, poi un riquadro per ogni uscita: il nome, sotto il fader master e a destra Mute. PC viene per primo.
 
 Le impostazioni della versione 2 vengono trasferite al primo caricamento: il vecchio B1 diventa PC (con il suo fader e il suo Mute), e i vecchi B2–B4 diventano B1–B3.
+
+## Flusso del segnale
+
+La pagina Flusso del segnale (accanto ad «App e aggiornamenti» nell'intestazione) disegna l'intero mix come un grafo a corsie: sorgenti, canali del mixer, uscite e i dispositivi raggiunti. I collegamenti vengono dal routing salvato, e ognuno è verificato contro i veri link PipeWire del motore — una rotta il cui link è sparito appare come linea rossa tratteggiata. Il segnale udibile allarga un link attivo con un alone colorato dal livello. Trascinare sposta, lo stick scorre, e selezionando un nodo si vede il nodo PipeWire dietro. L'interruttore «Altre app» mostra anche ogni app che non è su alcun canale, con il dispositivo su cui suona davvero.
 
 ## Microfono
 

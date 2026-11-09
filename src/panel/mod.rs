@@ -6,11 +6,15 @@
 mod apps;
 mod dialogs;
 mod eq;
+mod flow;
 mod footer;
 mod fx;
+mod menu;
 mod mix;
 mod outputs;
 mod rail;
+mod spectrum;
+mod vst;
 
 use crate::apps::Entry;
 use crate::config::{self, Config, Pin};
@@ -25,6 +29,7 @@ use std::time::{Duration, Instant};
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
     Mix,
+    Flow,
     Apps,
 }
 
@@ -33,6 +38,10 @@ enum NameEdit {
     Add,
     Rename(String),
     Bus(usize),
+    /// Saving the current setup as a project.
+    Project,
+    /// The folder scanned for VST3 plugins.
+    VstFolder,
 }
 
 enum Overlay {
@@ -44,6 +53,12 @@ enum Overlay {
     Confirm(String),
     Name(NameEdit),
     Eq(String),
+    /// Saved routing setups: load, save, delete.
+    Projects,
+    /// Built-in effects and VST plugins, to add to one FX bus.
+    FxPicker(usize),
+    /// VST folder, scan, and the plugins found.
+    Vst,
 }
 
 struct Hot {
@@ -106,6 +121,7 @@ const DRAWER_MS: f64 = 0.22;
 const HSCROLL: &str = "hscroll";
 const PAN: &str = "pan";
 const OUT_PAN: &str = "outpan";
+const FLOW_PAN: &str = "flowpan";
 const SPLIT: &str = "split";
 
 /// The two sections share `span`. Each one keeps at least 20% of the window.
@@ -176,6 +192,17 @@ pub struct Panel {
     anim_at: Instant,
     pub(crate) fx_edit: Option<(u8, usize)>,
     fx_drag: Option<(u8, usize)>,
+    /// Pan, zoom and selection of the Signal Flow page.
+    flow: flow::FlowView,
+    /// Saved projects, refreshed when the Projects dialog opens or changes them.
+    projects: Vec<config::ProjectInfo>,
+    /// The open dropdown and the button it belongs to.
+    menu: Option<menu::Menu>,
+    menu_anchor: (f64, f64, f64, f64),
+    spectrum: spectrum::SpectrumView,
+    /// The last scan, and plugin host progress by instance, from the snapshot.
+    pub(crate) vst_plugins: Vec<crate::vst::VstInfo>,
+    pub(crate) vst_status: HashMap<String, String>,
 }
 
 pub enum Action {
@@ -193,6 +220,9 @@ pub enum Action {
     InstallUpdate,
     OpenInstaller(String),
     Autostart(bool),
+    ScanVst,
+    /// Opens the editor of the VST with this instance id.
+    OpenVst(String),
 }
 
 pub const SUGGESTIONS: [&str; 5] = ["Soundboard", "Music", "Video", "Browser", "Game"];
@@ -246,6 +276,13 @@ impl Panel {
             anim_at: Instant::now(),
             fx_edit: None,
             fx_drag: None,
+            flow: flow::FlowView::new(),
+            projects: Vec::new(),
+            menu: None,
+            menu_anchor: (0.0, 0.0, 0.0, 0.0),
+            spectrum: spectrum::SpectrumView::new(),
+            vst_plugins: Vec::new(),
+            vst_status: HashMap::new(),
         }
     }
 
@@ -272,6 +309,9 @@ impl Panel {
     /// Drop an armed Quit or delete, and take the icon index when the scan finishes.
     pub fn tick(&mut self) {
         let now = Instant::now();
+        if self.spectrum_target().is_none() && !self.spectrum.is_clear() {
+            self.spectrum.clear();
+        }
         if self.quit_until.is_some_and(|until| now > until) {
             self.quit_until = None;
         }
@@ -335,38 +375,17 @@ impl Panel {
         }
     }
 
-    /// Taps do not follow the page or a dialog. Starting and stopping capture streams is
-    /// itself a graph change, and the dashboard opening is the worst time for one.
-    pub fn wants_meters(&self) -> bool {
-        self.config.meters
+    /// Effect bus and chain position of the open EQ, while its analyzer is on.
+    pub fn spectrum_target(&self) -> Option<(usize, usize)> {
+        let Overlay::Eq(who) = &self.overlay else { return None };
+        if self.config.eq_view == config::EqView::Off {
+            return None;
+        }
+        eq::fx_position(who)
     }
 
-    /// PipeWire nodes to meter. The mic tap is not passive. Channel taps are.
-    pub fn meter_targets(&self, snap: &Snapshot) -> Vec<crate::meter::Target> {
-        let mut targets = Vec::new();
-        if !self.wants_meters() {
-            return targets;
-        }
-        if let Some(name) = resolved_source(&self.config.mic_source, &snap.graph) {
-            targets.push(crate::meter::Target {
-                key: "mic".into(),
-                object: snap.graph.link_target(&name),
-                capture_sink: false,
-                passive: false,
-                virtual_node: false,
-            });
-        }
-        for channel in self.config.channels.iter().filter(|channel| self.visible_channels.contains(&channel.id)) {
-            let name = format!("frame_amix_{}", channel.id);
-            targets.push(crate::meter::Target {
-                key: channel.id.clone(),
-                object: snap.graph.link_target(&name),
-                capture_sink: true,
-                passive: true,
-                virtual_node: true,
-            });
-        }
-        targets
+    pub fn ingest_spectrum(&mut self, bands: &[f32]) {
+        self.spectrum.ingest(bands, self.config.eq_view);
     }
 
     /// True while the name dialog is waiting on the dashboard keyboard.
@@ -386,12 +405,12 @@ impl Panel {
             let full_n = full.chars().count();
             let draft_n = self.name_draft.chars().count();
             if !full.is_empty() && full_n >= draft_n {
-                truncate_name(full)
+                truncate_to(full, self.text_limit())
             } else {
                 self.name_draft.clone()
             }
         } else {
-            merge_keyboard(&self.name_draft, full, key)
+            merge_keyboard_limit(&self.name_draft, full, key, self.text_limit())
         };
         if next == self.name_draft {
             return false;
@@ -418,10 +437,31 @@ impl Panel {
                 return Action::None;
             }
         };
+        if matches!(mode, NameEdit::VstFolder) {
+            let folder = self.name_draft.trim().to_string();
+            if folder.is_empty() || folder.chars().count() > FOLDER_MAX_CHARS {
+                self.name_rejected = true;
+                return Action::None;
+            }
+            self.config.vst_folder = folder;
+            self.overlay = Overlay::Vst;
+            self.name_draft.clear();
+            self.name_keyboard = false;
+            return Action::ScanVst;
+        }
+        if matches!(mode, NameEdit::Project) {
+            if let Err(err) = config::save_project(&name, &self.config) {
+                eprintln!("frame-audio-mixer: project: {err}");
+            }
+            self.projects = config::list_projects();
+            self.overlay = Overlay::Projects;
+            self.name_draft.clear();
+            self.name_keyboard = false;
+            return Action::None;
+        }
         let except = match &mode {
             NameEdit::Rename(id) => Some(id.as_str()),
-            NameEdit::Add => None,
-            NameEdit::Bus(_) => None,
+            NameEdit::Add | NameEdit::Bus(_) | NameEdit::Project | NameEdit::VstFolder => None,
         };
         if matches!(mode, NameEdit::Bus(_)) {
             if let NameEdit::Bus(index) = mode {
@@ -449,7 +489,7 @@ impl Panel {
                 self.name_draft.clear();
                 Action::Save
             }
-            NameEdit::Bus(_) => Action::None,
+            NameEdit::Bus(_) | NameEdit::Project | NameEdit::VstFolder => Action::None,
         }
     }
 
@@ -458,6 +498,20 @@ impl Panel {
             Overlay::Name(mode) => Some(mode.clone()),
             _ => None,
         }
+    }
+
+    /// The name dialog is saving a project, not naming a channel or bus.
+    pub(crate) fn naming_project(&self) -> bool {
+        matches!(self.overlay, Overlay::Name(NameEdit::Project))
+    }
+
+    /// The name dialog is editing the VST folder path.
+    pub(crate) fn naming_folder(&self) -> bool {
+        matches!(self.overlay, Overlay::Name(NameEdit::VstFolder))
+    }
+
+    fn text_limit(&self) -> usize {
+        if self.naming_folder() { FOLDER_MAX_CHARS } else { config::NAME_MAX_CHARS }
     }
 
     fn add_channel(&mut self, name: String, pin_app: Option<String>) -> Action {
@@ -528,6 +582,12 @@ impl Panel {
                         self.out_scroll = (self.out_scroll - delta).max(0.0);
                     }
                     self.pan_at = Some((x, y));
+                } else if id == FLOW_PAN {
+                    if let Some((px, py)) = self.pan_at {
+                        self.flow.pan.0 -= x - px;
+                        self.flow.pan.1 -= y - py;
+                    }
+                    self.pan_at = Some((x, y));
                 } else if id == SPLIT {
                     self.set_split(x);
                 } else if id.starts_with("fxgrip:") {
@@ -551,12 +611,12 @@ impl Panel {
             self.pan_at = None;
             let dragged = self.drag.take();
             self.fx_drag = None;
-            let save = dragged.as_deref().is_some_and(|id| id != HSCROLL && id != PAN && id != OUT_PAN);
+            let save = dragged.as_deref().is_some_and(|id| id != HSCROLL && id != PAN && id != OUT_PAN && id != FLOW_PAN);
             return if save { Action::Save } else { Action::None };
         }
         if kind == crate::overlay::SCROLL_DISCRETE || kind == crate::overlay::SCROLL_SMOOTH {
             // List rows and dialogs move on the vertical stick. The channel row moves on the horizontal one.
-            let vertical = matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList);
+            let vertical = matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList | Overlay::Projects | Overlay::FxPicker(_) | Overlay::Vst);
             let use_y = if vertical { y.abs() >= x.abs() } else { y.abs() > x.abs() };
             let delta = if use_y { y } else { x };
             // A controller notch is about ±1, which used to move the row by one pixel.
@@ -565,8 +625,13 @@ impl Panel {
                 let who = who.clone();
                 eq::nudge_q(self, &who, delta);
                 return Action::Levels;
-            } else if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList) {
+            } else if matches!(self.overlay, Overlay::Add | Overlay::Mic | Overlay::AppsList | Overlay::Projects | Overlay::FxPicker(_) | Overlay::Vst) {
                 self.dialog_scroll = (self.dialog_scroll - step * 0.45).max(0.0);
+            } else if self.page == Page::Flow {
+                // Both sticks pan the flow canvas; the draw pass clamps.
+                let step_of = |delta: f64| if delta.abs() <= 3.0 { delta * 60.0 } else { delta * 2.0 };
+                self.flow.pan.0 -= step_of(x);
+                self.flow.pan.1 -= step_of(y);
             } else if self.over_outputs() {
                 let delta = if y.abs() >= x.abs() { y } else { x };
                 let step = if delta.abs() <= 3.0 { delta * 150.0 } else { delta * 4.0 };
@@ -585,6 +650,9 @@ impl Panel {
         }
         self.pointer = Some((x, y));
         self.pressed = true;
+        if self.menu.is_some() {
+            return self.hit_at(x, y);
+        }
         if self.language_open {
             let action = self.hit_at(x, y);
             if matches!(action, Action::None) {
@@ -629,6 +697,13 @@ impl Panel {
             self.pan_at = Some((x, y));
             return Action::None;
         }
+        if self.page == Page::Flow
+            && self.flow.canvas.is_some_and(|(cx, cy, cw, ch)| x >= cx && x < cx + cw && y >= cy && y < cy + ch)
+        {
+            self.drag = Some(FLOW_PAN.to_string());
+            self.pan_at = Some((x, y));
+            return Action::None;
+        }
         Action::None
     }
 
@@ -650,6 +725,9 @@ impl Panel {
 
     fn handle(&mut self, id: &str) -> Action {
         let t = i18n::text(self.lang);
+        if let Some(action) = self.handle_menu(id) {
+            return action;
+        }
         if id == "dismiss" {
             self.overlay = Overlay::None;
             self.pin_app = None;
@@ -658,6 +736,7 @@ impl Panel {
             self.name_draft.clear();
             self.name_rejected = false;
             self.name_keyboard = false;
+            self.flow.sel = None;
             return Action::None;
         }
         if id == "quit" {
@@ -737,9 +816,106 @@ impl Panel {
             self.overlay = Overlay::None;
             return Action::None;
         }
+        if id == "flow" {
+            self.page = Page::Flow;
+            self.language_open = false;
+            self.overlay = Overlay::None;
+            return Action::None;
+        }
+        if id == "flow-apps" {
+            self.config.flow_apps = !self.config.flow_apps;
+            return Action::Save;
+        }
+        if let Some(bus) = id.strip_prefix("fxpick:").and_then(|bus| bus.parse::<usize>().ok()) {
+            self.overlay = Overlay::FxPicker(bus.min(1));
+            self.dialog_scroll = 0.0;
+            return Action::None;
+        }
+        if let Some(rest) = id.strip_prefix("fxaddvst:") {
+            let mut parts = rest.split(':').map(str::parse::<usize>);
+            let (Some(Ok(bus)), Some(Ok(index))) = (parts.next(), parts.next()) else { return Action::None };
+            let Some(info) = self.vst_plugins.get(index).filter(|info| info.arch.runs()) else { return Action::None };
+            let chain = &mut fx::bus_mut(&mut self.config, bus).chain;
+            if chain.len() >= 3 {
+                return Action::None;
+            }
+            let mut slot = crate::config::EffectSlot::new(crate::config::EffectKind::Vst);
+            slot.vst = Some(crate::vst::VstRef::place(info));
+            chain.push(slot);
+            self.overlay = Overlay::None;
+            return Action::Save;
+        }
+        if let Some(instance) = id.strip_prefix("vstgui:") {
+            return Action::OpenVst(instance.to_string());
+        }
+        if id == "vst-open" {
+            self.overlay = Overlay::Vst;
+            self.dialog_scroll = 0.0;
+            return Action::None;
+        }
+        if id == "vst-folder" {
+            let folder = self.config.vst_folder.clone();
+            return self.begin_name(NameEdit::VstFolder, folder);
+        }
+        if id == "vst-scan" {
+            return Action::ScanVst;
+        }
+        if id == "projects-open" {
+            self.projects = config::list_projects();
+            self.overlay = Overlay::Projects;
+            self.language_open = false;
+            self.dialog_scroll = 0.0;
+            return Action::None;
+        }
+        if id == "proj-save" {
+            return self.begin_name(NameEdit::Project, String::new());
+        }
+        if let Some(rest) = id.strip_prefix("proj-load:") {
+            let index: usize = rest.parse().unwrap_or(usize::MAX);
+            if let Some(info) = self.projects.get(index) {
+                if let Some(config) = config::load_project(&info.path, &self.config) {
+                    self.config = config;
+                    self.overlay = Overlay::None;
+                    self.scroll = 0.0;
+                    return Action::Save;
+                }
+            }
+            return Action::None;
+        }
+        if let Some(rest) = id.strip_prefix("proj-rm:") {
+            let index: usize = rest.parse().unwrap_or(usize::MAX);
+            let key = format!("proj#{index}");
+            let armed = self.delete_until.as_ref().is_some_and(|(armed, until)| *armed == key && Instant::now() <= *until);
+            if !armed {
+                self.delete_until = Some((key, Instant::now() + Duration::from_secs(3)));
+                return Action::None;
+            }
+            if let Some(info) = self.projects.get(index) {
+                config::delete_project(&info.path);
+            }
+            self.projects = config::list_projects();
+            self.delete_until = None;
+            return Action::None;
+        }
         if id == "back" {
             self.page = Page::Mix;
             self.overlay = Overlay::None;
+            return Action::None;
+        }
+        if let Some(key) = id.strip_prefix("fnode:") {
+            self.flow.sel = if self.flow.sel.as_deref() == Some(key) { None } else { Some(key.to_string()) };
+            return Action::None;
+        }
+        if id == "flow-zin" {
+            self.flow.zoom_by(1.25);
+            return Action::None;
+        }
+        if id == "flow-zout" {
+            self.flow.zoom_by(1.0 / 1.25);
+            return Action::None;
+        }
+        if id == "flow-fit" {
+            self.flow.fit();
             return Action::None;
         }
         if id == "mic-open" {
@@ -787,7 +963,14 @@ impl Panel {
                 return Action::None;
             }
             self.name_keyboard = true;
-            return Action::ShowKeyboard { description: t.channel_name.to_string(), existing: self.name_draft.clone() };
+            let description = if self.naming_project() {
+                t.project_name
+            } else if self.naming_folder() {
+                t.vst_folder
+            } else {
+                t.channel_name
+            };
+            return Action::ShowKeyboard { description: description.to_string(), existing: self.name_draft.clone() };
         }
         if id == "name-ok" {
             return self.commit_name();
@@ -996,6 +1179,9 @@ impl Panel {
 
     fn handle_fx(&mut self, id: &str) -> Option<Action> {
         if let Some(rest) = id.strip_prefix("fxadd:") {
+            if matches!(self.overlay, Overlay::FxPicker(_)) {
+                self.overlay = Overlay::None;
+            }
             let (bus, kind) = rest.split_once(':')?;
             let bus: usize = bus.parse().ok()?;
             let kind = crate::config::EffectKind::parse(kind)?;
@@ -1348,18 +1534,27 @@ impl Panel {
 
     fn draw(&mut self, cr: &Context, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>) {
         self.note_check(snap);
+        if self.vst_plugins != snap.vsts {
+            self.vst_plugins = snap.vsts.clone();
+        }
+        if self.vst_status != snap.vst_status {
+            self.vst_status = snap.vst_status.clone();
+        }
         draw::set_accent(&self.config.accent);
         self.hots.clear();
         self.faders.clear();
         self.hbar = None;
         self.strip = None;
         self.out_list = None;
+        self.flow.canvas = None;
         let (pw, ph) = self.size_f();
         fill_round(cr, 0.0, 0.0, pw, ph, 28.0, BG);
         let t = i18n::text(self.lang);
         self.header(cr, fonts, t);
         if self.page == Page::Apps {
             apps::draw(self, cr, fonts, t, snap);
+        } else if self.page == Page::Flow {
+            flow::draw(self, cr, fonts, t, snap, peaks);
         } else {
             mix::draw(self, cr, fonts, t, snap, peaks);
             match self.drawer {
@@ -1384,7 +1579,11 @@ impl Panel {
             Overlay::Confirm(_) => 5,
             Overlay::Name(_) => 6,
             Overlay::Eq(_) => 8,
+            Overlay::Projects => 9,
+            Overlay::FxPicker(_) => 10,
+            Overlay::Vst => 11,
         };
+        let picker_bus = if let Overlay::FxPicker(bus) = &self.overlay { *bus } else { 0 };
         let confirm_key = if let Overlay::Confirm(key) = &self.overlay { key.clone() } else { String::new() };
         let eq_who = match &self.overlay {
             Overlay::Eq(who) => who.clone(),
@@ -1398,8 +1597,12 @@ impl Panel {
             5 => apps::confirm(self, cr, fonts, t, snap, &confirm_key),
             6 => dialogs::name(self, cr, fonts, t),
             8 => eq::sheet(self, cr, fonts, t, &eq_who),
+            9 => dialogs::projects(self, cr, fonts, t),
+            10 => vst::picker(self, cr, fonts, t, picker_bus),
+            11 => vst::settings(self, cr, fonts, t),
             _ => {}
         }
+        menu::draw(self, cr, fonts, t);
     }
 
     fn header(&mut self, cr: &Context, fonts: &Fonts, t: &Text) {
@@ -1408,11 +1611,34 @@ impl Panel {
         draw::paint_png_bytes(cr, logo, MARGIN, mid - 18.0, 36.0, 36.0);
         draw::label_mid(cr, fonts, true, 24.0, TEXT, MARGIN + 50.0, mid, t.title);
         let (w, _) = self.size_f();
-        let rect = (w - MARGIN - 200.0, mid - 24.0, 200.0, 48.0);
         if self.page == Page::Mix {
-            self.button(cr, fonts, rect.0, rect.1, rect.2, rect.3, t.apps, ButtonKind::Plain);
-            self.hot("apps", rect.0, rect.1, rect.2, rect.3);
+            let apps_w = (draw::text_width(cr, fonts, true, 15.0, t.apps) + 48.0).max(150.0);
+            let flow_w = (draw::text_width(cr, fonts, true, 15.0, t.flow) + 76.0).max(150.0);
+            let apps_x = w - MARGIN - apps_w;
+            let flow_x = apps_x - 12.0 - flow_w;
+            // Projects: an icon button; the dialog carries the words.
+            let proj = (flow_x - 12.0 - 48.0, mid - 24.0, 48.0, 48.0);
+            self.button(cr, fonts, proj.0, proj.1, proj.2, proj.3, "", ButtonKind::Plain);
+            draw::icon(cr, draw::FOLDER_PATH, 24.0, proj.0 + 13.0, proj.1 + 13.0, 22.0, draw::SOFT);
+            self.hot("projects-open", proj.0, proj.1, proj.2, proj.3);
+            // Expand or reduce the whole window. The icon shows what a press does.
+            let wide = (proj.0 - 12.0 - 48.0, mid - 24.0, 48.0, 48.0);
+            let (glyph, id) = if self.config.wide { (draw::MINIMIZE_PATH, "wide-off") } else { (draw::MAXIMIZE_PATH, "wide-on") };
+            self.button(cr, fonts, wide.0, wide.1, wide.2, wide.3, "", ButtonKind::Plain);
+            draw::icon(cr, glyph, 16.0, wide.0 + 13.0, wide.1 + 13.0, 22.0, draw::SOFT);
+            self.hot(id, wide.0, wide.1, wide.2, wide.3);
+            self.button(cr, fonts, apps_x, mid - 24.0, apps_w, 48.0, t.apps, ButtonKind::Plain);
+            self.hot("apps", apps_x, mid - 24.0, apps_w, 48.0);
+            // The caption sits a little right of center, making room for the glyph.
+            draw::button(cr, fonts, flow_x, mid - 24.0, flow_w, 48.0, "", ButtonKind::Plain, self.look(flow_x, mid - 24.0, flow_w, 48.0));
+            let caption_w = draw::text_width(cr, fonts, true, 15.0, t.flow);
+            let content_w = 22.0 + 10.0 + caption_w;
+            let start = flow_x + (flow_w - content_w) / 2.0;
+            draw::icon(cr, draw::FLOW_PATH, 24.0, start, mid - 11.0, 22.0, draw::SOFT);
+            draw::label_mid(cr, fonts, true, 15.0, TEXT, start + 32.0, mid, t.flow);
+            self.hot("flow", flow_x, mid - 24.0, flow_w, 48.0);
         } else {
+            let rect = (w - MARGIN - 200.0, mid - 24.0, 200.0, 48.0);
             self.button(cr, fonts, rect.0, rect.1, rect.2, rect.3, &format!("‹  {}", t.back_mixer), ButtonKind::Plain);
             self.hot("back", rect.0, rect.1, rect.2, rect.3);
         }
@@ -1472,24 +1698,17 @@ pub(crate) fn resolved_source(choice: &str, graph: &Graph) -> Option<String> {
     let wanted = if choice == "builtin" {
         Graph::BUILTIN_SOURCE.to_string()
     } else if choice.is_empty() {
-        if !graph.default_source.is_empty() {
-            graph.default_source.clone()
-        } else if graph.node_by_name(Graph::BUILTIN_SOURCE).is_some() {
-            Graph::BUILTIN_SOURCE.to_string()
-        } else {
-            String::new()
-        }
+        Graph::mixer_default_source(&graph.default_source).to_string()
     } else {
         choice.to_string()
     };
     if live_source(graph, &wanted) {
         return Some(wanted);
     }
-    if choice.is_empty() || choice == "builtin" {
-        if live_source(graph, Graph::BUILTIN_SOURCE) {
+    if (choice.is_empty() || choice == "builtin")
+        && live_source(graph, Graph::BUILTIN_SOURCE) {
             return Some(Graph::BUILTIN_SOURCE.to_string());
         }
-    }
     if live_source(graph, &graph.default_source) {
         return Some(graph.default_source.clone());
     }
@@ -1505,7 +1724,7 @@ pub(crate) fn source_label(choice: &str, graph: &Graph, t: &Text) -> String {
         return t.mic_builtin.to_string();
     }
     if choice.is_empty() {
-        let desc = graph.description_of(&graph.default_source);
+        let desc = graph.description_of(Graph::mixer_default_source(&graph.default_source));
         if desc.is_empty() { t.mic_system.to_string() } else { format!("{} · {desc}", t.mic_system) }
     } else {
         let desc = graph.description_of(choice);
@@ -1608,6 +1827,44 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
         loud.insert(key.to_string(), level);
     }
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "scrolled"))?;
+    panel.page = Page::Flow;
+    panel.config.flow_apps = true;
+    // One unassigned app playing on the speakers, for the Other-apps lane.
+    let flow_extra = snap.graph.nodes.len();
+    let stream_node = |id: u32, name: &str, class: &str, app: &str, binary: &str| crate::graph::AudioNode {
+        id,
+        serial: u64::from(id),
+        name: name.into(),
+        description: String::new(),
+        media_class: class.into(),
+        media_name: "Playback".into(),
+        app_name: app.into(),
+        binary: binary.into(),
+        is_virtual: false,
+        target: String::new(),
+    };
+    snap.graph.nodes.push(stream_node(950, "chromium-play", "Stream/Output/Audio", "Chromium", "chromium"));
+    snap.graph.nodes.push(crate::graph::AudioNode {
+        description: "Frame Speakers".into(),
+        ..stream_node(951, &snap.graph.default_sink.clone(), "Audio/Sink", "", "")
+    });
+    snap.graph.edges.push((950, 951));
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "flow"))?;
+    snap.graph.nodes.truncate(flow_extra);
+    snap.graph.edges.clear();
+    panel.config.flow_apps = false;
+    panel.flow.sel = Some("ch1".into());
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "flow-selected"))?;
+    panel.flow.sel = None;
+    panel.page = Page::Mix;
+    panel.overlay = Overlay::Projects;
+    panel.projects = vec![
+        config::ProjectInfo { name: "VR Night".into(), path: std::path::PathBuf::from("/tmp/vr-night.json") },
+        config::ProjectInfo { name: "Streaming".into(), path: std::path::PathBuf::from("/tmp/streaming.json") },
+    ];
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "projects"))?;
+    panel.projects.clear();
+    panel.overlay = Overlay::None;
     snap.check = CheckPhase::Paused;
     snap.check_secs = 1.6;
     panel.config.b[0].name = "Discord".into();
@@ -1685,9 +1942,60 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.config.fx_a.chain.push(crate::config::EffectSlot::new(crate::config::EffectKind::Delay));
     panel.fx_edit = Some((0, 0));
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx"))?;
+    panel.fx_edit = Some((0, 0));
+    panel.config.fx_a.chain[0].extra = [0.42, 0.6, 0.35];
+    panel.config.fx_a.chain[0].params = [0.85, 0.8, 0.32];
+    let _ = panel.handle("menu:preset:0:0");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-presets"))?;
+    panel.menu = None;
     let _ = panel.handle("fxadd:0:eq");
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-eq"))?;
+    for (view, name) in [(config::EqView::Line, "eq-line"), (config::EqView::Area, "eq-area"), (config::EqView::Bars, "eq-bars"), (config::EqView::Heat, "eq-heat")] {
+        panel.config.eq_view = view;
+        panel.spectrum.clear();
+        for frame in 0..120 {
+            panel.ingest_spectrum(&demo_spectrum(frame));
+        }
+        write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, name))?;
+    }
+    panel.overlay = Overlay::None;
+    let demo_vsts = vec![
+        crate::vst::VstInfo { name: "Valhalla Supermassive".into(), vendor: "Valhalla DSP".into(), path: "/p/a.vst3".into(), cid: String::new(), arch: crate::vst::VstArch::Windows },
+        crate::vst::VstInfo { name: "Dragonfly Room Reverb".into(), vendor: "Michael Willis".into(), path: "/p/b.vst3".into(), cid: String::new(), arch: crate::vst::VstArch::Native },
+        crate::vst::VstInfo { name: "OldVerb".into(), vendor: String::new(), path: "/p/c.vst3".into(), cid: String::new(), arch: crate::vst::VstArch::Unsupported },
+    ];
+    snap.vsts = demo_vsts.clone();
+    let _ = panel.handle("fxpick:0");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-picker"))?;
+    let _ = panel.handle("vst-open");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "vst-settings"))?;
+    panel.overlay = Overlay::None;
+    panel.config.fx_a.chain.truncate(1);
+    let _ = panel.handle("fxaddvst:0:0");
+    let instance = panel.config.fx_a.chain.last().and_then(|slot| slot.vst.as_ref()).map(|v| v.instance.clone()).unwrap_or_default();
+    snap.vst_status.insert(instance, "starting".into());
+    panel.fx_edit = None;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-vst"))?;
+    snap.vsts.clear();
+    let _ = panel.handle("fxpick:0");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-picker-empty"))?;
+    panel.overlay = Overlay::None;
+    let _ = panel.handle("fxadd:0:eq");
+    panel.config.eq_view = config::EqView::Heat;
+    let _ = panel.handle("menu:eqview");
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eq-menu"))?;
     Ok(())
+}
+
+/// A moving, harmonic spectrum for the screenshots.
+fn demo_spectrum(frame: usize) -> Vec<f32> {
+    let pulse = (frame as f32 * 0.21).sin() * 7.0;
+    (0..crate::fx::analyzer::BANDS)
+        .map(|band| {
+            let t = band as f32;
+            -38.0 - t * 0.3 + (t * 0.55 + frame as f32 * 0.05).sin() * 12.0 + (t * 0.13).cos() * 8.0 + pulse
+        })
+        .collect()
 }
 
 fn write_surface(panel: &mut Panel, fonts: &Fonts, snap: &Snapshot, peaks: &HashMap<String, f32>, path: &std::path::Path) -> Result<(), String> {
@@ -1727,14 +2035,13 @@ fn demo_apps() -> Vec<Entry> {
 }
 
 pub(crate) fn paint_app_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts, name: &str, mono: &str, icon_path: &str, x: f64, y: f64, size: f64) -> bool {
-    if !icon_path.is_empty() {
-        if paint_png(panel, cr, icon_path, x, y, size) {
+    if !icon_path.is_empty()
+        && paint_png(panel, cr, icon_path, x, y, size) {
             return true;
         }
-    }
     if let Some((bytes, _)) = crate::apps::embedded_png(name) {
         let key = format!("embedded:{name}");
-        if panel.pngs.get(&key).is_none() {
+        if !panel.pngs.contains_key(&key) {
             if let Ok(surface) = cairo::ImageSurface::create_from_png(&mut std::io::Cursor::new(bytes)) {
                 panel.pngs.insert(key.clone(), surface);
             }
@@ -1789,12 +2096,20 @@ pub(crate) fn paint_desktop_icon(panel: &mut Panel, cr: &Context, fonts: &Fonts,
     draw::label(cr, fonts, true, font, draw::accent(), x + (size - width) / 2.0, y + size * 0.68, &letter);
 }
 
-fn truncate_name(text: &str) -> String {
-    text.chars().take(config::NAME_MAX_CHARS).collect()
+/// Longest VST folder path the dialog accepts.
+const FOLDER_MAX_CHARS: usize = 200;
+
+fn truncate_to(text: &str, limit: usize) -> String {
+    text.chars().take(limit).collect()
+}
+
+fn merge_keyboard(draft: &str, full: &str, key: &str) -> String {
+    merge_keyboard_limit(draft, full, key, config::NAME_MAX_CHARS)
 }
 
 /// The headset keyboard reports either the whole line (`full`) or only the new key (`key`).
-fn merge_keyboard(draft: &str, full: &str, key: &str) -> String {
+fn merge_keyboard_limit(draft: &str, full: &str, key: &str, limit: usize) -> String {
+    let truncate_name = |text: &str| truncate_to(text, limit);
     if key == "\u{8}" || key == "\u{7f}" {
         let mut chars: Vec<char> = draft.chars().collect();
         chars.pop();
@@ -1916,5 +2231,8 @@ pub fn self_test() -> Result<(), String> {
     if (draw::scroll_thumb(41.8, 800.0, 48.0) - 41.8).abs() > 0.01 {
         return Err("short scrollbar thumb".into());
     }
+    flow::self_test()?;
+    menu::self_test()?;
+    spectrum::self_test()?;
     Ok(())
 }

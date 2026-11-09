@@ -4,3 +4,9 @@
 **/*.rs.bk
 .DS_Store
 .env
+
+# Agent skills are installed globally, not shipped with the app
+/.agents/
+/.claude/
+/.grok/
+/skills-lock.json

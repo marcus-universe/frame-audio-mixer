@@ -32,6 +32,12 @@ Aus einem Git-Checkout baut `./install.sh` mit `cargo` und installiert. `./insta
 - Ist die Reihe breiter als das Panel, mit dem Stick des Controllers scrollen oder die Leiste unter den Kanälen ziehen.
 - Jeder Streifen hat einen Fader, von Stille bis +12 dB, mit einer Raste bei 0 dB. Stumm und Solo sitzen darunter. Die Routing-Knöpfe sind neben dem Fader gestapelt: A1 bis A4 (was du hörst), PC (das Streaming-Mikrofon am PC), B1 bis B4 (virtuelle Mikrofone), dann FX1 und FX2. Bei 6 oder 8 Ausgängen teilen sich die A- und B-Knöpfe auf zwei Spalten auf. In der Listenansicht stehen sie in einer Reihe neben Stumm und Solo.
 
+Ein Stream, der auf einem Kanal landet, an den er nicht angeheftet ist, wird zurückbewegt: auf seinen eigenen Kanal, oder vom Mixer herunter, sodass er auf dem normalen Ausgang spielt. Pins vergleichen das Binary der App, wenn eines gespeichert ist — zwei Apps mit demselben Anzeigenamen (Electron-Apps melden alle „Chromium“) können sich nicht gegenseitig den Kanal wegnehmen.
+
+## Projekte
+
+Der Ordner-Knopf in der Kopfzeile hält gespeicherte Routing-Setups. Ein Projekt speichert Kanäle, Pins, Routen, Effektketten und Pegel als eine JSON-Datei unter `~/.config/frame-audio-mixer/projects/`. Laden ersetzt das aktuelle Setup; Bildschirm-Einstellungen wie Sprache, Thema und Layout bleiben erhalten.
+
 ## Ausgänge
 
 Das PC-Streaming-Mikrofon ist immer da. Die App-Einstellungen fügen 2, 4, 6 oder 8 weitere Ausgänge hinzu: 2 sind A1 und B1, 8 sind A1 bis A4 und B1 bis B4. Eine kleinere Zahl behält die gespeicherten Routen, verbindet sie aber nicht.
@@ -43,6 +49,10 @@ Das PC-Streaming-Mikrofon ist immer da. Die App-Einstellungen fügen 2, 4, 6 ode
 Die Ausgänge-Schublade (Lautsprecher-Symbol in der rechten Leiste) enthält oben Mix-Check, dann einen Container pro Ausgang: den Namen, darunter den Master-Fader und rechts Stumm. PC kommt zuerst.
 
 Einstellungen aus Version 2 werden beim ersten Laden übernommen: Das alte B1 wird PC (mit seinem Fader und Stumm), und die alten B2 bis B4 werden B1 bis B3.
+
+## Signalfluss
+
+Die Signalfluss-Seite (neben „Apps & Updates" in der Kopfzeile) zeichnet den gesamten Mix als Spuren-Graph: Quellen, Mixer-Kanäle, Ausgänge und die erreichten Geräte. Die Kanten kommen aus dem gespeicherten Routing, und jede wird gegen die echten PipeWire-Links der Engine geprüft — eine Route ohne Link erscheint als rot gestrichelte Linie. Hörbares Signal verbreitert eine Kante mit einem pegelgefärbten Schein. Ziehen verschiebt, der Stick scrollt, und ein gewählter Knoten zeigt den PipeWire-Knoten dahinter. Der Schalter „Andere Apps“ zeigt zusätzlich jede App, die auf keinem Kanal liegt, mit dem Gerät, auf dem sie wirklich spielt.
 
 ## Mikrofon
 

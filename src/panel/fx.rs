@@ -44,50 +44,66 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus
             }
         }
     }
-    if chain.len() < 3 && ry + 36.0 < list_bottom {
-        draw::label(cr, fonts, false, 13.0, MUTED, left, ry + 16.0, t.add_effect);
-        ry += 28.0;
-        for kind in EffectKind::ALL {
-            if ry + ROW_H > list_bottom {
-                break;
-            }
-            pick_row(panel, cr, fonts, t, bus, kind, left, ry, row_w);
-            ry += ROW_H + 4.0;
-        }
+    if chain.len() < 3 && ry + ROW_H <= list_bottom {
+        add_row(panel, cr, bus, left, ry, row_w);
     }
+}
+
+/// One wide target with a plus. The picker it opens names everything.
+fn add_row(panel: &mut Panel, cr: &Context, bus: usize, x: f64, y: f64, w: f64) {
+    let fill = match panel.look(x, y, w, ROW_H) {
+        draw::Look::Down => draw::CONTROL_DOWN,
+        draw::Look::Hover => draw::CONTROL_HOVER,
+        draw::Look::Rest => draw::mix(draw::CONTROL, INSET, 0.5),
+    };
+    fill_round(cr, x, y, w, ROW_H, R_CONTROL, fill);
+    let s = 28.0;
+    draw::icon(cr, draw::ADD_PATH, 28.0, x + (w - s) / 2.0, y + (ROW_H - s) / 2.0, s, draw::SOFT);
+    panel.hot(&format!("fxpick:{bus}"), x, y, w, ROW_H);
 }
 
 fn chain_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
     fill_round(cr, x, y, w, ROW_H, R_CONTROL, INSET);
     fill_round(cr, x + 12.0, y + 20.0, 8.0, 12.0, 4.0, draw::effect_color(slot.kind));
-    let name = i18n::effect_name(t, slot.kind);
-    draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 32.0, w - 220.0, name);
     grip(cr, x + w - 200.0, y + 16.0);
     panel.hot(&format!("fxgrip:{bus}:{index}"), x + w - 210.0, y, 36.0, ROW_H);
-    panel.button(cr, fonts, x + w - 164.0, y + 10.0, 72.0, 32.0, t.edit, ButtonKind::Plain);
-    panel.hot(&format!("fxedit:{bus}:{index}"), x + w - 164.0, y + 10.0, 72.0, 32.0);
+    if let Some(plugin) = &slot.vst {
+        let status = panel.vst_status.get(&plugin.instance).map(String::as_str).unwrap_or("starting");
+        let note = match status {
+            "running" => None,
+            "starting" => Some(t.vst_starting),
+            _ => Some(t.vst_stopped),
+        };
+        match note {
+            Some(note) => {
+                draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 24.0, w - 250.0, &plugin.name);
+                draw::label_fit(cr, fonts, false, 12.0, MUTED, x + 32.0, y + 42.0, w - 250.0, note);
+            }
+            None => draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 32.0, w - 250.0, &plugin.name),
+        }
+        panel.button(cr, fonts, x + w - 164.0, y + 10.0, 72.0, 32.0, t.vst_open, ButtonKind::Plain);
+        panel.hot(&format!("vstgui:{}", plugin.instance), x + w - 164.0, y + 10.0, 72.0, 32.0);
+    } else {
+        let name = i18n::effect_name(t, slot.kind);
+        draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 32.0, w - 220.0, name);
+        panel.button(cr, fonts, x + w - 164.0, y + 10.0, 72.0, 32.0, t.edit, ButtonKind::Plain);
+        panel.hot(&format!("fxedit:{bus}:{index}"), x + w - 164.0, y + 10.0, 72.0, 32.0);
+    }
     panel.button(cr, fonts, x + w - 80.0, y + 10.0, 64.0, 32.0, "×", ButtonKind::Plain);
     panel.hot(&format!("fxrm:{bus}:{index}"), x + w - 80.0, y + 10.0, 64.0, 32.0);
 }
 
-fn pick_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, kind: EffectKind, x: f64, y: f64, w: f64) {
-    let look = panel.look(x, y, w, ROW_H);
-    let fill = match look {
-        draw::Look::Down => draw::CONTROL_DOWN,
-        draw::Look::Hover => draw::CONTROL_HOVER,
-        draw::Look::Rest => INSET,
-    };
-    fill_round(cr, x, y, w, ROW_H, R_CONTROL, fill);
-    fill_round(cr, x + 12.0, y + 20.0, 8.0, 12.0, 4.0, draw::effect_color(kind));
-    draw::label_fit(cr, fonts, false, 15.0, TEXT, x + 32.0, y + 32.0, w - 48.0, i18n::effect_name(t, kind));
-    panel.hot(&format!("fxadd:{bus}:{}", kind.key()), x, y, w, ROW_H);
-}
+/// Height of the preset dropdown and its gap, above an effect's sliders.
+const PRESET_ROW: f64 = 46.0;
 
 fn editor_height(kind: EffectKind) -> f64 {
-    if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * 48.0 + 8.0 }
+    PRESET_ROW + if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * 48.0 + 8.0 }
 }
 
 fn params(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    let caption = super::menu::preset_caption(slot, panel.lang, t);
+    super::menu::button(panel, cr, fonts, super::menu::Menu::Preset { bus, index }, x, y, w, PRESET_ROW - 8.0, &caption);
+    let y = y + PRESET_ROW;
     if slot.kind == EffectKind::Pitcher {
         pitcher(panel, cr, fonts, t, bus, index, slot, x, y, w);
         return;

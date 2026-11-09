@@ -37,6 +37,8 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - 🖥️ **Vue large** : une mise en page 21:9. On peut tirer la séparation entre les deux parties. Chaque côté s'arrête à un cinquième de la fenêtre.
 - 📊 **Niveaux, sourdine et accroche** : la même échelle sur chaque fader, de +6 à −48, un bouton de sourdine sous chacun, et des faders de sortie qui s'accrochent aux repères.
 - ⏺️ **Contrôle du mix** : en haut des sorties. Choisir une sortie, en enregistrer jusqu'à 10 secondes, puis lire ou mettre en pause.
+- 🗺️ **Flux du signal** : une carte en direct du routage complet. Chaque route est vérifiée contre les liens PipeWire réels ; un lien rompu apparaît en pointillés rouges. Glisser pour déplacer, sélectionner un nœud pour son identité PipeWire.
+- 🗂️ **Projets** : enregistrez les canaux, le routage, les effets et les niveaux sous un nom, et rechargez une configuration à tout moment.
 - 🌐 Sept langues, et un thème bleu ou rose.
 
 <table>

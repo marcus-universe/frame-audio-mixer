@@ -7,15 +7,13 @@ use crate::worker::Snapshot;
 use cairo::Context;
 use std::collections::HashMap;
 
-const MIC_W: f64 = 188.0;
-const CHAN_W: f64 = 210.0;
 const ADD_W: f64 = 64.0;
 const GAP: f64 = 12.0;
 /// Inner padding of the mixer card.
 const PAD: f64 = 20.0;
 /// Header row of the mixer card: On/Off, status, and the view tools.
 const TOOL_S: f64 = 40.0;
-pub(crate) const TOOLS_W: f64 = TOOL_S * 3.0 + 8.0 * 2.0;
+pub(crate) const TOOLS_W: f64 = TOOL_S * 2.0 + 8.0;
 const ICON_S: f64 = 20.0;
 /// Channel name baseline and the capsule top inside a vertical strip.
 const STRIP_TITLE_Y: f64 = 30.0;
@@ -28,7 +26,11 @@ const ROUTE_H_MIN: f64 = 18.0;
 const ROUTE_GAP: f64 = 3.0;
 /// Space between the A, PC, B and FX groups.
 const GROUP_GAP: f64 = 8.0;
-const STACK_GAP: f64 = 14.0;
+const STACK_GAP: f64 = 8.0;
+/// Padding between a vertical strip's edges and its route buttons or meter scale.
+const STRIP_PAD: f64 = 10.0;
+/// Fader capsule, its gap to the meter, and a stereo meter pair (see `draw::paint_fader`).
+const FADER_AND_METER_W: f64 = 32.0 + 4.0 + 7.0 * 2.0 + 2.0;
 /// Capsule, meter and meter scale, measured from the capsule's left edge.
 /// Source picker at the top of the microphone strip.
 const PICK_H: f64 = 32.0;
@@ -62,12 +64,13 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     let cap_h = (strip_h - cap_top - draw::FADER_FOOT).max(80.0);
     let stack = Stack::fit(cell_count(&a_slots), cap_h);
     // One width for the microphone and every channel, so the columns match.
-    let strip_w = CHAN_W.max(MIC_W);
+    let strip_w = strip_width(cr, fonts, &stack);
+    let fader_inset = STRIP_PAD + stack.w + STACK_GAP + 16.0;
     let mic_x = x + PAD;
     fill_round(cr, mic_x, strip_top, strip_w, strip_h, R_SURFACE, INSET);
     source_picker(panel, cr, fonts, mic_x + 8.0, strip_top + 8.0, strip_w - 16.0, &source, None);
     let mic_levels = [peaks.get("mic").copied().unwrap_or(0.0)];
-    let fader_cx = mic_x + strip_w / 2.0;
+    let fader_cx = mic_x + fader_inset;
     let geom = draw::paint_fader(
         cr,
         fonts,
@@ -94,7 +97,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     if list_w > 1.0 {
     let _ = cr.save();
     cr.rectangle(list_x, strip_top, list_w, strip_h);
-    let _ = cr.clip();
+    cr.clip();
     let mut cx = list_x - panel.scroll;
     let channels = panel.config.channels.clone();
     let view = Clip { left: list_x, right: list_x + list_w };
@@ -127,7 +130,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
                 view.hot(panel, &format!("rm:{}", channel.id), cx + strip_w - 40.0, strip_top + 8.0, REMOVE_S, REMOVE_S);
             }
             let levels = stereo_levels(peaks, &channel.id);
-            let fader_cx = cx + strip_w / 2.0;
+            let fader_cx = cx + fader_inset;
             let geom = draw::paint_fader(
                 cr,
                 fonts,
@@ -166,7 +169,7 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     }
 }
 
-const ROW_H: f64 = 128.0;
+const ROW_H: f64 = 108.0;
 const LIST_GAP: f64 = 8.0;
 /// Title baseline inside a list row.
 const TITLE_Y: f64 = 22.0;
@@ -198,7 +201,7 @@ fn draw_list(
     panel.set_strip(row_x, list_top, row_w, list_h);
     let _ = cr.save();
     cr.rectangle(row_x, list_top, row_w, list_h);
-    let _ = cr.clip();
+    cr.clip();
     let view = VClip { top: list_top, bottom: list_top + list_h, left: row_x, right: row_x + row_w };
     panel.visible_channels.clear();
     let mut ry = list_top - panel.scroll;
@@ -418,25 +421,26 @@ fn add_button(panel: &Panel, cr: &Context, x: f64, y: f64, s: f64, room: bool) {
     draw::icon(cr, draw::ADD_PATH, 28.0, x + (s - glyph) / 2.0, y + (s - glyph) / 2.0, glyph, if room { draw::accent() } else { MUTED });
 }
 
-/// Snap, the wide window, and this side's orientation. `outputs` picks which orientation the last button owns.
+/// Snap and this side's orientation. `outputs` picks which orientation the second button owns.
+/// The wide window is a whole-app setting, so its button sits in the app header.
+/// As wide as a strip's content: route buttons, fader, meter and its scale,
+/// with `STRIP_PAD` on both sides. Anything wider only adds empty margins.
+fn strip_width(cr: &Context, fonts: &Fonts, stack: &Stack) -> f64 {
+    let scale_w = ["+6", "−12", "−24", "−48"].iter().map(|mark| draw::text_width(cr, fonts, false, 10.0, mark)).fold(0.0, f64::max);
+    (2.0 * STRIP_PAD + stack.w + STACK_GAP + FADER_AND_METER_W + 4.0 + scale_w).ceil()
+}
+
 pub(crate) fn header_tools(panel: &mut Panel, cr: &Context, x: f64, y: f64, outputs: bool) {
     let step = TOOL_S + 8.0;
     let rows = if outputs { panel.config.list } else { panel.config.input_list };
     let snap_id = if panel.config.snap { "snap-off" } else { "snap-on" };
     tool_button(panel, cr, x, y, draw::MAGNET_PATH, 16.0, panel.config.snap, snap_id);
-    let (extend_path, extend_view) = if rows {
-        (draw::RESIZE_ROW_PATH, 24.0)
-    } else {
-        (draw::RESIZE_COLUMN_PATH, 24.0)
-    };
-    let wide_id = if panel.config.wide { "wide-off" } else { "wide-on" };
-    tool_button(panel, cr, x + step, y, extend_path, extend_view, panel.config.wide, wide_id);
     let (view_path, view_on, view_id) = if rows {
         (draw::LIST_PATH, true, if outputs { "list-off" } else { "in-list-off" })
     } else {
         (draw::COLUMNS_PATH, false, if outputs { "list-on" } else { "in-list-on" })
     };
-    tool_button(panel, cr, x + step * 2.0, y, view_path, 512.0, view_on, view_id);
+    tool_button(panel, cr, x + step, y, view_path, 512.0, view_on, view_id);
 }
 
 /// Where one strip goes: A bits, the PC, B bits and the two sends.

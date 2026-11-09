@@ -519,13 +519,6 @@ impl Vulkan {
         }
     }
 
-    pub fn instance(&self) -> *mut c_void {
-        self.instance
-    }
-    pub fn physical(&self) -> *mut c_void {
-        self.physical
-    }
-
     fn memory_index(&self, bits: u32, flags: u32) -> Result<u32, String> {
         let mut props = unsafe { std::mem::zeroed::<MemProps>() };
         unsafe { (self.get_mem)(self.physical, &mut props) };

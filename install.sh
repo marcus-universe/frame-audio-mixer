@@ -97,6 +97,7 @@ if [[ $uninstall -eq 1 ]]; then
         "$unit_dir/frame-audio-mixer-channel@.service" \
         "$unit_dir/frame-audio-mixer-fx@.service" \
         "$lib_dir/frame-audio-mixer-graph.sh" \
+        "$lib_dir/frame-vst-host" "$lib_dir/frame-vst-host.exe" \
         "$wp_script" "$wp_conf"
     rm -rf "$name_dir"
     rmdir "$lib_dir" "$data_home/frame-audio-mixer" >/dev/null 2>&1 || true
@@ -152,12 +153,27 @@ remove_legacy_mix
 cd "$here"
 if [[ $from_source -eq 1 ]]; then
     cargo build --release
+    cargo build --release --manifest-path vst-host/Cargo.toml
     built_bin="target/release/frame-audio-mixer"
+    built_host="vst-host/target/release/frame-vst-host"
+    # Built on Windows by scripts/build-vst-host-windows.ps1; Rust on the Frame cannot.
+    built_host_exe="vst-host/prebuilt/frame-vst-host.exe"
 else
     built_bin="$here/frame-audio-mixer"
+    built_host="$here/frame-vst-host"
+    built_host_exe="$here/frame-vst-host.exe"
 fi
 
 install -Dm755 "$built_bin" "$bin"
+# VST plugins run in these hosts: aarch64 Linux plugins natively, Windows ones under Proton ARM64.
+if [[ -f "$built_host" ]]; then
+    install -Dm755 "$built_host" "$lib_dir/frame-vst-host"
+fi
+if [[ -f "$built_host_exe" ]]; then
+    install -Dm644 "$built_host_exe" "$lib_dir/frame-vst-host.exe"
+else
+    echo "Note: frame-vst-host.exe is missing, so Windows VST plugins cannot run." >&2
+fi
 rm -f "$old_update" "$lib_dir/frame-audio-mixer-graph.sh"
 for size in 48 128 256; do
     icon_src="assets/icons/blue-$size.png"

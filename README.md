@@ -37,6 +37,8 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 - 🖥️ **Wide view**: a 21:9 layout. Drag the split between the two sections. Each side stops at a fifth of the window.
 - 📊 **Meters, mute and snap**: the same peak scale on every fader, from +6 down to −48, a mute button under each one, and output faders that snap to the marks.
 - ⏺️ **Mix Check**: at the top of Outputs. Pick an output, record up to 10 seconds, then play or pause the take.
+- 🗺️ **Signal flow**: a live routing map of the whole mix. Every route is checked against the real PipeWire links, so a broken link shows up as a dashed red line. Drag to pan, select a node for its PipeWire identity.
+- 🗂️ **Projects**: save the current channels, routing, effects and levels under a name, and load a setup back anytime.
 - 🌐 Seven languages, and a blue or pink color theme.
 
 <table>

@@ -39,7 +39,7 @@ pub(crate) fn add(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
     panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (content - list_h).max(0.0));
     let _ = cr.save();
     cr.rectangle(mid + 16.0, list_top, w / 2.0 - 40.0, list_h);
-    let _ = cr.clip();
+    cr.clip();
     let mut ry = list_top - panel.dialog_scroll;
     for app in &apps {
         let name = app.name.clone();
@@ -75,7 +75,7 @@ pub(crate) fn mic(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap
     panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (rows.len() as f64 * 58.0 - list_h).max(0.0));
     let _ = cr.save();
     cr.rectangle(x + 16.0, row, w - 32.0, list_h);
-    let _ = cr.clip();
+    cr.clip();
     row -= panel.dialog_scroll;
     for (id, label, hint) in rows {
         if row + 52.0 >= y + 90.0 && row <= y + h - 16.0 {
@@ -113,7 +113,7 @@ fn mic_rows(panel: &Panel, t: &Text, snap: &Snapshot) -> Vec<(String, String, St
 
 pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     backdrop(panel, cr);
-    let (x, y, w, h) = panel.dialog_rect(640.0, if panel.color_open { 344.0 } else { 236.0 }, 24.0);
+    let (x, y, w, h) = panel.dialog_rect(640.0, if panel.color_open { 408.0 } else { 300.0 }, 24.0);
     sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
     draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.settings);
@@ -138,6 +138,11 @@ pub(crate) fn settings(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text)
     let meters_y = color_y + 64.0 + menu_h;
     draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, meters_y + 24.0, t.meters);
     pill_toggle(panel, cr, fonts, seg_x, meters_y, 168.0, 48.0, panel.config.meters, (t.on, t.off), ("meters-on", "meters-off"));
+
+    let vst_y = meters_y + 64.0;
+    draw::label_mid(cr, fonts, false, 15.0, TEXT, x + 28.0, vst_y + 24.0, t.vst_plugins);
+    panel.button(cr, fonts, seg_x, vst_y, 168.0, 48.0, t.vst_manage, ButtonKind::Plain);
+    panel.hot("vst-open", seg_x, vst_y, 168.0, 48.0);
 
     if panel.color_open {
         let menu_y = drop.1 + drop.3 + 6.0;
@@ -171,18 +176,6 @@ fn row_button(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w:
     panel.hot(id, x, y, w, ROW_H);
 }
 
-/// A row with the app's icon. `accent` marks the row that creates a new channel.
-fn icon_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, app: (&str, &str), label: &str, id: &str, accent: bool) {
-    if accent {
-        fill_round(cr, x, y, w, ROW_H, R_CONTROL, draw::accent_tint());
-    } else {
-        row_fill(panel, cr, x, y, w);
-    }
-    paint_desktop_icon(panel, cr, fonts, app.0, app.1, x + 12.0, y + 10.0, 32.0);
-    draw::label_fit(cr, fonts, accent, 15.0, if accent { draw::accent() } else { TEXT }, x + 56.0, y + 31.0, w - 72.0, label);
-    panel.hot(id, x, y, w, 52.0);
-}
-
 /// Keep the builtin constant referenced so a rename fails here too.
 #[allow(dead_code)]
 fn _builtin() -> &'static str {
@@ -195,7 +188,14 @@ pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     let (x, y, w, h) = panel.dialog_rect(680.0, 300.0, 28.0);
     sheet_surface(cr, x, y, w, h);
     panel.hot("noop", x, y, w, h);
-    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.channel_name);
+    let title = if panel.naming_project() {
+        t.project_name
+    } else if panel.naming_folder() {
+        t.vst_folder
+    } else {
+        t.channel_name
+    };
+    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, title);
     close_button(panel, cr, x + w - 60.0, y + 24.0);
 
     let field = (x + 28.0, y + 84.0, w - 56.0, 56.0);
@@ -206,7 +206,7 @@ pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
     let baseline = field.1 + 36.0;
     let room = field.2 - 36.0;
     if draft.is_empty() {
-        draw::label_fit(cr, fonts, false, 18.0, MUTED, text_x, baseline, room, t.channel_name);
+        draw::label_fit(cr, fonts, false, 18.0, MUTED, text_x, baseline, room, title);
     } else {
         draw::label_tail(cr, fonts, true, 18.0, TEXT, text_x, baseline, room, &draft);
     }
@@ -224,11 +224,89 @@ pub(crate) fn name(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
         draw::label_fit(cr, fonts, false, 13.0, draw::DANGER_TEXT, x + 28.0, y + 164.0, w - 56.0, t.name_rejected);
     }
 
-    let renaming = matches!(panel.overlay, super::Overlay::Name(super::NameEdit::Rename(_)) | super::Overlay::Name(super::NameEdit::Bus(_)));
+    let saving = panel.naming_project()
+        || panel.naming_folder()
+        || matches!(panel.overlay, super::Overlay::Name(super::NameEdit::Rename(_)) | super::Overlay::Name(super::NameEdit::Bus(_)));
     let by = y + h - 76.0;
     panel.button(cr, fonts, x + 28.0, by, 180.0, 48.0, t.cancel, ButtonKind::Plain);
     panel.hot("dismiss", x + 28.0, by, 180.0, 48.0);
-    let ok = if renaming { t.save } else { t.add };
+    let ok = if saving { t.save } else { t.add };
     panel.button(cr, fonts, x + w - 208.0, by, 180.0, 48.0, ok, ButtonKind::Accent);
     panel.hot("name-ok", x + w - 208.0, by, 180.0, 48.0);
+}
+
+/// Saved routing setups. A row loads its project; the cross deletes after a
+/// second press, like removing a channel.
+pub(crate) fn projects(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text) {
+    backdrop(panel, cr);
+    let (x, y, w, h) = panel.dialog_rect(680.0, 580.0, 28.0);
+    sheet_surface(cr, x, y, w, h);
+    panel.hot("noop", x, y, w, h);
+    draw::label_mid(cr, fonts, true, 20.0, TEXT, x + 28.0, y + 44.0, t.projects);
+    close_button(panel, cr, x + w - 60.0, y + 24.0);
+    let inner = w - 56.0;
+    let mut row = y + 82.0;
+    for line in draw::wrap(cr, fonts, false, 13.5, inner, 3, t.projects_hint) {
+        draw::label(cr, fonts, false, 13.5, MUTED, x + 28.0, row, &line);
+        row += 19.0;
+    }
+    row += 12.0;
+    let save_w = (draw::text_width(cr, fonts, true, 15.0, t.project_save) + 56.0).min(inner);
+    panel.button(cr, fonts, x + 28.0, row, save_w, 48.0, t.project_save, ButtonKind::Accent);
+    panel.hot("proj-save", x + 28.0, row, save_w, 48.0);
+    row += 64.0;
+    cr.set_source_rgb(draw::DIVIDER.r, draw::DIVIDER.g, draw::DIVIDER.b);
+    cr.rectangle(x + 28.0, row, inner, 1.0);
+    let _ = cr.fill();
+    row += 13.0;
+
+    let names: Vec<String> = panel.projects.iter().map(|project| project.name.clone()).collect();
+    let list = (x + 28.0, row, inner, (y + h - 24.0 - row).max(0.0));
+    if names.is_empty() {
+        let mut ty = list.1 + 32.0;
+        for line in draw::wrap(cr, fonts, false, 15.0, inner, 3, t.projects_empty) {
+            draw::label(cr, fonts, false, 15.0, MUTED, list.0, ty, &line);
+            ty += 21.0;
+        }
+        return;
+    }
+    let content = names.len() as f64 * (ROW_H + 6.0) - 6.0;
+    panel.dialog_scroll = panel.dialog_scroll.min((content - list.3).max(0.0));
+    let scroll = panel.dialog_scroll;
+    let _ = cr.save();
+    cr.rectangle(list.0, list.1, list.2, list.3);
+    cr.clip();
+    for (index, name) in names.iter().enumerate() {
+        let ry = list.1 + index as f64 * (ROW_H + 6.0) - scroll;
+        if ry + ROW_H < list.1 || ry > list.1 + list.3 {
+            continue;
+        }
+        let look = panel.look(list.0, ry, list.2, ROW_H);
+        let fill = match look {
+            draw::Look::Down => draw::CONTROL_DOWN,
+            draw::Look::Hover => draw::CONTROL_HOVER,
+            draw::Look::Rest => CONTROL,
+        };
+        fill_round(cr, list.0, ry, list.2, ROW_H, R_CONTROL, fill);
+        draw::label_fit(cr, fonts, true, 16.0, TEXT, list.0 + 16.0, ry + ROW_H / 2.0 + 6.0, list.2 - 76.0, name);
+        let armed = panel.delete_armed(&format!("proj#{index}"));
+        let del = (list.0 + list.2 - 46.0, ry + (ROW_H - 36.0) / 2.0, 36.0, 36.0);
+        if armed {
+            fill_round(cr, del.0, del.1, del.2, del.3, del.2 / 2.0, draw::DANGER);
+        }
+        let ink = if armed { draw::on_accent() } else { draw::DANGER_TEXT };
+        draw::icon(cr, draw::CLOSE_PATH, 1024.0, del.0 + 10.0, del.1 + 10.0, 16.0, ink);
+        // Hots clipped to the list, so a row half out of view cannot be hit there.
+        let top = ry.max(list.1);
+        let visible = (ry + ROW_H).min(list.1 + list.3) - top;
+        if visible > 0.0 {
+            panel.hot(&format!("proj-load:{index}"), list.0, top, list.2, visible);
+            let del_top = del.1.max(list.1);
+            let del_visible = (del.1 + del.3).min(list.1 + list.3) - del_top;
+            if del_visible > 0.0 {
+                panel.hot(&format!("proj-rm:{index}"), del.0, del_top, del.2, del_visible);
+            }
+        }
+    }
+    let _ = cr.restore();
 }

@@ -32,6 +32,12 @@ From a git checkout, `./install.sh` builds with `cargo` and installs. `./install
 - When the row is wider than the panel, scroll it with the controller stick or drag the bar under the channels.
 - Each strip has one fader, from silence to +12 dB, with a detent at 0 dB. Mute and Solo sit under it. The route buttons are stacked next to the fader: A1–A4 (what you hear), PC (the PC streaming microphone), B1–B4 (virtual microphones), then FX1 and FX2. With 6 or 8 outputs the A and B buttons split into two columns. In the list view they sit in one row next to Mute and Solo.
 
+A stream that lands on a channel it is not pinned to is moved back: onto its own channel, or off the mixer so it plays on the normal output. Pins match the app's binary when one is stored, so two apps that share a display name (Electron apps all report “Chromium”) cannot take each other's channel.
+
+## Projects
+
+The folder button in the header holds saved routing setups. A project stores the channels, pins, routes, effect chains and levels as one JSON file under `~/.config/frame-audio-mixer/projects/`. Loading a project replaces the current setup; screen preferences such as language, theme and layout stay as they are.
+
 ## Outputs
 
 The PC streaming microphone is always there. App Settings adds 2, 4, 6 or 8 more outputs: 2 is A1 and B1, 8 is A1–A4 and B1–B4. A lower count keeps the stored routes and does not link them.
@@ -43,6 +49,10 @@ The PC streaming microphone is always there. App Settings adds 2, 4, 6 or 8 more
 The Outputs drawer (speaker icon on the right rail) holds Mix Check at the top, then one container per output: its name, the master fader under it, and Mute at the right. PC comes first.
 
 Settings from version 2 move over on first load: the old B1 becomes PC (with its fader and Mute), and the old B2–B4 become B1–B3.
+
+## Signal flow
+
+The Signal flow page (next to Apps & updates in the header) draws the whole mix as a lane graph: sources, mixer strips, outputs, and the devices they reach. Edges come from the saved routing, and each one is checked against the engine's live PipeWire links — a route whose link is gone draws as a dashed red line. Audible signal widens a live edge with a level-tinted glow. Drag pans, the stick scrolls, and selecting a node shows the PipeWire node behind it. The Other apps toggle also shows every app that is not on any channel, with the real device it plays on.
 
 ## Microphone
 

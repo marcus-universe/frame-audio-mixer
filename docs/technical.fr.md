@@ -32,6 +32,12 @@ Depuis un dépôt git, `./install.sh` compile avec `cargo` puis installe. `./ins
 - Quand la rangée est plus large que le panneau, faites-la défiler avec le stick de la manette ou faites glisser la barre sous les canaux.
 - Chaque tranche a un fader, du silence à +12 dB, avec un cran à 0 dB. Sourdine et Solo sont dessous. Les boutons de routage sont empilés à côté du fader : A1 à A4 (ce que vous entendez), PC (le micro de streaming du PC), B1 à B4 (micros virtuels), puis FX1 et FX2. Avec 6 ou 8 sorties, les boutons A et B se répartissent sur deux colonnes. Dans la vue en liste, ils sont sur une seule ligne à côté de Sourdine et Solo.
 
+Un flux qui atterrit sur un canal auquel il n'est pas épinglé est renvoyé : vers son propre canal, ou hors du mixeur pour jouer sur la sortie normale. Les épingles comparent le binaire de l'appli quand il est connu — deux applis partageant le même nom (les applis Electron se présentent toutes comme « Chromium ») ne peuvent pas se voler le canal.
+
+## Projets
+
+Le bouton dossier de l'en-tête contient les configurations enregistrées. Un projet stocke les canaux, épingles, routes, chaînes d'effets et niveaux dans un fichier JSON sous `~/.config/frame-audio-mixer/projects/`. Le charger remplace la configuration actuelle ; les préférences d'affichage (langue, thème, mise en page) restent telles quelles.
+
 ## Sorties
 
 Le micro de streaming du PC est toujours là. Les Réglages ajoutent 2, 4, 6 ou 8 sorties de plus : 2, c'est A1 et B1 ; 8, c'est A1 à A4 et B1 à B4. Un nombre plus petit garde les routes enregistrées sans les connecter.
@@ -43,6 +49,10 @@ Le micro de streaming du PC est toujours là. Les Réglages ajoutent 2, 4, 6 ou 
 Le tiroir Sorties (icône haut-parleur sur la barre de droite) contient le contrôle du mix en haut, puis un bloc par sortie : son nom, le fader master dessous et la sourdine à droite. PC vient en premier.
 
 Les réglages de la version 2 sont repris au premier chargement : l'ancien B1 devient PC (avec son fader et sa sourdine), et les anciens B2 à B4 deviennent B1 à B3.
+
+## Flux du signal
+
+La page Flux du signal (à côté d'« Applis et mises à jour » dans l'en-tête) dessine tout le mix comme un graphe en colonnes : sources, tranches du mixeur, sorties, et les appareils atteints. Les liaisons viennent du routage enregistré, et chacune est vérifiée contre les vrais liens PipeWire du moteur — une route dont le lien a disparu s'affiche en pointillés rouges. Un signal audible élargit la liaison d'un halo coloré selon le niveau. Glisser déplace, le stick fait défiler, et sélectionner un nœud montre le nœud PipeWire derrière. Le bouton « Autres applis » montre aussi chaque appli qui n'est sur aucun canal, avec l'appareil sur lequel elle joue réellement.
 
 ## Micro
 

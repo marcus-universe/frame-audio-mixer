@@ -420,8 +420,7 @@ pub fn self_test() -> Result<(), String> {
     if asset.version != "0.2.0" || asset.asset_name != "frame-audio-mixer-0.2.0.tar.gz" || asset.sums_url.is_empty() {
         return Err(format!("release {asset:?}"));
     }
-    let sums = "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabca  frame-audio-mixer-0.2.0.tar.gz\n";
-    // 64 hex chars: count them in the test string below instead.
+    // 64 hex chars: count them in the test string instead of spelling them out.
     let hex = "a".repeat(64);
     let sums = format!("{hex}  frame-audio-mixer-0.2.0.tar.gz\n{hex} *SHA256SUMS\n");
     if parse_sums(&sums, "frame-audio-mixer-0.2.0.tar.gz").as_deref() != Some(hex.as_str()) {
@@ -430,6 +429,5 @@ pub fn self_test() -> Result<(), String> {
     if parse_sums("zz  file\n", "file").is_some() {
         return Err("bad sums accepted".into());
     }
-    let _ = sums;
     Ok(())
 }

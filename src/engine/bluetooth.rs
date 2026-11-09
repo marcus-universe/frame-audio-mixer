@@ -3,7 +3,14 @@
 //! WirePlumber moves a headset to the hands-free profile (mono, 16 kHz, mSBC) as
 //! soon as any capture stream links to its microphone. That drops the A2DP sink
 //! the listen output plays on, and some headsets then lose A2DP altogether until
-//! they reconnect. The mixer's mic is the Frame mic, so the switch is never wanted.
+//! they reconnect. The mixer's own mic never follows a Bluetooth default (see
+//! `Graph::mixer_default_source`), so this only puts a headset back on A2DP when
+//! nothing records from it any more.
+//!
+//! `bluetooth.autoswitch-to-headset-profile` is never changed. Turning it off at
+//! runtime makes WirePlumber 0.5.14's autoswitch script drop its tables while
+//! queued events still use them, and WirePlumber then crashes. Its restart
+//! disconnected the headset every time the mixer quit and started.
 //!
 //! A worker thread owns every `wpctl` and `pw-dump` call, so the
 //! PipeWire loop never waits on a child process.
@@ -13,7 +20,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const AUTOSWITCH: &str = "bluetooth.autoswitch-to-headset-profile";
 const RETRY: Duration = Duration::from_secs(20);
 const MAX_TRIES: u32 = 4;
 
@@ -28,8 +34,6 @@ struct Shared {
     /// False while the mixer's own mic is a Bluetooth headset: then hands-free is the point.
     guard: AtomicBool,
     sinks: Mutex<Vec<BtSink>>,
-    /// Set when this process turned the autoswitch off, so exit can turn it back on.
-    switched_off: AtomicBool,
     stop: AtomicBool,
 }
 
@@ -42,7 +46,6 @@ impl Guard {
         let shared = Arc::new(Shared {
             guard: AtomicBool::new(true),
             sinks: Mutex::new(Vec::new()),
-            switched_off: AtomicBool::new(false),
             stop: AtomicBool::new(false),
         });
         let worker = shared.clone();
@@ -60,12 +63,9 @@ impl Guard {
         }
     }
 
-    /// Hands the autoswitch back to WirePlumber. Called once the PipeWire loop has stopped.
-    pub fn finish(&self) {
+    /// Ends the worker. Called once the PipeWire loop has stopped.
+    pub fn stop(&self) {
         self.shared.stop.store(true, Ordering::Relaxed);
-        if self.shared.switched_off.swap(false, Ordering::Relaxed) {
-            set_autoswitch(true);
-        }
     }
 }
 
@@ -73,20 +73,6 @@ fn run(shared: &Shared) {
     let mut tries: Vec<(u32, u32, Instant)> = Vec::new();
     while !shared.stop.load(Ordering::Relaxed) {
         let guard = shared.guard.load(Ordering::Relaxed);
-        // WirePlumber forgets a runtime setting when it restarts, so this is checked again.
-        match autoswitch() {
-            Some(true) if guard => {
-                if set_autoswitch(false) {
-                    shared.switched_off.store(true, Ordering::Relaxed);
-                }
-            }
-            Some(false) if !guard && shared.switched_off.load(Ordering::Relaxed) => {
-                if set_autoswitch(true) {
-                    shared.switched_off.store(false, Ordering::Relaxed);
-                }
-            }
-            _ => {}
-        }
         let mut sinks = shared.sinks.lock().map(|sinks| sinks.clone()).unwrap_or_default();
         sinks.sort_by_key(|sink| sink.device);
         sinks.dedup_by_key(|sink| sink.device);
@@ -120,20 +106,6 @@ fn run(shared: &Shared) {
             std::thread::sleep(Duration::from_millis(500));
         }
     }
-}
-
-fn autoswitch() -> Option<bool> {
-    let out = Command::new("wpctl").args(["settings", AUTOSWITCH]).output().ok()?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let line = text.lines().find(|line| line.trim_start().starts_with("Value:"))?;
-    Some(line.contains("true"))
-}
-
-fn set_autoswitch(on: bool) -> bool {
-    Command::new("wpctl")
-        .args(["settings", AUTOSWITCH, if on { "true" } else { "false" }])
-        .status()
-        .is_ok_and(|status| status.success())
 }
 
 /// Current profile name of one device, from a dump of that object only.
