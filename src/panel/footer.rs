@@ -1,81 +1,78 @@
 //! Language, the settings gear, Start with SteamVR, and a red Quit.
 
-use super::{fill_round, stroke_round, Panel};
-use crate::draw::{self, ButtonKind, Fonts, CARD, LABEL_SOFT, MUTED, R_CARD, R_CONTROL, TEXT};
-use crate::i18n::{Text, LANGS};
-use cairo::Context;
+use super::{Hit, Panel, Ui};
+use crate::draw::{self, ButtonKind, Font, Look, Rect, BUTTON, CARD, LABEL_SOFT, MUTED, R_CARD, R_CONTROL, TEXT};
+use crate::i18n::LANGS;
 
 const CONTROL_H: f64 = 48.0;
 const PAD: f64 = 16.0;
+/// The language dropdown starts right of its glyph.
+const LANGUAGE_X: f64 = PAD + 36.0;
+const MENU_ROW: f64 = 40.0;
+const AUTOSTART_W: f64 = 160.0;
+/// "Start with SteamVR", left of its toggle.
+const HINT: Font = Font::regular(14.0);
 
-pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, autostart: bool) {
-    let (x, y, w, h) = panel.stage().footer;
-    fill_round(cr, x, y, w, h, R_CARD, CARD);
-    let control_y = y + (h - CONTROL_H) / 2.0;
-    let mid = control_y + CONTROL_H / 2.0;
-    draw::icon(cr, draw::LANG_PATH, 16.0, x + PAD + 4.0, mid - 10.0, 20.0, LABEL_SOFT);
-    let drop = (x + PAD + 36.0, control_y, language_width(cr, fonts), CONTROL_H);
-    let look = panel.look(drop.0, drop.1, drop.2, drop.3);
-    let fill = match look {
-        draw::Look::Down => draw::CONTROL_DOWN,
-        draw::Look::Hover => draw::CONTROL_HOVER,
-        draw::Look::Rest => draw::CONTROL,
-    };
-    fill_round(cr, drop.0, drop.1, drop.2, drop.3, R_CONTROL, fill);
+pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, autostart: bool) {
+    let t = ui.t;
+    let footer = panel.stage().footer;
+    ui.fill(footer, R_CARD, CARD);
+    let top = footer.y + (footer.h - CONTROL_H) / 2.0;
+    let mid = top + CONTROL_H / 2.0;
+
+    ui.icon(draw::LANG_PATH, 16.0, footer.x + PAD + 4.0, mid - 10.0, 20.0, LABEL_SOFT);
+    let language = Rect::new(footer.x + LANGUAGE_X, top, language_width(ui), CONTROL_H);
+    ui.fill(language, R_CONTROL, ui.control_fill(language, draw::CONTROL));
     if panel.language_open {
-        stroke_round(cr, drop.0 + 1.0, drop.1 + 1.0, drop.2 - 2.0, drop.3 - 2.0, R_CONTROL - 1.0, draw::accent(), 2.0);
+        ui.stroke(language.inset(1.0), R_CONTROL - 1.0, draw::accent(), 2.0);
     }
-    draw::label_fit(cr, fonts, true, 15.0, TEXT, drop.0 + 16.0, mid + 5.0, drop.2 - 52.0, panel.lang.endonym());
-    draw::chevron(cr, drop.0 + drop.2 - 28.0, mid - 2.0, 12.0, MUTED, false, panel.language_open);
-    panel.hot("lang", drop.0, drop.1, drop.2, drop.3);
+    ui.label_fit(BUTTON, TEXT, language.x + 16.0, mid + 5.0, language.w - 52.0, panel.lang.endonym());
+    draw::chevron(ui.cr, language.x + language.w - 28.0, mid - 2.0, 12.0, MUTED, false, panel.language_open);
+    ui.hot(Hit::LanguageMenu, language);
 
-    let gear = (drop.0 + drop.2 + 12.0, control_y, CONTROL_H, CONTROL_H);
-    panel.button(cr, fonts, gear.0, gear.1, gear.2, gear.3, "", ButtonKind::Plain);
-    draw::icon(cr, draw::SETTINGS_PATH, 24.0, gear.0 + 13.0, gear.1 + 13.0, 22.0, draw::SOFT);
-    panel.hot("settings", gear.0, gear.1, gear.2, gear.3);
+    let gear = Rect::square(language.x + language.w + 12.0, top, CONTROL_H);
+    ui.button(gear, "", ButtonKind::Plain);
+    ui.icon(draw::SETTINGS_PATH, 24.0, gear.x + 13.0, gear.y + 13.0, 22.0, draw::SOFT);
+    ui.hot(Hit::Settings, gear);
 
-    let quit_label = if panel.quit_armed() { t.quit_again } else { t.footer_quit };
-    let quit_w = (draw::text_width(cr, fonts, true, 15.0, quit_label) + 56.0).max(128.0);
-    let quit = (x + w - PAD - quit_w, control_y, quit_w, CONTROL_H);
-    let kind = if panel.quit_armed() { ButtonKind::DangerArmed } else { ButtonKind::Danger };
-    panel.button(cr, fonts, quit.0, quit.1, quit.2, quit.3, quit_label, kind);
-    panel.hot("quit", quit.0, quit.1, quit.2, quit.3);
+    // Quit turns solid red while it waits for the second press.
+    let armed = panel.quit_armed();
+    let quit_label = if armed { t.quit_again } else { t.footer_quit };
+    let quit_w = (ui.text_width(BUTTON, quit_label) + 56.0).max(128.0);
+    let quit = Rect::new(footer.x + footer.w - PAD - quit_w, top, quit_w, CONTROL_H);
+    ui.button_hot(quit, quit_label, if armed { ButtonKind::DangerArmed } else { ButtonKind::Danger }, Hit::Quit);
 
-    let auto_w = 160.0;
-    let auto_x = quit.0 - 24.0 - auto_w;
-    let label_left = gear.0 + gear.2 + 16.0;
-    let label_w = (auto_x - 16.0 - label_left).max(40.0);
-    let natural = draw::text_width(cr, fonts, false, 14.0, t.footer_start);
-    let used = natural.min(label_w);
-    draw::label_fit(cr, fonts, false, 14.0, LABEL_SOFT, auto_x - 16.0 - used, mid + 5.0, used, t.footer_start);
-    super::pill_toggle(panel, cr, fonts, auto_x, control_y, auto_w, CONTROL_H, autostart, (t.on, t.off), ("auto-on", "auto-off"));
+    let auto = Rect::new(quit.x - 24.0 - AUTOSTART_W, top, AUTOSTART_W, CONTROL_H);
+    let label_left = gear.x + gear.w + 16.0;
+    let label_w = (auto.x - 16.0 - label_left).max(40.0);
+    let used = ui.text_width(HINT, t.footer_start).min(label_w);
+    ui.label_fit(HINT, LABEL_SOFT, auto.x - 16.0 - used, mid + 5.0, used, t.footer_start);
+    ui.pill_toggle(auto, autostart, (t.on, t.off), (Hit::Autostart(true), Hit::Autostart(false)));
 }
 
 /// The widest endonym, and the chevron.
-fn language_width(cr: &Context, fonts: &Fonts) -> f64 {
-    let widest = LANGS.iter().map(|lang| draw::text_width(cr, fonts, true, 15.0, lang.endonym())).fold(0.0, f64::max);
+fn language_width(ui: &Ui) -> f64 {
+    let widest = LANGS.iter().map(|lang| ui.text_width(BUTTON, lang.endonym())).fold(0.0, f64::max);
     (16.0 + widest + 44.0).ceil()
 }
 
-pub(crate) fn language_menu(panel: &mut Panel, cr: &Context, fonts: &Fonts) {
-    let (fx, fy, _, _) = panel.stage().footer;
-    let x = fx + PAD + 36.0;
-    let menu_w = language_width(cr, fonts);
-    let row_h = 40.0;
-    let h = LANGS.len() as f64 * row_h + 16.0;
-    let y = fy - h - 8.0;
-    fill_round(cr, x, y, menu_w, h, R_CONTROL + 4.0, draw::CONTROL);
+/// The list of languages, opening upward from the dropdown.
+pub(crate) fn language_menu(panel: &mut Panel, ui: &mut Ui) {
+    let footer = panel.stage().footer;
+    let w = language_width(ui);
+    let h = LANGS.len() as f64 * MENU_ROW + 16.0;
+    let menu = Rect::new(footer.x + LANGUAGE_X, footer.y - h - 8.0, w, h);
+    ui.fill(menu, R_CONTROL + 4.0, draw::CONTROL);
     for (i, lang) in LANGS.iter().enumerate() {
-        let row = y + 8.0 + i as f64 * row_h;
+        let row = Rect::new(menu.x, menu.y + 8.0 + i as f64 * MENU_ROW, menu.w, MENU_ROW);
         let selected = *lang == panel.lang;
-        let look = panel.look(x, row, menu_w, row_h);
         if selected {
-            fill_round(cr, x + 6.0, row + 2.0, menu_w - 12.0, row_h - 4.0, 10.0, draw::accent_tint());
-        } else if look != draw::Look::Rest {
-            fill_round(cr, x + 6.0, row + 2.0, menu_w - 12.0, row_h - 4.0, 10.0, draw::CONTROL_HOVER);
+            ui.fill(row.inset_xy(6.0, 2.0), 10.0, draw::accent_tint());
+        } else if ui.look(row) != Look::Rest {
+            ui.fill(row.inset_xy(6.0, 2.0), 10.0, draw::CONTROL_HOVER);
         }
         let color = if selected { draw::accent() } else { TEXT };
-        draw::label_mid(cr, fonts, selected, 15.0, color, x + 16.0, row + row_h / 2.0, lang.endonym());
-        panel.hot(&format!("lang:{}", lang.code()), x, row, menu_w, row_h);
+        ui.label_mid(Font::weight(selected, BUTTON.size), color, row.x + 16.0, row.y + MENU_ROW / 2.0, lang.endonym());
+        ui.hot(Hit::Language(*lang), row);
     }
 }

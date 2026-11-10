@@ -40,8 +40,8 @@ opt-level = 3
 opt-level = 3
 
 [lints.clippy]
-# Immediate-mode drawing helpers take their geometry as plain arguments;
-# bundling them into structs would hide the call sites' intent.
+# Rectangles are `draw::Rect` and the painter is `panel::Ui`, but a few drawing
+# helpers still take a point, a size and several options side by side.
 too_many_arguments = "allow"
 # Self-tests and demos build configs by assigning onto a default.
 field_reassign_with_default = "allow"

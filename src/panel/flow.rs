@@ -7,9 +7,9 @@
 //! looking fine. Drag pans, the stick scrolls, and selecting a node shows the
 //! PipeWire node behind it.
 
-use super::{fill_round, stroke_round, Panel};
+use super::{Hit, HitBounds, Panel, Ui};
 use crate::config;
-use crate::draw::{self, Device, Fonts, Look, Rgb, INSET, MUTED, TEXT};
+use crate::draw::{self, ButtonKind, Device, Font, Look, Rect, Rgb, HEADING, INSET, MUTED, TEXT};
 use crate::graph::Graph;
 use crate::i18n::Text;
 use crate::worker::Snapshot;
@@ -22,6 +22,18 @@ const LANE_GAP: f64 = 96.0;
 const V_GAP: f64 = 16.0;
 const LANE_TITLE_H: f64 = 34.0;
 const PAD: f64 = 16.0;
+/// The card's title row, above the canvas.
+const HEAD_H: f64 = 56.0;
+/// The title may take this share of the card's width.
+const TITLE_SHARE: f64 = 0.35;
+
+/// The notice shown while the mixer is off.
+const NOTICE: Font = Font::regular(16.0);
+/// The toggle chip, the Fit button's width, and the selected node's name.
+const CHIP: Font = Font::bold(14.0);
+const LEGEND: Font = Font::regular(13.0);
+/// The pan hint and the PipeWire node name in the detail bar.
+const HINT: Font = Font::regular(12.5);
 
 /// Pan, zoom and selection of the Signal Flow page.
 pub(crate) struct FlowView {
@@ -32,7 +44,7 @@ pub(crate) struct FlowView {
     pub scale: f64,
     pub sel: Option<String>,
     /// Canvas rectangle of the last frame. Empty space here drag-pans.
-    pub canvas: Option<(f64, f64, f64, f64)>,
+    pub canvas: Option<Rect>,
 }
 
 impl FlowView {
@@ -62,7 +74,7 @@ enum NodeIcon {
 }
 
 struct Node {
-    /// Selection key and hot id suffix.
+    /// Selection key, also carried by the tile's `Hit::FlowNode`.
     key: String,
     label: String,
     sub: String,
@@ -503,39 +515,30 @@ fn layout(nodes: &[Node]) -> Vec<(f64, f64)> {
         .collect()
 }
 
-pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>) {
+pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, snap: &Snapshot, peaks: &HashMap<String, f32>) {
+    let t = ui.t;
     let stage = panel.stage();
-    let (x, y) = (stage.mix.0, stage.mix.1);
-    let w = stage.w - 2.0 * super::MARGIN;
-    let h = stage.mix.3;
-    draw::card(cr, x, y, w, h);
-    draw::label_fit(cr, fonts, true, 20.0, TEXT, x + PAD, y + 40.0, w * 0.35, t.flow);
-    let title_w = draw::text_width(cr, fonts, true, 20.0, t.flow).min(w * 0.35);
-    let on = panel.config.flow_apps;
-    toggle_chip(panel, cr, fonts, x + PAD + title_w + 24.0, y + 14.0, t.flow_all, on);
-    legend(cr, fonts, t, x + w - PAD, y + 18.0);
+    // The page has no drawer, so its card runs the full width of the window.
+    let card = Rect::new(stage.mix.x, stage.mix.y, stage.w - 2.0 * super::MARGIN, stage.mix.h);
+    let Rect { x, y, w, h } = card;
+    ui.card(card);
+    ui.label_fit(HEADING, TEXT, x + PAD, y + 40.0, w * TITLE_SHARE, t.flow);
+    let title_w = ui.text_width(HEADING, t.flow).min(w * TITLE_SHARE);
+    toggle_chip(ui, x + PAD + title_w + 24.0, y + 14.0, t.flow_all, panel.config.flow_apps);
+    legend(ui, x + w - PAD, y + 18.0);
 
-    let canvas = (x + PAD, y + 56.0, w - 2.0 * PAD, h - 56.0 - PAD);
+    let canvas = Rect::new(x + PAD, y + HEAD_H, w - 2.0 * PAD, h - HEAD_H - PAD);
     panel.flow.canvas = Some(canvas);
     if !snap.mix_active {
-        let lines = draw::wrap(cr, fonts, false, 16.0, canvas.2 * 0.7, 3, t.flow_empty);
-        let mut ty = canvas.1 + canvas.3 / 2.0 - lines.len() as f64 * 11.0;
-        for line in &lines {
-            let tw = draw::text_width(cr, fonts, false, 16.0, line);
-            draw::label_mid(cr, fonts, false, 16.0, MUTED, canvas.0 + (canvas.2 - tw) / 2.0, ty, line);
-            ty += 22.0;
-        }
+        empty_notice(ui, canvas);
         return;
     }
 
     let model = model(panel, t, snap, peaks);
     let spots = layout(&model.nodes);
     let content_w = 4.0 * NODE_W + 3.0 * LANE_GAP;
-    let content_h = spots
-        .iter()
-        .map(|(_, sy)| sy + NODE_H)
-        .fold(LANE_TITLE_H, f64::max);
-    let fit = ((canvas.2 - 8.0) / content_w).min((canvas.3 - 8.0) / content_h).clamp(0.2, 1.2);
+    let content_h = spots.iter().map(|(_, sy)| sy + NODE_H).fold(LANE_TITLE_H, f64::max);
+    let fit = ((canvas.w - 8.0) / content_w).min((canvas.h - 8.0) / content_h).clamp(0.2, 1.2);
     let scale = panel.flow.zoom.unwrap_or(fit);
     panel.flow.scale = scale;
     // Keep some of the graph on screen whatever was dragged.
@@ -543,79 +546,78 @@ pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, sna
     let max_y = (content_h * scale - 40.0).max(0.0);
     panel.flow.pan.0 = panel.flow.pan.0.clamp(-max_x, max_x);
     panel.flow.pan.1 = panel.flow.pan.1.clamp(-max_y, max_y);
-    let origin_x = canvas.0 + (canvas.2 - content_w * scale) / 2.0 - panel.flow.pan.0;
-    let origin_y = canvas.1 + (canvas.3 - content_h * scale) / 2.0 - panel.flow.pan.1;
-    let place = |index: usize| {
+    let origin_x = canvas.x + (canvas.w - content_w * scale) / 2.0 - panel.flow.pan.0;
+    let origin_y = canvas.y + (canvas.h - content_h * scale) / 2.0 - panel.flow.pan.1;
+    // Where a node's tile sits on screen.
+    let tile = |index: usize| {
         let (nx, ny) = spots[index];
-        (origin_x + nx * scale, origin_y + ny * scale)
+        Rect::new(origin_x + nx * scale, origin_y + ny * scale, NODE_W * scale, NODE_H * scale)
     };
 
-    let _ = cr.save();
-    cr.rectangle(canvas.0, canvas.1, canvas.2, canvas.3);
-    cr.clip();
+    ui.clip(canvas);
 
     // Lane titles pan with the graph, so a zoomed view still says where it is.
+    let lane_font = Font::bold(14.0 * scale.clamp(0.75, 1.2));
     for (lane, title) in [t.flow_sources, t.flow_mixer, t.flow_outputs, t.flow_devices].into_iter().enumerate() {
         let lx = origin_x + lane as f64 * (NODE_W + LANE_GAP) * scale;
-        draw::label(cr, fonts, true, 14.0 * scale.clamp(0.75, 1.2), MUTED, lx, origin_y + 14.0 * scale, title);
+        ui.label(lane_font, MUTED, lx, origin_y + 14.0 * scale, title);
     }
 
-    let hover = panel
+    let hover = ui
         .pointer
-        .filter(|(px, py)| *px >= canvas.0 && *px < canvas.0 + canvas.2 && *py >= canvas.1 && *py < canvas.1 + canvas.3)
-        .and_then(|(px, py)| {
-            model.nodes.iter().enumerate().find_map(|(index, _)| {
-                let (sx, sy) = place(index);
-                let (sw, sh) = (NODE_W * scale, NODE_H * scale);
-                (px >= sx && px < sx + sw && py >= sy && py < sy + sh).then_some(index)
-            })
-        });
+        .filter(|(px, py)| canvas.contains(*px, *py))
+        .and_then(|(px, py)| (0..model.nodes.len()).find(|index| tile(*index).contains(px, py)));
     let selected = panel.flow.sel.as_deref().and_then(|sel| model.nodes.iter().position(|node| node.key == sel));
 
     for edge in &model.edges {
         let lit = hover.or(selected).is_some_and(|index| edge.from == index || edge.to == index);
-        paint_edge(cr, edge, place(edge.from), place(edge.to), scale, lit);
+        paint_edge(ui.cr, edge, tile(edge.from), tile(edge.to), scale, lit);
     }
+    // A tile half out of view cannot be clicked where it is not drawn.
+    ui.bounds = Some(HitBounds::rect(canvas));
     for (index, node) in model.nodes.iter().enumerate() {
-        let (sx, sy) = place(index);
-        paint_node(panel, cr, fonts, node, sx, sy, scale, hover == Some(index), selected == Some(index), canvas);
+        paint_node(ui, node, tile(index), scale, hover == Some(index), selected == Some(index));
     }
-    let _ = cr.restore();
+    ui.bounds = None;
+    ui.unclip();
 
-    detail_bar(panel, cr, fonts, t, &model, selected, canvas);
-    zoom_controls(panel, cr, fonts, t, canvas);
+    detail_bar(ui, &model, selected, canvas);
+    zoom_controls(ui, canvas);
+}
+
+/// Shown instead of the graph while the mixer is off.
+fn empty_notice(ui: &Ui, canvas: Rect) {
+    let lines = ui.wrap(NOTICE, canvas.w * 0.7, 3, ui.t.flow_empty);
+    let mut ty = canvas.mid_y() - lines.len() as f64 * 11.0;
+    for line in &lines {
+        ui.label_centered(NOTICE, MUTED, canvas.x, canvas.w, ty, line);
+        ty += 22.0;
+    }
 }
 
 /// Compact on/off chip: the accent tint and a lit dot while on.
-fn toggle_chip(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, label: &str, on: bool) {
+fn toggle_chip(ui: &mut Ui, x: f64, y: f64, label: &str, on: bool) {
     let h = 34.0;
-    let text_w = draw::text_width(cr, fonts, true, 14.0, label);
-    let w = text_w + 46.0;
-    let look = panel.look(x, y, w, h);
-    let fill = if on {
-        draw::accent_tint()
-    } else {
-        match look {
-            Look::Down => draw::CONTROL_DOWN,
-            Look::Hover => draw::CONTROL_HOVER,
-            Look::Rest => draw::CONTROL,
-        }
-    };
-    fill_round(cr, x, y, w, h, h / 2.0, fill);
+    let chip = Rect::new(x, y, ui.text_width(CHIP, label) + 46.0, h);
+    let look = ui.look(chip);
+    let fill = if on { draw::accent_tint() } else { ui.control_fill(chip, draw::CONTROL) };
+    ui.fill(chip, h / 2.0, fill);
     if on && look != Look::Rest {
-        stroke_round(cr, x + 1.0, y + 1.0, w - 2.0, h - 2.0, h / 2.0 - 1.0, draw::accent(), 1.5);
+        ui.stroke(chip.inset(1.0), h / 2.0 - 1.0, draw::accent(), 1.5);
     }
-    draw::fill_circle(cr, x + 17.0, y + h / 2.0, 4.0, if on { draw::accent() } else { MUTED });
-    draw::label_mid(cr, fonts, true, 14.0, if on { TEXT } else { draw::SOFT }, x + 30.0, y + h / 2.0, label);
-    panel.hot("flow-apps", x, y, w, h);
+    ui.circle(x + 17.0, y + h / 2.0, 4.0, if on { draw::accent() } else { MUTED });
+    ui.label_mid(CHIP, if on { TEXT } else { draw::SOFT }, x + 30.0, y + h / 2.0, label);
+    ui.hot(Hit::FlowApps, chip);
 }
 
-fn legend(cr: &Context, fonts: &Fonts, t: &Text, right: f64, y: f64) {
+/// What the two line styles mean, laid out leftwards from `right`.
+fn legend(ui: &Ui, right: f64, y: f64) {
+    let (t, cr) = (ui.t, ui.cr);
+    let mid = y + 11.0;
     let mut x = right;
     for (label, color, dashed) in [(t.flow_missing, draw::DANGER, true), (t.flow_live, draw::accent(), false)] {
-        let tw = draw::text_width(cr, fonts, false, 13.0, label);
-        x -= tw;
-        draw::label_mid(cr, fonts, false, 13.0, MUTED, x, y + 11.0, label);
+        x -= ui.text_width(LEGEND, label);
+        ui.label_mid(LEGEND, MUTED, x, mid, label);
         x -= 30.0;
         let _ = cr.save();
         if dashed {
@@ -623,19 +625,20 @@ fn legend(cr: &Context, fonts: &Fonts, t: &Text, right: f64, y: f64) {
         }
         cr.set_line_width(2.5);
         cr.set_source_rgb(color.r, color.g, color.b);
-        cr.move_to(x + 2.0, y + 11.0);
-        cr.line_to(x + 24.0, y + 11.0);
+        cr.move_to(x + 2.0, mid);
+        cr.line_to(x + 24.0, mid);
         let _ = cr.stroke();
         let _ = cr.restore();
         x -= 24.0;
     }
 }
 
-fn paint_edge(cr: &Context, edge: &Edge, from: (f64, f64), to: (f64, f64), scale: f64, lit: bool) {
-    let x1 = from.0 + NODE_W * scale;
-    let y1 = from.1 + NODE_H * scale / 2.0;
-    let x2 = to.0;
-    let y2 = to.1 + NODE_H * scale / 2.0;
+/// A curve from the right edge of the `from` tile to the left edge of the `to` tile.
+fn paint_edge(cr: &Context, edge: &Edge, from: Rect, to: Rect, scale: f64, lit: bool) {
+    let x1 = from.x + NODE_W * scale;
+    let y1 = from.y + NODE_H * scale / 2.0;
+    let x2 = to.x;
+    let y2 = to.y + NODE_H * scale / 2.0;
     let reach = ((x2 - x1) * 0.5).max(24.0 * scale);
     let trace = |cr: &Context| {
         cr.move_to(x1, y1);
@@ -677,58 +680,41 @@ fn paint_edge(cr: &Context, edge: &Edge, from: (f64, f64), to: (f64, f64), scale
     let _ = cr.restore();
 }
 
-fn paint_node(
-    panel: &mut Panel,
-    cr: &Context,
-    fonts: &Fonts,
-    node: &Node,
-    x: f64,
-    y: f64,
-    scale: f64,
-    hovered: bool,
-    selected: bool,
-    canvas: (f64, f64, f64, f64),
-) {
-    let w = NODE_W * scale;
-    let h = NODE_H * scale;
+/// One tile: icon, label (and sub-label), and a level dot when the node has a meter.
+/// Everything inside scales with the zoom.
+fn paint_node(ui: &mut Ui, node: &Node, tile: Rect, scale: f64, hovered: bool, selected: bool) {
+    let Rect { x, y, w, h } = tile;
     let r = draw::R_CONTROL * scale;
     let fill = if hovered { draw::CONTROL_HOVER } else { INSET };
     let alpha = if node.present { 1.0 } else { 0.55 };
-    draw::rounded(cr, x, y, w, h, r);
-    draw::fill(cr, fill, alpha);
+    draw::rounded(ui.cr, tile, r);
+    draw::fill(ui.cr, fill, alpha);
     if selected {
-        stroke_round(cr, x + 1.0, y + 1.0, w - 2.0, h - 2.0, r - 1.0, draw::accent(), 2.0);
+        ui.stroke(tile.inset(1.0), r - 1.0, draw::accent(), 2.0);
     }
     let pad = 10.0 * scale;
     let icon_s = 22.0 * scale;
     let icon_y = y + (h - icon_s) / 2.0;
-    paint_icon(cr, node.icon, x + pad, icon_y, icon_s, if node.present { draw::SOFT } else { MUTED });
+    paint_icon(ui.cr, node.icon, x + pad, icon_y, icon_s, if node.present { draw::SOFT } else { MUTED });
     let text_x = x + pad + icon_s + 8.0 * scale;
     let meter_w = if node.level.is_some() { 14.0 * scale } else { 0.0 };
     let text_w = (x + w - 8.0 * scale - meter_w - text_x).max(10.0);
     let label_c = if node.muted { MUTED } else { TEXT };
     if node.sub.is_empty() {
-        draw::label_fit(cr, fonts, true, 15.0 * scale, label_c, text_x, y + h / 2.0 + 5.0 * scale, text_w, &node.label);
+        ui.label_fit(Font::bold(15.0 * scale), label_c, text_x, y + h / 2.0 + 5.0 * scale, text_w, &node.label);
     } else {
-        draw::label_fit(cr, fonts, true, 14.0 * scale, label_c, text_x, y + h / 2.0 - 3.0 * scale, text_w, &node.label);
-        draw::label_fit(cr, fonts, false, 11.5 * scale, MUTED, text_x, y + h / 2.0 + 13.0 * scale, text_w, &node.sub);
+        ui.label_fit(Font::bold(14.0 * scale), label_c, text_x, y + h / 2.0 - 3.0 * scale, text_w, &node.label);
+        ui.label_fit(Font::regular(11.5 * scale), MUTED, text_x, y + h / 2.0 + 13.0 * scale, text_w, &node.sub);
     }
     if let Some(level) = node.level {
         let shown = if node.muted { 0.0 } else { level };
         let dot = 4.5 * scale;
         let cx = x + w - 8.0 * scale - dot;
         let color = if shown > 0.015 { draw::level_color(shown) } else { draw::mix(TEXT, INSET, 0.18) };
-        draw::fill_circle(cr, cx, y + h / 2.0, dot, color);
+        ui.circle(cx, y + h / 2.0, dot, color);
     }
-    // Hot area clipped to the canvas, so a tile half out of view cannot be
-    // clicked where it is not drawn.
-    let hx = x.max(canvas.0);
-    let hy = y.max(canvas.1);
-    let hw = (x + w).min(canvas.0 + canvas.2) - hx;
-    let hh = (y + h).min(canvas.1 + canvas.3) - hy;
-    if hw > 0.0 && hh > 0.0 {
-        panel.hot(&format!("fnode:{}", node.key), hx, hy, hw, hh);
-    }
+    // `draw` limits hit areas to the canvas while the tiles are painted.
+    ui.hot(Hit::FlowNode(node.key.clone()), tile);
 }
 
 fn paint_icon(cr: &Context, icon: NodeIcon, x: f64, y: f64, s: f64, c: Rgb) {
@@ -750,51 +736,41 @@ fn paint_icon(cr: &Context, icon: NodeIcon, x: f64, y: f64, s: f64, c: Rgb) {
 }
 
 /// The selected node's PipeWire identity, or the pan hint while nothing is selected.
-fn detail_bar(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, model: &Model, selected: Option<usize>, canvas: (f64, f64, f64, f64)) {
-    let bar_h = 40.0;
-    let (cx, cy, cw, ch) = canvas;
-    let by = cy + ch - bar_h;
+fn detail_bar(ui: &mut Ui, model: &Model, selected: Option<usize>, canvas: Rect) {
+    let bar = canvas.take_bottom(40.0);
     match selected.map(|index| &model.nodes[index]) {
         Some(node) => {
-            fill_round(cr, cx, by, cw, bar_h, draw::R_CONTROL, draw::accent_tint());
-            let mid = by + bar_h / 2.0;
-            let mut left = cx + 14.0;
-            draw::label_mid(cr, fonts, true, 14.0, TEXT, left, mid, &node.label);
-            left += draw::text_width(cr, fonts, true, 14.0, &node.label) + 16.0;
+            ui.fill(bar, draw::R_CONTROL, draw::accent_tint());
+            let mid = bar.y + bar.h / 2.0;
+            let mut left = bar.x + 14.0;
+            ui.label_mid(CHIP, TEXT, left, mid, &node.label);
+            left += ui.text_width(CHIP, &node.label) + 16.0;
             if !node.pw_name.is_empty() {
-                draw::label_fit(cr, fonts, false, 12.5, MUTED, left, mid + 4.5, cx + cw - 46.0 - left, &node.pw_name);
+                ui.label_fit(HINT, MUTED, left, mid + 4.5, bar.x + bar.w - 46.0 - left, &node.pw_name);
             }
-            super::close_button(panel, cr, cx + cw - 42.0, by);
-            // The close button's own hot already dismisses; it doubles as deselect.
+            // The close button dismisses, which also clears the selection.
+            ui.close_button(bar.x + bar.w - 42.0, bar.y);
         }
-        None => {
-            draw::label_mid(cr, fonts, false, 12.5, MUTED, cx + 2.0, by + bar_h - 8.0, t.flow_hint);
-        }
+        None => ui.label_mid(HINT, MUTED, bar.x + 2.0, bar.y + bar.h - 8.0, ui.t.flow_hint),
     }
 }
 
-fn zoom_controls(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, canvas: (f64, f64, f64, f64)) {
+/// Zoom in, zoom out and Fit, in the canvas's top-right corner.
+fn zoom_controls(ui: &mut Ui, canvas: Rect) {
+    let t = ui.t;
     let s = 40.0;
-    let (cx, cy, cw, _) = canvas;
-    let fit_w = (draw::text_width(cr, fonts, true, 14.0, t.flow_fit) + 28.0).max(s);
-    let mut bx = cx + cw - s;
-    let by = cy + 8.0;
-    for (id, glyph) in [("flow-zin", "+"), ("flow-zout", "−")] {
-        let look = panel.look(bx, by, s, s);
-        let fill = match look {
-            Look::Down => draw::CONTROL_DOWN,
-            Look::Hover => draw::CONTROL_HOVER,
-            Look::Rest => draw::CONTROL,
-        };
-        fill_round(cr, bx, by, s, s, s / 2.0, fill);
-        let tw = draw::text_width(cr, fonts, true, 20.0, glyph);
-        draw::label_mid(cr, fonts, true, 20.0, TEXT, bx + (s - tw) / 2.0, by + s / 2.0, glyph);
-        panel.hot(id, bx, by, s, s);
+    let fit_w = (ui.text_width(CHIP, t.flow_fit) + 28.0).max(s);
+    let mut bx = canvas.x + canvas.w - s;
+    let by = canvas.y + 8.0;
+    for (hit, glyph) in [(Hit::FlowZoomIn, "+"), (Hit::FlowZoomOut, "−")] {
+        let button = Rect::square(bx, by, s);
+        ui.fill(button, s / 2.0, ui.control_fill(button, draw::CONTROL));
+        ui.label_centered(HEADING, TEXT, bx, s, by + s / 2.0, glyph);
+        ui.hot(hit, button);
         bx -= s + 8.0;
     }
     bx -= fit_w - s;
-    panel.button(cr, fonts, bx, by, fit_w, s, t.flow_fit, draw::ButtonKind::Plain);
-    panel.hot("flow-fit", bx, by, fit_w, s);
+    ui.button_hot(Rect::new(bx, by, fit_w, s), t.flow_fit, ButtonKind::Plain, Hit::FlowFit);
 }
 
 /// Pure layout checks for the self-test: lanes keep their order and nothing overlaps.

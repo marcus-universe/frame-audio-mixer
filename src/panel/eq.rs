@@ -1,121 +1,127 @@
-//! Parametric EQ sheet for an EQ slot in an FX chain. `who` is `fx:{bus}:{index}`.
+//! Parametric EQ sheet for an EQ slot in an FX chain.
 
-use super::{backdrop, fill_round, sheet_surface, Panel};
+use super::menu::{self, Menu};
+use super::{EqSlider, FaderId, FxSlot, Hit, Overlay, Panel, Ui};
 use crate::config::{BandType, EffectKind, EffectSlot, ParamEq};
-use crate::draw::{self, Fonts, MUTED, TEXT};
+use crate::draw::{self, Font, Rect, HEADING, MUTED, TEXT};
 use crate::fx::dsp::eq_response_db;
 use crate::i18n::Text;
 use cairo::Context;
 
-pub(crate) fn sheet(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, who: &str) {
-    let Some(eq) = eq_mut(panel, who).map(|eq| eq.clone()) else {
-        panel.overlay = super::Overlay::None;
+/// Buttons of the title row and the band row.
+const BUTTON_H: f64 = 32.0;
+const HANDLE_R: f64 = 11.0;
+/// The band handles are grabbed a little outside their circle.
+const HANDLE_HIT: f64 = 28.0;
+const SMALL: Font = Font::regular(12.0);
+const SMALL_BOLD: Font = Font::bold(12.0);
+
+pub(crate) fn sheet(panel: &mut Panel, ui: &mut Ui, slot: FxSlot) {
+    let t = ui.t;
+    let Some(eq) = eq_mut(panel, slot).map(|eq| eq.clone()) else {
+        panel.overlay = Overlay::None;
         return;
     };
-    backdrop(panel, cr);
-    let (x, y, w, h) = panel.sheet(16.0);
-    sheet_surface(cr, x, y, w, h);
-    panel.hot("noop", x, y, w, h);
-    draw::label(cr, fonts, true, 20.0, TEXT, x + 24.0, y + 36.0, t.eq_title);
-    let mut sx = x + w - 24.0 - 520.0;
-    for points in [3u8, 6, 8, 12] {
-        let on = eq.points == points;
-        let fill = if on { draw::accent() } else { draw::CONTROL };
-        let ink = if on { draw::on_accent() } else { draw::SOFT };
-        fill_round(cr, sx, y + 16.0, 52.0, 32.0, 10.0, fill);
-        centered(cr, fonts, true, 14.0, ink, sx, 52.0, y + 32.0, &points.to_string());
-        panel.hot(&format!("eq-points:{points}"), sx, y + 16.0, 52.0, 32.0);
-        sx += 58.0;
-    }
-    text_btn(panel, cr, fonts, x + w - 250.0, y + 16.0, 70.0, t.eq_reset, "eq-reset");
-    text_btn(panel, cr, fonts, x + w - 172.0, y + 16.0, 78.0, t.eq_bypass, "eq-bypass");
-    text_btn(panel, cr, fonts, x + w - 86.0, y + 16.0, 62.0, t.eq_done, "eq-done");
+    let sheet = panel.sheet_rect(16.0);
+    ui.dialog(panel.window(), sheet);
+    ui.label(HEADING, TEXT, sheet.x + 24.0, sheet.y + 36.0, t.eq_title);
+    title_buttons(ui, sheet, &eq);
 
-    let gx = x + 28.0;
-    let gy = y + 64.0;
-    let gw = w - 56.0;
-    let gh = (h - 220.0).max(180.0);
-    panel.eq_graph = Some((gx, gy, gw, gh));
-    fill_round(cr, gx, gy, gw, gh, 12.0, draw::BG);
-    let _ = cr.save();
-    draw::rounded(cr, gx, gy, gw, gh, 12.0);
-    cr.clip();
-    panel.spectrum.paint(cr, panel.config.eq_view, gx, gy, gw, gh);
-    let _ = cr.restore();
-    paint_curve(cr, &eq, gx, gy, gw, gh);
+    let graph = Rect::new(sheet.x + 28.0, sheet.y + 64.0, sheet.w - 56.0, (sheet.h - 220.0).max(180.0));
+    panel.eq_graph = Some(graph);
+    ui.fill(graph, 12.0, draw::BG);
+    ui.clip_round(graph, 12.0);
+    panel.spectrum.paint(ui.cr, panel.config.eq_view, graph);
+    ui.unclip();
+    paint_curve(ui.cr, &eq, graph);
     let band = panel.eq_band.min(eq.bands.len().saturating_sub(1));
     for (index, item) in eq.bands.iter().enumerate() {
-        let px = gx + freq_x(item.freq, gw);
-        let py = gy + gain_y(item.gain_db, gh);
-        let fill = if index == band { draw::accent() } else { TEXT };
-        cr.arc(px, py, 11.0, 0.0, std::f64::consts::TAU);
-        draw::fill(cr, fill, 1.0);
-        let num = (index + 1).to_string();
-        centered(cr, fonts, true, 11.0, draw::BG, px - 11.0, 22.0, py, &num);
-        panel.hot(&format!("eqband:{index}"), px - 14.0, py - 14.0, 28.0, 28.0);
+        let px = graph.x + freq_x(item.freq, graph.w);
+        let py = graph.y + gain_y(item.gain_db, graph.h);
+        ui.circle(px, py, HANDLE_R, if index == band { draw::accent() } else { TEXT });
+        ui.label_centered(Font::bold(11.0), draw::BG, px - HANDLE_R, 2.0 * HANDLE_R, py, &(index + 1).to_string());
+        ui.hot(Hit::EqBand(index), Rect::square(px - HANDLE_HIT / 2.0, py - HANDLE_HIT / 2.0, HANDLE_HIT));
     }
 
-    let by = gy + gh + 18.0;
-    if let Some(item) = eq.bands.get(band) {
-        draw::label(cr, fonts, true, 14.0, TEXT, gx, by + 16.0, &format!("{}", band + 1));
-        if band == 0 || band + 1 == eq.bands.len() {
-            let kind = if band == 0 { eq.low } else { eq.high };
-            fill_round(cr, gx + 36.0, by, 120.0, 32.0, 8.0, draw::CONTROL);
-            draw::label_fit(cr, fonts, false, 13.0, TEXT, gx + 44.0, by + 20.0, 100.0, type_name(t, kind));
-            panel.hot("eq-type", gx + 36.0, by, 120.0, 32.0);
-        }
-        slider(panel, cr, fonts, t.eq_freq, &format_freq(item.freq), "eq-freq", gx + 170.0, by, 180.0, freq_t(item.freq));
-        slider(panel, cr, fonts, t.eq_gain, &format!("{:+.1}", item.gain_db), "eq-gain", gx + 360.0, by, 160.0, gain_t(item.gain_db));
-        slider(panel, cr, fonts, t.eq_q, &format!("{:.2}", item.q), "eq-q", gx + 530.0, by, 140.0, q_t(item.q));
-        let on_fill = if item.on { draw::accent() } else { draw::CONTROL };
-        fill_round(cr, gx + gw - 72.0, by, 64.0, 32.0, 8.0, on_fill);
-        centered(cr, fonts, true, 12.0, if item.on { draw::on_accent() } else { MUTED }, gx + gw - 72.0, 64.0, by + 16.0, t.eq_band);
-        panel.hot("eq-on", gx + gw - 72.0, by, 64.0, 32.0);
+    let controls_y = graph.y + graph.h + 18.0;
+    band_controls(ui, &eq, band, graph, controls_y);
+    menus_row(panel, ui, slot, graph.x, controls_y + 46.0);
+}
+
+/// Number of bands, then Reset, Bypass and Done, right-aligned in the title row.
+fn title_buttons(ui: &mut Ui, sheet: Rect, eq: &ParamEq) {
+    let t = ui.t;
+    let y = sheet.y + 16.0;
+    let right = sheet.x + sheet.w;
+    let mut x = right - 24.0 - 520.0;
+    for points in [3u8, 6, 8, 12] {
+        let on = eq.points == points;
+        let button = Rect::new(x, y, 52.0, BUTTON_H);
+        ui.fill(button, 10.0, if on { draw::accent() } else { draw::CONTROL });
+        let ink = if on { draw::on_accent() } else { draw::SOFT };
+        ui.label_centered(Font::bold(14.0), ink, x, 52.0, y + 16.0, &points.to_string());
+        ui.hot(Hit::EqPoints(points), button);
+        x += 58.0;
     }
-    menus_row(panel, cr, fonts, t, who, gx, by + 46.0);
+    text_button(ui, Rect::new(right - 250.0, y, 70.0, BUTTON_H), t.eq_reset, Hit::EqReset);
+    text_button(ui, Rect::new(right - 172.0, y, 78.0, BUTTON_H), t.eq_bypass, Hit::EqBypass);
+    text_button(ui, Rect::new(right - 86.0, y, 62.0, BUTTON_H), t.eq_done, Hit::EqDone);
+}
+
+/// The selected band: its number, its filter type at either end, three sliders, and On.
+fn band_controls(ui: &mut Ui, eq: &ParamEq, band: usize, graph: Rect, y: f64) {
+    let t = ui.t;
+    let Some(item) = eq.bands.get(band) else { return };
+    let x = graph.x;
+    ui.label(Font::bold(14.0), TEXT, x, y + 16.0, &format!("{}", band + 1));
+    if band == 0 || band + 1 == eq.bands.len() {
+        let kind = if band == 0 { eq.low } else { eq.high };
+        let filter = Rect::new(x + 36.0, y, 120.0, BUTTON_H);
+        ui.fill(filter, 8.0, draw::CONTROL);
+        ui.label_fit(Font::regular(13.0), TEXT, x + 44.0, y + 20.0, 100.0, type_name(t, kind));
+        ui.hot(Hit::EqType, filter);
+    }
+    slider(ui, t.eq_freq, &format_freq(item.freq), EqSlider::Freq, x + 170.0, y, 180.0, freq_t(item.freq));
+    slider(ui, t.eq_gain, &format!("{:+.1}", item.gain_db), EqSlider::Gain, x + 360.0, y, 160.0, gain_t(item.gain_db));
+    slider(ui, t.eq_q, &format!("{:.2}", item.q), EqSlider::Q, x + 530.0, y, 140.0, q_t(item.q));
+    let on = Rect::new(x + graph.w - 72.0, y, 64.0, BUTTON_H);
+    ui.fill(on, 8.0, if item.on { draw::accent() } else { draw::CONTROL });
+    ui.label_centered(SMALL_BOLD, if item.on { draw::on_accent() } else { MUTED }, on.x, on.w, y + 16.0, t.eq_band);
+    ui.hot(Hit::EqBandOn, on);
 }
 
 /// The preset and analyzer dropdowns under the band controls.
-fn menus_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, who: &str, x: f64, y: f64) {
+fn menus_row(panel: &mut Panel, ui: &mut Ui, slot: FxSlot, x: f64, y: f64) {
     const W: f64 = 260.0;
     const H: f64 = 40.0;
+    let t = ui.t;
     let lang = panel.lang;
-    if let Some((bus, index)) = fx_position(who) {
-        let caption = slot_mut(panel, who).map(|slot| super::menu::preset_caption(slot, lang, t)).unwrap_or_default();
-        super::menu::button(panel, cr, fonts, super::menu::Menu::Preset { bus, index }, x, y, W, H, &caption);
-    }
-    let caption = format!("{}: {}", t.eq_view, super::menu::view_name(t, panel.config.eq_view));
-    super::menu::button(panel, cr, fonts, super::menu::Menu::EqView, x + W + 12.0, y, W, H, &caption);
+    let caption = slot_mut(panel, slot).map(|effect| menu::preset_caption(effect, lang, t)).unwrap_or_default();
+    menu::button(panel, ui, Menu::Preset { bus: slot.bus, index: slot.index }, Rect::new(x, y, W, H), &caption);
+    let caption = format!("{}: {}", t.eq_view, menu::view_name(t, panel.config.eq_view));
+    menu::button(panel, ui, Menu::EqView, Rect::new(x + W + 12.0, y, W, H), &caption);
 }
 
-/// Effect bus and chain position from a sheet id, `fx:{bus}:{index}`.
-pub(crate) fn fx_position(who: &str) -> Option<(usize, usize)> {
-    let (bus, index) = who.strip_prefix("fx:")?.split_once(':')?;
-    Some((bus.parse().ok()?, index.parse().ok()?))
+fn text_button(ui: &mut Ui, rect: Rect, label: &str, hit: Hit) {
+    ui.fill(rect, 8.0, draw::CONTROL);
+    ui.label_centered(Font::regular(13.0), TEXT, rect.x, rect.w, rect.y + 16.0, label);
+    ui.hot(hit, rect);
 }
 
-fn text_btn(panel: &mut Panel, cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, label: &str, id: &str) {
-    fill_round(cr, x, y, w, 32.0, 8.0, draw::CONTROL);
-    centered(cr, fonts, false, 13.0, TEXT, x, w, y + 16.0, label);
-    panel.hot(id, x, y, w, 32.0);
+/// A thin slider with its caption and value above it. `t` is the position, 0 to 1.
+fn slider(ui: &mut Ui, caption: &str, value: &str, id: EqSlider, x: f64, y: f64, w: f64, t: f64) {
+    ui.label(SMALL, MUTED, x, y + 12.0, caption);
+    ui.label(SMALL_BOLD, TEXT, x + 72.0, y + 12.0, value);
+    let track = Rect::new(x, y + 20.0, w, 8.0);
+    ui.fill(track, 4.0, draw::CONTROL);
+    ui.fill(track.take_left((w * t).max(4.0)), 4.0, draw::accent());
+    // The grab area is taller than the track.
+    ui.fader(FaderId::Eq(id), Rect::new(x, track.y - 8.0, w, 24.0), true);
 }
 
-fn centered(cr: &Context, fonts: &Fonts, bold: bool, size: f64, ink: draw::Rgb, x: f64, w: f64, mid: f64, text: &str) {
-    let tw = draw::text_width(cr, fonts, bold, size, text);
-    draw::label_mid(cr, fonts, bold, size, ink, x + (w - tw) / 2.0, mid, text);
-}
-
-fn slider(panel: &mut Panel, cr: &Context, fonts: &Fonts, caption: &str, value: &str, id: &str, x: f64, y: f64, w: f64, t: f64) {
-    draw::label(cr, fonts, false, 12.0, MUTED, x, y + 12.0, caption);
-    draw::label(cr, fonts, true, 12.0, TEXT, x + 72.0, y + 12.0, value);
-    let tx = x;
-    let ty = y + 20.0;
-    fill_round(cr, tx, ty, w, 8.0, 4.0, draw::CONTROL);
-    fill_round(cr, tx, ty, (w * t).max(4.0), 8.0, 4.0, draw::accent());
-    panel.fader_hit(id, tx, ty - 8.0, w, 24.0, true);
-}
-
-fn paint_curve(cr: &Context, eq: &ParamEq, x: f64, y: f64, w: f64, h: f64) {
+/// The dB grid and the response curve.
+fn paint_curve(cr: &Context, eq: &ParamEq, graph: Rect) {
+    let Rect { x, y, w, h } = graph;
     cr.set_source_rgba(draw::MUTED.r, draw::MUTED.g, draw::MUTED.b, 0.35);
     cr.set_line_width(1.0);
     for db in [-18.0, -12.0, -6.0, 0.0, 6.0, 12.0, 18.0] {
@@ -142,53 +148,50 @@ fn paint_curve(cr: &Context, eq: &ParamEq, x: f64, y: f64, w: f64, h: f64) {
     let _ = cr.stroke();
 }
 
-fn slot_mut<'a>(panel: &'a mut Panel, who: &str) -> Option<&'a mut EffectSlot> {
-    let mut parts = who.strip_prefix("fx:")?.split(':');
-    let bus: usize = parts.next()?.parse().ok()?;
-    let index: usize = parts.next()?.parse().ok()?;
-    super::fx::bus_mut(&mut panel.config, bus).chain.get_mut(index)
+fn slot_mut(panel: &mut Panel, slot: FxSlot) -> Option<&mut EffectSlot> {
+    super::fx::bus_mut(&mut panel.config, slot.bus).chain.get_mut(slot.index)
 }
 
 /// The EQ of that slot. A slot without band data yet gets six flat bands.
-fn eq_mut<'a>(panel: &'a mut Panel, who: &str) -> Option<&'a mut ParamEq> {
-    let slot = slot_mut(panel, who)?;
-    if slot.kind != EffectKind::Eq {
+fn eq_mut(panel: &mut Panel, slot: FxSlot) -> Option<&mut ParamEq> {
+    let effect = slot_mut(panel, slot)?;
+    if effect.kind != EffectKind::Eq {
         return None;
     }
-    Some(slot.eq.get_or_insert_with(|| ParamEq::new(6)))
+    Some(effect.eq.get_or_insert_with(|| ParamEq::new(6)))
 }
 
-pub(crate) fn set_points(panel: &mut Panel, who: &str, points: u8) {
-    if let Some(eq) = eq_mut(panel, who) {
+pub(crate) fn set_points(panel: &mut Panel, slot: FxSlot, points: u8) {
+    if let Some(eq) = eq_mut(panel, slot) {
         eq.set_points(points);
     }
 }
 
-pub(crate) fn reset(panel: &mut Panel, who: &str) {
-    if let Some(eq) = eq_mut(panel, who) {
+pub(crate) fn reset(panel: &mut Panel, slot: FxSlot) {
+    if let Some(eq) = eq_mut(panel, slot) {
         let points = eq.points;
         *eq = ParamEq::new(points);
     }
 }
 
-pub(crate) fn toggle_bypass(panel: &mut Panel, who: &str) {
-    if let Some(eq) = eq_mut(panel, who) {
+pub(crate) fn toggle_bypass(panel: &mut Panel, slot: FxSlot) {
+    if let Some(eq) = eq_mut(panel, slot) {
         eq.bypass = !eq.bypass;
     }
 }
 
-pub(crate) fn toggle_band(panel: &mut Panel, who: &str) {
+pub(crate) fn toggle_band(panel: &mut Panel, slot: FxSlot) {
     let index = panel.eq_band;
-    if let Some(eq) = eq_mut(panel, who) {
+    if let Some(eq) = eq_mut(panel, slot) {
         if let Some(band) = eq.bands.get_mut(index) {
             band.on = !band.on;
         }
     }
 }
 
-pub(crate) fn cycle_type(panel: &mut Panel, who: &str) {
+pub(crate) fn cycle_type(panel: &mut Panel, slot: FxSlot) {
     let index = panel.eq_band;
-    if let Some(eq) = eq_mut(panel, who) {
+    if let Some(eq) = eq_mut(panel, slot) {
         let last = eq.bands.len().saturating_sub(1);
         if index == 0 {
             eq.low = match eq.low {
@@ -206,12 +209,12 @@ pub(crate) fn cycle_type(panel: &mut Panel, who: &str) {
     }
 }
 
-pub(crate) fn drag_handle(panel: &mut Panel, who: &str, index: usize, x: f64, y: f64) {
-    let Some((gx, gy, gw, gh)) = panel.eq_graph else { return };
-    let freq = x_freq(((x - gx) / gw).clamp(0.0, 1.0));
-    let gain = y_gain(((y - gy) / gh).clamp(0.0, 1.0));
+pub(crate) fn drag_handle(panel: &mut Panel, slot: FxSlot, index: usize, x: f64, y: f64) {
+    let Some(graph) = panel.eq_graph else { return };
+    let freq = x_freq(((x - graph.x) / graph.w).clamp(0.0, 1.0));
+    let gain = y_gain(((y - graph.y) / graph.h).clamp(0.0, 1.0));
     panel.eq_band = index;
-    if let Some(eq) = eq_mut(panel, who) {
+    if let Some(eq) = eq_mut(panel, slot) {
         if let Some(band) = eq.bands.get_mut(index) {
             band.freq = freq.clamp(20.0, 20_000.0);
             band.gain_db = gain.clamp(-18.0, 18.0);
@@ -219,23 +222,22 @@ pub(crate) fn drag_handle(panel: &mut Panel, who: &str, index: usize, x: f64, y:
     }
 }
 
-pub(crate) fn set_slider(panel: &mut Panel, who: &str, which: &str, t: f64) {
+pub(crate) fn set_slider(panel: &mut Panel, slot: FxSlot, which: EqSlider, t: f64) {
     let index = panel.eq_band;
-    if let Some(eq) = eq_mut(panel, who) {
+    if let Some(eq) = eq_mut(panel, slot) {
         if let Some(band) = eq.bands.get_mut(index) {
             match which {
-                "freq" => band.freq = x_freq(t),
-                "gain" => band.gain_db = (t * 36.0 - 18.0).clamp(-18.0, 18.0),
-                "q" => band.q = (0.1 * 100f64.powf(t)).clamp(0.1, 10.0),
-                _ => {}
+                EqSlider::Freq => band.freq = x_freq(t),
+                EqSlider::Gain => band.gain_db = (t * 36.0 - 18.0).clamp(-18.0, 18.0),
+                EqSlider::Q => band.q = (0.1 * 100f64.powf(t)).clamp(0.1, 10.0),
             }
         }
     }
 }
 
-pub(crate) fn nudge_q(panel: &mut Panel, who: &str, delta: f64) {
+pub(crate) fn nudge_q(panel: &mut Panel, slot: FxSlot, delta: f64) {
     let index = panel.eq_band;
-    if let Some(eq) = eq_mut(panel, who) {
+    if let Some(eq) = eq_mut(panel, slot) {
         if let Some(band) = eq.bands.get_mut(index) {
             band.q = (band.q * if delta > 0.0 { 0.9 } else { 1.1 }).clamp(0.1, 10.0);
         }

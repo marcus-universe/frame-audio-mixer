@@ -3,11 +3,12 @@
 use cairo::Context;
 use std::f64::consts::PI;
 
+use super::geom::Rect;
 use super::icons::{FADER_ICON_VIEW, MIC_OFF_PATH, MIC_PATH, SPEAKER_OFF_PATH, SPEAKER_PATH};
 use super::palette::*;
-use super::shape::{fill, rounded};
+use super::shape::{fill, fill_round, rounded};
 use super::svg::icon;
-use super::text::{label, label_at, label_mid, text_width, Fonts};
+use super::text::{label, label_at, label_mid, text_width, Font, Fonts, BUTTON};
 
 /// How a button is painted. Matches Frame Mic Tuner's frame-ui button kinds.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -40,17 +41,16 @@ pub fn scroll_thumb(track: f64, content: f64, min_px: f64) -> f64 {
 }
 
 /// The thin scrollbar both sections use. The handle is the accent color.
-pub fn paint_scroll_thumb(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
-    if w < 1.0 || h < 1.0 {
+pub fn paint_scroll_thumb(cr: &Context, thumb: Rect) {
+    if thumb.w < 1.0 || thumb.h < 1.0 {
         return;
     }
-    rounded(cr, x, y, w, h, (w.min(h) / 2.0).max(1.0));
-    fill(cr, accent(), 1.0);
+    fill_round(cr, thumb, (thumb.w.min(thumb.h) / 2.0).max(1.0), accent());
 }
 
 /// Flat pill buttons: tonal for Plain and Danger, filled for Accent and DangerArmed.
 /// `look` is Rest unless the pointer is over the button.
-pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, caption: &str, kind: ButtonKind, look: Look) {
+pub fn button(cr: &Context, fonts: &Fonts, rect: Rect, caption: &str, kind: ButtonKind, look: Look) {
     let (fill_c, _border, text_c) = match kind {
         ButtonKind::Accent => {
             let fill_c = match look {
@@ -78,11 +78,10 @@ pub fn button(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, capti
             (fill_c, BORDER, TEXT)
         }
     };
-    rounded(cr, x, y, w, h, h / 2.0);
-    fill(cr, fill_c, 1.0);
+    fill_round(cr, rect, rect.h / 2.0, fill_c);
     if !caption.is_empty() {
-        let tw = text_width(cr, fonts, true, 15.0, caption);
-        label_mid(cr, fonts, true, 15.0, text_c, x + (w - tw) / 2.0, y + h / 2.0, caption);
+        let tw = text_width(cr, fonts, BUTTON, caption);
+        label_mid(cr, fonts, BUTTON, text_c, rect.x + (rect.w - tw) / 2.0, rect.y + rect.h / 2.0, caption);
     }
 }
 
@@ -132,12 +131,12 @@ fn led_lit(amplitude: f64, db: f64) -> bool {
 
 /// Segmented peak column. `amplitude` is linear gain, 1.0 at 0 dB.
 /// The scale is −48 dB to +6 dB. Green below −6 dB, yellow to 0 dB, red above.
-pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: f64, amplitude: f64, labels: bool) -> f64 {
+pub fn paint_led_column(cr: &Context, fonts: &Fonts, column: Rect, amplitude: f64, labels: bool) -> f64 {
+    let Rect { x, y, w, h } = column;
     if w <= 0.0 || h <= 0.0 {
         return x;
     }
-    rounded(cr, x, y, w, h, 2.0);
-    fill(cr, BG, 1.0);
+    fill_round(cr, column, 2.0, BG);
     let step = LED_H + LED_GAP;
     let n = ((h + LED_GAP) / step).floor().max(1.0) as usize;
     for i in 0..n {
@@ -145,8 +144,7 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
         let db = led_db(t);
         let ly = y + h - (i as f64 + 1.0) * step + LED_GAP;
         let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
-        rounded(cr, x + 1.0, ly, w - 2.0, LED_H, 0.8);
-        fill(cr, color, 1.0);
+        fill_round(cr, Rect::new(x + 1.0, ly, w - 2.0, LED_H), 0.8, color);
     }
     if !labels {
         return x + w;
@@ -160,7 +158,7 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
         cr.move_to(x + w, ty);
         cr.line_to(x + w + 3.0, ty);
         let _ = cr.stroke();
-        let tw = text_width(cr, fonts, false, 10.0, text);
+        let tw = text_width(cr, fonts, Font::regular(10.0), text);
         label_at(cr, fonts, 10.0, MUTED, label_x, ty, text);
         right = right.max(label_x + tw);
     }
@@ -168,13 +166,14 @@ pub fn paint_led_column(cr: &Context, fonts: &Fonts, x: f64, y: f64, w: f64, h: 
 }
 
 /// One column per channel: a single 12 px column, or a 7 px pair for stereo.
-/// Returns the right edge of the scale labels.
-pub fn paint_led_columns(cr: &Context, fonts: &Fonts, x: f64, y: f64, h: f64, levels: &[f32]) -> f64 {
+/// `silent` draws every column dark. Returns the right edge of the scale labels.
+pub fn paint_led_columns(cr: &Context, fonts: &Fonts, x: f64, y: f64, h: f64, levels: &[f32], silent: bool) -> f64 {
     let (w, gap) = if levels.len() > 1 { (STEREO_LED_W, 2.0) } else { (MONO_LED_W, 0.0) };
     let mut right = x;
     for (index, level) in levels.iter().enumerate() {
         let last = index + 1 == levels.len();
-        right = paint_led_column(cr, fonts, x + index as f64 * (w + gap), y, w, h, *level as f64, last);
+        let amplitude = if silent { 0.0 } else { *level as f64 };
+        right = paint_led_column(cr, fonts, Rect::new(x + index as f64 * (w + gap), y, w, h), amplitude, last);
     }
     right
 }
@@ -183,12 +182,12 @@ const MONO_LED_W: f64 = 12.0;
 const STEREO_LED_W: f64 = 7.0;
 
 /// Short LED strip along a side fader. The fader draws 0 and −12 on its own marks.
-pub fn paint_led_strip(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
+pub fn paint_led_strip(cr: &Context, strip: Rect, amplitude: f64) {
+    let Rect { x, y, w, h } = strip;
     if w <= 0.0 || h <= 0.0 {
         return;
     }
-    rounded(cr, x, y, w, h, h / 2.0);
-    fill(cr, BG, 1.0);
+    fill_round(cr, strip, h / 2.0, BG);
     let step = LED_H + LED_GAP;
     let n = ((w + LED_GAP) / step).floor().max(1.0) as usize;
     for i in 0..n {
@@ -196,18 +195,17 @@ pub fn paint_led_strip(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: 
         let db = led_db(t);
         let lx = x + i as f64 * step;
         let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
-        rounded(cr, lx, y + 1.0, LED_H, h - 2.0, 0.8);
-        fill(cr, color, 1.0);
+        fill_round(cr, Rect::new(lx, y + 1.0, LED_H, h - 2.0), 0.8, color);
     }
 }
 
 /// Horizontal LED meter for Mix Check.
-pub fn paint_led_bar(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f64) {
+pub fn paint_led_bar(cr: &Context, bar: Rect, amplitude: f64) {
+    let Rect { x, y, w, h } = bar;
     if w <= 0.0 || h <= 0.0 {
         return;
     }
-    rounded(cr, x, y, w, h, h / 2.0);
-    fill(cr, BG, 1.0);
+    fill_round(cr, bar, h / 2.0, BG);
     let step = 4.0;
     let n = ((w + 1.0) / step).floor().max(1.0) as usize;
     for i in 0..n {
@@ -215,8 +213,7 @@ pub fn paint_led_bar(cr: &Context, x: f64, y: f64, w: f64, h: f64, amplitude: f6
         let db = led_db(t);
         let lx = x + i as f64 * step;
         let color = if led_lit(amplitude, db) { led_color(db) } else { mix(TEXT, BG, 0.12) };
-        rounded(cr, lx + 0.5, y + 1.0, 3.0, h - 2.0, 1.0);
-        fill(cr, color, 1.0);
+        fill_round(cr, Rect::new(lx + 0.5, y + 1.0, 3.0, h - 2.0), 1.0, color);
     }
 }
 
@@ -242,13 +239,28 @@ pub enum FaderGlyph {
     Speaker,
 }
 
+/// What a fader shows. Its geometry is passed beside it.
+#[derive(Clone, Copy)]
+pub struct Fader<'a> {
+    /// Strip gain. Negative infinity is silence.
+    pub db: f64,
+    /// Post-fader linear peaks, one per meter column (one, or left and right).
+    pub levels: &'a [f32],
+    pub meters: bool,
+    pub muted: bool,
+    pub glyph: FaderGlyph,
+    /// Dots on the snap points.
+    pub snaps: bool,
+}
+
+/// Where a fader was drawn, for its hit area.
 pub struct FaderGeom {
-    pub capsule_x: f64,
-    pub capsule_y: f64,
-    pub capsule_w: f64,
-    pub capsule_h: f64,
+    pub capsule: Rect,
     pub meter_right: f64,
 }
+
+/// The gain readout of a fader.
+const VALUE: Font = Font::bold(13.0);
 
 /// Below a vertical fader: percent baseline, path icon, then Mute/Solo in mix.rs.
 const FADER_PCT_Y: f64 = 16.0;
@@ -258,34 +270,21 @@ pub const FADER_MUTE_H: f64 = 28.0;
 /// Room a vertical fader needs under its capsule, including Mute and Solo.
 pub const FADER_FOOT: f64 = 80.0;
 
-/// One mix fader scaled from silence to +12 dB. `db` is the strip gain.
-/// `levels` are post-fader linear peaks, one per meter column (one, or left and right).
-pub fn paint_fader(
-    cr: &Context,
-    fonts: &Fonts,
-    cx: f64,
-    top: f64,
-    cap_h: f64,
-    db: f64,
-    levels: &[f32],
-    meters: bool,
-    muted: bool,
-    glyph: FaderGlyph,
-    snaps: bool,
-) -> FaderGeom {
+/// One vertical mix fader scaled from silence to +12 dB, centered on `cx`.
+/// The capsule is `cap_h` tall from `top`; the value and the glyph sit below it.
+pub fn paint_fader(cr: &Context, fonts: &Fonts, cx: f64, top: f64, cap_h: f64, fader: &Fader) -> FaderGeom {
+    let Fader { db, levels, meters, muted, glyph, snaps } = *fader;
     let cap_w = 32.0;
     let x = cx - cap_w / 2.0;
-    let radius = cap_w / 2.0;
+    let capsule = Rect::new(x, top, cap_w, cap_h);
     let fraction = crate::config::db_to_t(db);
     let _ = cr.save();
-    rounded(cr, x, top, cap_w, cap_h, radius);
+    rounded(cr, capsule, cap_w / 2.0);
     cr.clip();
-    rounded(cr, x, top, cap_w, cap_h, 0.0);
-    fill(cr, track(), 1.0);
+    fill_round(cr, capsule, 0.0, track());
     let fill_top = top + cap_h - cap_h * fraction;
     if top + cap_h - fill_top > 0.5 {
-        rounded(cr, x, fill_top, cap_w, top + cap_h - fill_top, 0.0);
-        fill(cr, accent(), 1.0);
+        fill_round(cr, Rect::new(x, fill_top, cap_w, top + cap_h - fill_top), 0.0, accent());
     }
     let _ = cr.restore();
     if snaps {
@@ -308,39 +307,27 @@ pub fn paint_fader(
 
     let meter_right = if meters {
         let silent = muted || !db.is_finite();
-        let shown: Vec<f32> = levels.iter().map(|level| if silent { 0.0 } else { *level }).collect();
-        paint_led_columns(cr, fonts, x + cap_w + 4.0, top, cap_h, &shown)
+        paint_led_columns(cr, fonts, x + cap_w + 4.0, top, cap_h, levels, silent)
     } else {
         x + cap_w
     };
 
     let pct = crate::config::format_db(db);
     let pct_color = if db.abs() < 0.05 { accent() } else { TEXT };
-    let tw = text_width(cr, fonts, true, 13.0, &pct);
-    label(cr, fonts, true, 13.0, pct_color, cx - tw / 2.0, top + cap_h + FADER_PCT_Y, &pct);
+    let tw = text_width(cr, fonts, VALUE, &pct);
+    label(cr, fonts, VALUE, pct_color, cx - tw / 2.0, top + cap_h + FADER_PCT_Y, &pct);
 
     let icon_s = 22.0;
     let icon_x = cx - icon_s / 2.0;
     let icon_y = top + cap_h + FADER_ICON_Y - icon_s / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
-    FaderGeom { capsule_x: x, capsule_y: top, capsule_w: cap_w, capsule_h: cap_h, meter_right }
+    FaderGeom { capsule, meter_right }
 }
 
-/// A sideways fader. The 0 dB mark stays a line.
-pub fn paint_side_fader(
-    cr: &Context,
-    fonts: &Fonts,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-    db: f64,
-    levels: &[f32],
-    meters: bool,
-    muted: bool,
-    glyph: FaderGlyph,
-    snaps: bool,
-) -> FaderGeom {
+/// A sideways fader inside `area`: glyph, track, then the value. The 0 dB mark stays a line.
+pub fn paint_side_fader(cr: &Context, fonts: &Fonts, area: Rect, fader: &Fader) -> FaderGeom {
+    let Rect { x, y, w, h } = area;
+    let Fader { db, levels, meters, muted, glyph, snaps } = *fader;
     let track_h = 24.0;
     let icon_box = 28.0;
     let icon_s = 22.0;
@@ -348,16 +335,14 @@ pub fn paint_side_fader(
     let track_w = (w - icon_box - pct_w - 12.0).max(36.0);
     let track_x = x + icon_box + 8.0;
     let track_y = y + (h - track_h) / 2.0;
-    let radius = track_h / 2.0;
+    let capsule = Rect::new(track_x, track_y, track_w, track_h);
     let fraction = crate::config::db_to_t(db);
     let _ = cr.save();
-    rounded(cr, track_x, track_y, track_w, track_h, radius);
+    rounded(cr, capsule, track_h / 2.0);
     cr.clip();
-    rounded(cr, track_x, track_y, track_w, track_h, 0.0);
-    fill(cr, track(), 1.0);
+    fill_round(cr, capsule, 0.0, track());
     if track_w * fraction > 0.5 {
-        rounded(cr, track_x, track_y, track_w * fraction, track_h, 0.0);
-        fill(cr, accent(), 1.0);
+        fill_round(cr, capsule.take_left(track_w * fraction), 0.0, accent());
     }
     let _ = cr.restore();
     if snaps {
@@ -385,29 +370,23 @@ pub fn paint_side_fader(
         for (index, level) in levels.iter().enumerate() {
             let amplitude = if silent { 0.0 } else { *level as f64 };
             // The full track width, so a tick lands on the fader mark of the same level.
-            paint_led_strip(cr, track_x, my + index as f64 * (strip_h + 1.0), track_w, strip_h, amplitude);
+            paint_led_strip(cr, Rect::new(track_x, my + index as f64 * (strip_h + 1.0), track_w, strip_h), amplitude);
         }
     }
     // The same marks as the vertical meter: +6, 0, −6, −12, −24, −48.
     for (db, text) in METER_TICKS {
         let tx = track_x + track_w * crate::config::db_to_t(db);
-        let tw = text_width(cr, fonts, false, 9.0, text);
+        let tw = text_width(cr, fonts, Font::regular(9.0), text);
         label_at(cr, fonts, 9.0, MUTED, tx - tw / 2.0, track_y - 14.0, text);
     }
 
     let pct = crate::config::format_db(db);
     let pct_color = if db.abs() < 0.05 { accent() } else { TEXT };
-    let pw = text_width(cr, fonts, true, 13.0, &pct);
-    label_mid(cr, fonts, true, 13.0, pct_color, x + w - pw, track_y + track_h / 2.0, &pct);
+    let pw = text_width(cr, fonts, VALUE, &pct);
+    label_mid(cr, fonts, VALUE, pct_color, x + w - pw, track_y + track_h / 2.0, &pct);
 
     let icon_x = x + (icon_box - icon_s) / 2.0;
     let icon_y = y + (h - icon_s) / 2.0;
     paint_fader_glyph(cr, glyph, muted, icon_x, icon_y, icon_s);
-    FaderGeom {
-        capsule_x: track_x,
-        capsule_y: track_y,
-        capsule_w: track_w,
-        capsule_h: track_h,
-        meter_right: track_x + track_w,
-    }
+    FaderGeom { capsule, meter_right: track_x + track_w }
 }

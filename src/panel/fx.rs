@@ -1,72 +1,93 @@
 //! Effect-bus drawer: up to three chained effects, drag to reorder.
 
-use super::{fill_round, Panel};
-use crate::config::{EffectKind, EffectSlot, FxBus};
-use crate::draw::{self, ButtonKind, Fonts, INSET, MUTED, R_CONTROL, TEXT};
-use crate::i18n::{self, Text};
-use cairo::Context;
+use super::menu::{self, Menu};
+use super::{BusId, FaderId, FxSlot, Hit, Panel, Source, Ui};
+use crate::config::{self, EffectKind, EffectSlot, FxBus};
+use crate::draw::{self, ButtonKind, Fader, FaderGlyph, Font, Rect, Rgb, BUTTON, INSET, MUTED, R_CONTROL, TEXT};
+use crate::i18n;
 
 const ROW_H: f64 = 52.0;
-/// First chain row, from the top of the drawer. Rows are `ROW_H + 8` apart.
+const ROW_GAP: f64 = 8.0;
+/// First chain row, from the top of the drawer.
 pub(crate) const CHAIN_TOP: f64 = 180.0;
+/// Distance from one chain row to the next.
+pub(crate) const CHAIN_STEP: f64 = ROW_H + ROW_GAP;
+/// A chain holds at most this many effects.
+const CHAIN_MAX: usize = 3;
+/// Height of the preset dropdown and its gap, above an effect's sliders.
+const PRESET_ROW: f64 = 46.0;
+/// One parameter slider and its gap.
+const PARAM_STEP: f64 = 48.0;
+const TRACK_H: f64 = 24.0;
+/// One route button of the return row.
+const ROUTE_W: f64 = 36.0;
+const ROUTE_H: f64 = 28.0;
+const ROUTE_STEP: f64 = 40.0;
+/// Edit, Open and × on a chain row.
+const ROW_BUTTON_H: f64 = 32.0;
 
-pub(crate) fn draw(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, a_slots: &[usize]) {
-    let (x, y, w, h) = panel.stage().check;
-    if w < 40.0 || h <= 0.0 {
+const SMALL: Font = Font::regular(12.0);
+
+fn bus_color(bus: usize) -> Rgb {
+    if bus == 0 { draw::FX1 } else { draw::FX2 }
+}
+
+pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, bus: usize, a_slots: &[usize]) {
+    let t = ui.t;
+    let card = panel.stage().drawer;
+    if card.w < 40.0 || card.h <= 0.0 {
         return;
     }
-    draw::card(cr, x, y, w, h);
-    if w < 80.0 {
+    ui.card(card);
+    if card.w < 80.0 {
         return;
     }
-    let color = if bus == 0 { draw::FX1 } else { draw::FX2 };
-    fill_round(cr, x + 20.0, y + 28.0, 8.0, 20.0, 4.0, color);
-    let title = if bus == 0 { t.fx1 } else { t.fx2 };
-    draw::label(cr, fonts, true, 18.0, TEXT, x + 36.0, y + 44.0, title);
-    return_row(panel, cr, fonts, t, bus, a_slots, x + 16.0, y + 56.0, w - 32.0);
+    ui.fill(Rect::new(card.x + 20.0, card.y + 28.0, 8.0, 20.0), 4.0, bus_color(bus));
+    ui.label(Font::bold(18.0), TEXT, card.x + 36.0, card.y + 44.0, if bus == 0 { t.fx1 } else { t.fx2 });
+    return_row(panel, ui, bus, a_slots, card.x + 16.0, card.y + 56.0, card.w - 32.0);
 
-    let chain = if bus == 0 { panel.config.fx_a.chain.clone() } else { panel.config.fx_b.chain.clone() };
-    let left = x + 20.0;
-    let row_w = w - 40.0;
-    let mut ry = y + CHAIN_TOP;
-    let list_bottom = y + h - 16.0;
+    let chain = bus_mut(&mut panel.config, bus).chain.clone();
+    let left = card.x + 20.0;
+    let row_w = card.w - 40.0;
+    let list_bottom = card.y + card.h - 16.0;
+    let mut y = card.y + CHAIN_TOP;
     for (index, slot) in chain.iter().enumerate() {
-        if ry + ROW_H > list_bottom {
+        if y + ROW_H > list_bottom {
             break;
         }
-        chain_row(panel, cr, fonts, t, bus, index, slot, left, ry, row_w);
-        ry += ROW_H + 8.0;
-        if panel.fx_edit == Some((bus as u8, index)) {
-            let extra = editor_height(slot.kind);
-            if ry + extra < list_bottom {
-                params(panel, cr, fonts, t, bus, index, slot, left, ry, row_w);
-                ry += extra;
+        chain_row(panel, ui, FxSlot { bus, index }, slot, Rect::new(left, y, row_w, ROW_H));
+        y += CHAIN_STEP;
+        if panel.fx_edit == Some(FxSlot { bus, index }) {
+            let editor_h = editor_height(slot.kind);
+            if y + editor_h < list_bottom {
+                editor(panel, ui, FxSlot { bus, index }, slot, left, y, row_w);
+                y += editor_h;
             }
         }
     }
-    if chain.len() < 3 && ry + ROW_H <= list_bottom {
-        add_row(panel, cr, bus, left, ry, row_w);
+    if chain.len() < CHAIN_MAX && y + ROW_H <= list_bottom {
+        add_row(ui, bus, Rect::new(left, y, row_w, ROW_H));
     }
 }
 
 /// One wide target with a plus. The picker it opens names everything.
-fn add_row(panel: &mut Panel, cr: &Context, bus: usize, x: f64, y: f64, w: f64) {
-    let fill = match panel.look(x, y, w, ROW_H) {
-        draw::Look::Down => draw::CONTROL_DOWN,
-        draw::Look::Hover => draw::CONTROL_HOVER,
-        draw::Look::Rest => draw::mix(draw::CONTROL, INSET, 0.5),
-    };
-    fill_round(cr, x, y, w, ROW_H, R_CONTROL, fill);
-    let s = 28.0;
-    draw::icon(cr, draw::ADD_PATH, 28.0, x + (w - s) / 2.0, y + (ROW_H - s) / 2.0, s, draw::SOFT);
-    panel.hot(&format!("fxpick:{bus}"), x, y, w, ROW_H);
+fn add_row(ui: &mut Ui, bus: usize, row: Rect) {
+    ui.fill(row, R_CONTROL, ui.control_fill(row, draw::mix(draw::CONTROL, INSET, 0.5)));
+    let glyph = 28.0;
+    ui.icon(draw::ADD_PATH, 28.0, row.x + (row.w - glyph) / 2.0, row.y + (ROW_H - glyph) / 2.0, glyph, draw::SOFT);
+    ui.hot(Hit::FxPicker(bus), row);
 }
 
-fn chain_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
-    fill_round(cr, x, y, w, ROW_H, R_CONTROL, INSET);
-    fill_round(cr, x + 12.0, y + 20.0, 8.0, 12.0, 4.0, draw::effect_color(slot.kind));
-    grip(cr, x + w - 200.0, y + 16.0);
-    panel.hot(&format!("fxgrip:{bus}:{index}"), x + w - 210.0, y, 36.0, ROW_H);
+/// One effect of the chain: its color, its name, a grip, Edit (or Open for a plugin) and ×.
+fn chain_row(panel: &mut Panel, ui: &mut Ui, at: FxSlot, slot: &EffectSlot, row: Rect) {
+    let t = ui.t;
+    let FxSlot { bus, index } = at;
+    let Rect { x, y, w, .. } = row;
+    ui.fill(row, R_CONTROL, INSET);
+    ui.fill(Rect::new(x + 12.0, y + 20.0, 8.0, 12.0), 4.0, draw::effect_color(slot.kind));
+    grip(ui, x + w - 200.0, y + 16.0);
+    ui.hot(Hit::FxGrip { bus, index }, Rect::new(x + w - 210.0, y, 36.0, ROW_H));
+    let action = Rect::new(x + w - 164.0, y + 10.0, 72.0, ROW_BUTTON_H);
     if let Some(plugin) = &slot.vst {
         let status = panel.vst_status.get(&plugin.instance).map(String::as_str).unwrap_or("starting");
         let note = match status {
@@ -76,133 +97,127 @@ fn chain_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usiz
         };
         match note {
             Some(note) => {
-                draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 24.0, w - 250.0, &plugin.name);
-                draw::label_fit(cr, fonts, false, 12.0, MUTED, x + 32.0, y + 42.0, w - 250.0, note);
+                ui.label_fit(BUTTON, TEXT, x + 32.0, y + 24.0, w - 250.0, &plugin.name);
+                ui.label_fit(SMALL, MUTED, x + 32.0, y + 42.0, w - 250.0, note);
             }
-            None => draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 32.0, w - 250.0, &plugin.name),
+            None => ui.label_fit(BUTTON, TEXT, x + 32.0, y + 32.0, w - 250.0, &plugin.name),
         }
-        panel.button(cr, fonts, x + w - 164.0, y + 10.0, 72.0, 32.0, t.vst_open, ButtonKind::Plain);
-        panel.hot(&format!("vstgui:{}", plugin.instance), x + w - 164.0, y + 10.0, 72.0, 32.0);
+        ui.button_hot(action, t.vst_open, ButtonKind::Plain, Hit::VstEditor(plugin.instance.clone()));
     } else {
-        let name = i18n::effect_name(t, slot.kind);
-        draw::label_fit(cr, fonts, true, 15.0, TEXT, x + 32.0, y + 32.0, w - 220.0, name);
-        panel.button(cr, fonts, x + w - 164.0, y + 10.0, 72.0, 32.0, t.edit, ButtonKind::Plain);
-        panel.hot(&format!("fxedit:{bus}:{index}"), x + w - 164.0, y + 10.0, 72.0, 32.0);
+        ui.label_fit(BUTTON, TEXT, x + 32.0, y + 32.0, w - 220.0, i18n::effect_name(t, slot.kind));
+        ui.button_hot(action, t.edit, ButtonKind::Plain, Hit::FxEdit { bus, index });
     }
-    panel.button(cr, fonts, x + w - 80.0, y + 10.0, 64.0, 32.0, "×", ButtonKind::Plain);
-    panel.hot(&format!("fxrm:{bus}:{index}"), x + w - 80.0, y + 10.0, 64.0, 32.0);
+    let remove = Rect::new(x + w - 80.0, y + 10.0, 64.0, ROW_BUTTON_H);
+    ui.button_hot(remove, "×", ButtonKind::Plain, Hit::FxRemove { bus, index });
 }
-
-/// Height of the preset dropdown and its gap, above an effect's sliders.
-const PRESET_ROW: f64 = 46.0;
 
 fn editor_height(kind: EffectKind) -> f64 {
-    PRESET_ROW + if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * 48.0 + 8.0 }
+    PRESET_ROW + if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * PARAM_STEP + 8.0 }
 }
 
-fn params(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
-    let caption = super::menu::preset_caption(slot, panel.lang, t);
-    super::menu::button(panel, cr, fonts, super::menu::Menu::Preset { bus, index }, x, y, w, PRESET_ROW - 8.0, &caption);
+/// The open effect: its preset dropdown, then one slider per parameter.
+fn editor(panel: &mut Panel, ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    let t = ui.t;
+    let FxSlot { bus, index } = at;
+    let caption = menu::preset_caption(slot, panel.lang, t);
+    menu::button(panel, ui, Menu::Preset { bus, index }, Rect::new(x, y, w, PRESET_ROW - 8.0), &caption);
     let y = y + PRESET_ROW;
     if slot.kind == EffectKind::Pitcher {
-        pitcher(panel, cr, fonts, t, bus, index, slot, x, y, w);
+        pitcher(ui, at, slot, x, y, w);
         return;
     }
-    let mut py = y;
-    for p in 0..slot.kind.param_count() {
-        let label = i18n::param_name(t, slot.kind, p);
-        draw::label(cr, fonts, false, 12.0, MUTED, x, py + 16.0, label);
-        let track_x = x + 110.0;
-        let track_w = (w - 160.0).max(80.0);
-        let track_y = py + 8.0;
-        let track_h = 24.0;
-        let frac = slot.params[p].clamp(0.0, 1.0);
-        fill_round(cr, track_x, track_y, track_w, track_h, track_h / 2.0, draw::track());
-        fill_round(cr, track_x, track_y, track_w * frac, track_h, track_h / 2.0, draw::effect_color(slot.kind));
-        panel.fader_hit(&format!("fxp:{bus}:{index}:{p}"), track_x, track_y, track_w, track_h, true);
-        let shown = format!("{:.0}%", frac * 100.0);
-        draw::label(cr, fonts, false, 12.0, TEXT, track_x + track_w + 8.0, py + 24.0, &shown);
-        py += 48.0;
+    let color = draw::effect_color(slot.kind);
+    for param in 0..slot.kind.param_count() {
+        let py = y + param as f64 * PARAM_STEP;
+        ui.label(SMALL, MUTED, x, py + 16.0, i18n::param_name(t, slot.kind, param));
+        let track = Rect::new(x + 110.0, py + 8.0, (w - 160.0).max(80.0), TRACK_H);
+        let fraction = slot.params[param].clamp(0.0, 1.0);
+        ui.fill(track, TRACK_H / 2.0, draw::track());
+        ui.fill(track.take_left(track.w * fraction), TRACK_H / 2.0, color);
+        ui.fader(FaderId::FxParam { bus, index, param }, track, true);
+        ui.label(SMALL, TEXT, track.x + track.w + 8.0, py + 24.0, &format!("{:.0}%", fraction * 100.0));
     }
 }
 
 /// Bipolar pitch, −12 at the left, 0 in the middle, +12 at the right. Snap locks whole semitones.
-fn pitcher(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, index: usize, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+fn pitcher(ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    let t = ui.t;
+    let FxSlot { bus, index } = at;
     let snap = slot.pitch_snap;
-    let btn_w = 76.0;
-    let btn_h = 28.0;
-    draw::label_fit(cr, fonts, false, 12.0, MUTED, x, y + 18.0, (w - btn_w - 72.0).max(40.0), t.param_semitones);
-    let shown = crate::config::format_pitch(slot.params[0], snap);
-    draw::label(cr, fonts, true, 13.0, TEXT, x + w - btn_w - 56.0, y + 18.0, &shown);
+    let snap_button = Rect::new(x + w - 76.0, y, 76.0, 28.0);
+    ui.label_fit(SMALL, MUTED, x, y + 18.0, (w - snap_button.w - 72.0).max(40.0), t.param_semitones);
+    let shown = config::format_pitch(slot.params[0], snap);
+    ui.label(Font::bold(13.0), TEXT, x + w - snap_button.w - 56.0, y + 18.0, &shown);
     let kind = if snap { ButtonKind::Accent } else { ButtonKind::Plain };
-    panel.button(cr, fonts, x + w - btn_w, y, btn_w, btn_h, t.pitch_snap, kind);
-    panel.hot(&format!("fxsnap:{bus}:{index}"), x + w - btn_w, y, btn_w, btn_h);
+    ui.button_hot(snap_button, t.pitch_snap, kind, Hit::FxPitchSnap { bus, index });
 
-    let track_y = y + 40.0;
-    let track_h = 24.0;
-    let mark = 28.0;
-    let gap = 8.0;
-    draw::label(cr, fonts, false, 12.0, MUTED, x, track_y + 16.0, "-12");
-    let track_x = x + mark + gap;
-    let track_w = (w - 2.0 * (mark + gap)).max(48.0);
-    draw::label(cr, fonts, false, 12.0, MUTED, track_x + track_w + gap, track_y + 16.0, "+12");
-    let frac = slot.params[0].clamp(0.0, 1.0);
-    fill_round(cr, track_x, track_y, track_w, track_h, track_h / 2.0, draw::track());
-    let center = track_x + track_w * 0.5;
-    let thumb = track_x + track_w * frac;
-    let span_x = thumb.min(center);
+    // The track sits between its two end labels.
+    let (mark, gap) = (28.0, 8.0);
+    let track = Rect::new(x + mark + gap, y + 40.0, (w - 2.0 * (mark + gap)).max(48.0), TRACK_H);
+    ui.label(SMALL, MUTED, x, track.y + 16.0, "-12");
+    ui.label(SMALL, MUTED, track.x + track.w + gap, track.y + 16.0, "+12");
+    let color = draw::effect_color(slot.kind);
+    let fraction = slot.params[0].clamp(0.0, 1.0);
+    ui.fill(track, TRACK_H / 2.0, draw::track());
+    let center = track.x + track.w * 0.5;
+    let thumb = track.x + track.w * fraction;
     let span_w = (thumb - center).abs();
     if span_w > 1.0 {
-        let radius = (track_h / 2.0).min(span_w / 2.0);
-        fill_round(cr, span_x, track_y, span_w, track_h, radius, draw::effect_color(slot.kind));
+        let radius = (TRACK_H / 2.0).min(span_w / 2.0);
+        ui.fill(Rect::new(thumb.min(center), track.y, span_w, TRACK_H), radius, color);
     }
-    fill_round(cr, center - 1.0, track_y + 4.0, 2.0, track_h - 8.0, 1.0, MUTED);
-    draw::fill_circle(cr, thumb, track_y + track_h / 2.0, 9.0, draw::effect_color(slot.kind));
-    panel.fader_hit(&format!("fxp:{bus}:{index}:0"), track_x, track_y, track_w, track_h, true);
+    ui.fill(Rect::new(center - 1.0, track.y + 4.0, 2.0, TRACK_H - 8.0), 1.0, MUTED);
+    ui.circle(thumb, track.y + TRACK_H / 2.0, 9.0, color);
+    ui.fader(FaderId::FxParam { bus, index, param: 0 }, track, true);
 }
 
-fn grip(cr: &Context, x: f64, y: f64) {
+/// Six dots that say "drag me".
+fn grip(ui: &Ui, x: f64, y: f64) {
     for row in 0..3 {
         for col in 0..2 {
-            draw::fill_circle(cr, x + col as f64 * 6.0, y + 6.0 + row as f64 * 7.0, 1.6, MUTED);
+            ui.circle(x + col as f64 * 6.0, y + 6.0 + row as f64 * 7.0, 1.6, MUTED);
         }
     }
 }
 
-fn return_row(panel: &mut Panel, cr: &Context, fonts: &Fonts, t: &Text, bus: usize, a_slots: &[usize], x: f64, y: f64, w: f64) {
-    let fx = if bus == 0 { panel.config.fx_a.clone() } else { panel.config.fx_b.clone() };
-    let who = if bus == 0 { "fx1" } else { "fx2" };
+/// Where the effect return goes: the PC and the listen outputs on the first line,
+/// B1..B4 on the second, then its level.
+fn return_row(panel: &mut Panel, ui: &mut Ui, bus: usize, a_slots: &[usize], x: f64, y: f64, w: f64) {
+    let fx = bus_mut(&mut panel.config, bus).clone();
+    let from = Source::Fx(bus);
+    let pc = Rect::new(x, y, ROUTE_W, ROUTE_H);
     let (fill, ink) = if fx.to_pc { (draw::accent(), draw::on_accent()) } else { (draw::CONTROL, draw::accent()) };
-    fill_round(cr, x, y, 36.0, 28.0, 8.0, fill);
-    draw::pc_icon(cr, x + 8.0, y + 4.0, 20.0, ink);
-    panel.hot(&format!("route:{who}:pc"), x, y, 36.0, 28.0);
-    let mut bx = x + 44.0;
+    ui.fill(pc, 8.0, fill);
+    draw::pc_icon(ui.cr, pc.x + 8.0, pc.y + 4.0, 20.0, ink);
+    ui.hot(Hit::Route { from, to: BusId::Pc }, pc);
+
+    let mut cell = pc.shift(44.0, 0.0);
     for &index in a_slots {
-        let on = crate::config::route_on(fx.routes, true, index);
-        let fill = if on { draw::TEXT } else { draw::CONTROL };
+        let on = config::route_on(fx.routes, true, index);
+        ui.fill(cell, 8.0, if on { TEXT } else { draw::CONTROL });
         let ink = if on { draw::BG } else { MUTED };
-        fill_round(cr, bx, y, 36.0, 28.0, 8.0, fill);
-        let _ = draw::device_icon(cr, super::outputs::a_device(index), bx + 8.0, y + 4.0, 20.0, ink);
-        panel.hot(&format!("route:{who}:a:{index}"), bx, y, 36.0, 28.0);
-        bx += 40.0;
+        let _ = draw::device_icon(ui.cr, super::outputs::a_device(index), cell.x + 8.0, cell.y + 4.0, 20.0, ink);
+        ui.hot(Hit::Route { from, to: BusId::A(index) }, cell);
+        cell.x += ROUTE_STEP;
     }
-    let mut bx = x;
-    for index in 0..crate::config::B_SLOTS {
-        let on = crate::config::route_on(fx.routes, false, index);
-        let fill = if on { draw::mix(draw::accent(), draw::CONTROL, 0.45) } else { draw::CONTROL };
-        let ink = if on { draw::TEXT } else { MUTED };
-        fill_round(cr, bx, y + 32.0, 36.0, 28.0, 8.0, fill);
-        let tag = format!("B{}", index + 1);
-        let tw = draw::text_width(cr, fonts, true, 11.0, &tag);
-        draw::label_mid(cr, fonts, true, 11.0, ink, bx + (36.0 - tw) / 2.0, y + 46.0, &tag);
-        panel.hot(&format!("route:{who}:b:{index}"), bx, y + 32.0, 36.0, 28.0);
-        bx += 40.0;
+
+    let mut cell = Rect::new(x, y + 32.0, ROUTE_W, ROUTE_H);
+    for index in 0..config::B_SLOTS {
+        let on = config::route_on(fx.routes, false, index);
+        ui.fill(cell, 8.0, if on { draw::mix(draw::accent(), draw::CONTROL, 0.45) } else { draw::CONTROL });
+        let ink = if on { TEXT } else { MUTED };
+        let tag = BusId::B(index).tag();
+        let tw = ui.text_width(Font::bold(11.0), &tag);
+        ui.label_mid(Font::bold(11.0), ink, cell.x + (ROUTE_W - tw) / 2.0, y + 46.0, &tag);
+        ui.hot(Hit::Route { from, to: BusId::B(index) }, cell);
+        cell.x += ROUTE_STEP;
     }
-    let fader = draw::paint_side_fader(cr, fonts, x - 4.0, y + 66.0, w + 4.0, 36.0, fx.gain_db, &[], false, fx.muted, draw::FaderGlyph::Speaker, false);
-    panel.fader_hit(&format!("fxret:{bus}"), fader.capsule_x, fader.capsule_y, fader.capsule_w, fader.capsule_h, true);
-    let _ = t;
+
+    let level = Fader { db: fx.gain_db, levels: &[], meters: false, muted: fx.muted, glyph: FaderGlyph::Speaker, snaps: false };
+    let geom = draw::paint_side_fader(ui.cr, ui.fonts, Rect::new(x - 4.0, y + 66.0, w + 4.0, 36.0), &level);
+    ui.fader(FaderId::FxReturn(bus), geom.capsule, true);
 }
 
-pub(crate) fn bus_mut(config: &mut crate::config::Config, bus: usize) -> &mut FxBus {
+pub(crate) fn bus_mut(config: &mut config::Config, bus: usize) -> &mut FxBus {
     if bus == 0 { &mut config.fx_a } else { &mut config.fx_b }
 }

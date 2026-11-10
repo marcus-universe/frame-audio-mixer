@@ -7,6 +7,7 @@
 use cairo::Context;
 use std::f64::consts::PI;
 
+use super::geom::Rect;
 use super::palette::Rgb;
 use super::shape::{fill, rounded};
 use super::svg::{append_svg, icon};
@@ -75,7 +76,7 @@ pub fn pc_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
     cr.set_line_width(1.5);
     append_svg(cr, PC_SCREEN_STROKE);
     let _ = cr.stroke();
-    rounded(cr, 12.0, 4.54, 10.34, 14.92, 2.0);
+    rounded(cr, Rect::new(12.0, 4.54, 10.34, 14.92), 2.0);
     let _ = cr.stroke();
     cr.new_sub_path();
     cr.arc(17.17, 14.12, 2.17, 0.0, 2.0 * PI);
@@ -100,7 +101,7 @@ pub fn usb_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
     cr.set_line_cap(cairo::LineCap::Round);
     cr.set_line_join(cairo::LineJoin::Round);
     for (rx, ry, rs) in [(15.72, 6.28, 2.96), (10.53, 19.37, 2.86), (5.85, 7.99, 3.09)] {
-        rounded(cr, rx, ry, rs, rs, 1.0);
+        rounded(cr, Rect::square(rx, ry, rs), 1.0);
         fill(cr, c, 0.2);
     }
     cr.set_source_rgb(c.r, c.g, c.b);
@@ -109,7 +110,7 @@ pub fn usb_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
         append_svg(cr, path);
         let _ = cr.stroke();
     }
-    rounded(cr, 15.72, 6.28, 2.8, 2.8, 0.5);
+    rounded(cr, Rect::square(15.72, 6.28, 2.8), 0.5);
     let _ = cr.stroke();
     let _ = cr.restore();
 }

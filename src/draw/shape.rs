@@ -4,13 +4,15 @@
 use cairo::{Context, Format, ImageSurface};
 use std::f64::consts::PI;
 
+use super::geom::Rect;
 use super::palette::{Rgb, CARD, R_CARD};
 
 pub fn surface_wh(width: i32, height: i32) -> Result<ImageSurface, String> {
     ImageSurface::create(Format::ARgb32, width, height).map_err(|e| e.to_string())
 }
 
-pub fn rounded(cr: &Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+pub fn rounded(cr: &Context, rect: Rect, r: f64) {
+    let Rect { x, y, w, h } = rect;
     let r = r.min(w / 2.0).min(h / 2.0);
     cr.new_sub_path();
     cr.arc(x + w - r, y + r, r, -PI / 2.0, 0.0);
@@ -31,9 +33,19 @@ pub fn stroke(cr: &Context, c: Rgb, width: f64) {
     let _ = cr.stroke();
 }
 
-pub fn card(cr: &Context, x: f64, y: f64, w: f64, h: f64) {
-    rounded(cr, x, y, w, h, R_CARD);
-    fill(cr, CARD, 1.0);
+/// A rounded rectangle filled with one opaque color.
+pub fn fill_round(cr: &Context, rect: Rect, r: f64, c: Rgb) {
+    rounded(cr, rect, r);
+    fill(cr, c, 1.0);
+}
+
+pub fn stroke_round(cr: &Context, rect: Rect, r: f64, c: Rgb, width: f64) {
+    rounded(cr, rect, r);
+    stroke(cr, c, width);
+}
+
+pub fn card(cr: &Context, rect: Rect) {
+    fill_round(cr, rect, R_CARD, CARD);
 }
 
 pub fn fill_circle(cr: &Context, cx: f64, cy: f64, r: f64, c: Rgb) {
@@ -47,8 +59,7 @@ pub fn record_dot(cr: &Context, cx: f64, cy: f64, r: f64, c: Rgb) {
 }
 
 pub fn stop_square(cr: &Context, cx: f64, cy: f64, s: f64, c: Rgb) {
-    rounded(cr, cx - s / 2.0, cy - s / 2.0, s, s, s * 0.15);
-    fill(cr, c, 1.0);
+    fill_round(cr, Rect::square(cx - s / 2.0, cy - s / 2.0, s), s * 0.15, c);
 }
 
 pub fn play_triangle(cr: &Context, cx: f64, cy: f64, s: f64, c: Rgb) {
@@ -83,7 +94,8 @@ pub fn chevron(cr: &Context, x: f64, y: f64, size: f64, c: Rgb, right: bool, up:
     let _ = cr.restore();
 }
 
-pub fn paint_png_bytes(cr: &Context, bytes: &[u8], x: f64, y: f64, w: f64, h: f64) {
+pub fn paint_png_bytes(cr: &Context, bytes: &[u8], rect: Rect) {
+    let Rect { x, y, w, h } = rect;
     let mut cursor = std::io::Cursor::new(bytes);
     let Ok(image) = ImageSurface::create_from_png(&mut cursor) else { return };
     let iw = image.width() as f64;

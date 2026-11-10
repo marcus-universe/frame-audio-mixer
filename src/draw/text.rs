@@ -53,73 +53,93 @@ fn find_font(paths: &[&str]) -> Result<String, String> {
         .ok_or_else(|| format!("no font in {paths:?}"))
 }
 
-pub fn set_font(cr: &Context, fonts: &Fonts, bold: bool, size: f64) {
-    cr.set_font_face(if bold { &fonts.bold } else { &fonts.regular });
-    cr.set_font_size(size);
+/// Weight and size of one run of text. "Bold" is the Medium face (see [`Fonts::load`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Font {
+    pub bold: bool,
+    pub size: f64,
 }
 
-pub fn text_width(cr: &Context, fonts: &Fonts, bold: bool, size: f64, text: &str) -> f64 {
-    set_font(cr, fonts, bold, size);
+impl Font {
+    pub const fn regular(size: f64) -> Self {
+        Self { bold: false, size }
+    }
+
+    pub const fn bold(size: f64) -> Self {
+        Self { bold: true, size }
+    }
+
+    /// Bold when `bold` is set, as for the selected row of a list.
+    pub const fn weight(bold: bool, size: f64) -> Self {
+        Self { bold, size }
+    }
+}
+
+/// The app name in the header.
+pub const TITLE: Font = Font::bold(24.0);
+/// Card and dialog titles.
+pub const HEADING: Font = Font::bold(20.0);
+/// Button captions, names and list rows.
+pub const BUTTON: Font = Font::bold(15.0);
+
+pub fn set_font(cr: &Context, fonts: &Fonts, font: Font) {
+    cr.set_font_face(if font.bold { &fonts.bold } else { &fonts.regular });
+    cr.set_font_size(font.size);
+}
+
+pub fn text_width(cr: &Context, fonts: &Fonts, font: Font, text: &str) -> f64 {
+    set_font(cr, fonts, font);
     cr.text_extents(text).map(|e| e.x_advance()).unwrap_or(0.0)
 }
 
-pub fn label(cr: &Context, fonts: &Fonts, bold: bool, size: f64, c: Rgb, x: f64, baseline: f64, text: &str) {
-    set_font(cr, fonts, bold, size);
+pub fn label(cr: &Context, fonts: &Fonts, font: Font, c: Rgb, x: f64, baseline: f64, text: &str) {
+    set_font(cr, fonts, font);
     cr.set_source_rgb(c.r, c.g, c.b);
     cr.move_to(x, baseline);
     let _ = cr.show_text(text);
 }
 
 /// Text centered on `cy`, for a single line inside a control.
-pub fn label_mid(cr: &Context, fonts: &Fonts, bold: bool, size: f64, c: Rgb, x: f64, cy: f64, text: &str) {
-    label(cr, fonts, bold, size, c, x, cy + size * 0.36, text);
+pub fn label_mid(cr: &Context, fonts: &Fonts, font: Font, c: Rgb, x: f64, cy: f64, text: &str) {
+    label(cr, fonts, font, c, x, cy + font.size * 0.36, text);
 }
 
 /// `y` is the vertical center of the text, so a number sits on a meter tick.
 pub(super) fn label_at(cr: &Context, fonts: &Fonts, size: f64, c: Rgb, x: f64, y: f64, text: &str) {
-    set_font(cr, fonts, false, size);
+    let font = Font::regular(size);
+    set_font(cr, fonts, font);
     let baseline = cr.text_extents(text).ok().map(|ext| y - ext.y_bearing() - ext.height() / 2.0).unwrap_or(y + size * 0.3);
-    label(cr, fonts, false, size, c, x, baseline, text);
+    label(cr, fonts, font, c, x, baseline, text);
 }
 
 /// Draw text that must stay inside `max_w`, ending with an ellipsis when it doesn't fit.
-pub fn label_fit(
-    cr: &Context,
-    fonts: &Fonts,
-    bold: bool,
-    size: f64,
-    c: Rgb,
-    x: f64,
-    baseline: f64,
-    max_w: f64,
-    text: &str,
-) {
-    if text_width(cr, fonts, bold, size, text) <= max_w {
-        label(cr, fonts, bold, size, c, x, baseline, text);
+pub fn label_fit(cr: &Context, fonts: &Fonts, font: Font, c: Rgb, x: f64, baseline: f64, max_w: f64, text: &str) {
+    if text_width(cr, fonts, font, text) <= max_w {
+        label(cr, fonts, font, c, x, baseline, text);
         return;
     }
     let mut kept: String = text.chars().collect();
-    while !kept.is_empty() && text_width(cr, fonts, bold, size, &format!("{kept}…")) > max_w {
+    while !kept.is_empty() && text_width(cr, fonts, font, &format!("{kept}…")) > max_w {
         kept.pop();
     }
-    label(cr, fonts, bold, size, c, x, baseline, &format!("{kept}…"));
+    label(cr, fonts, font, c, x, baseline, &format!("{kept}…"));
 }
 
 /// Draw the end of `text` inside `max_w`. A long name keeps the characters being typed.
-pub fn label_tail(cr: &Context, fonts: &Fonts, bold: bool, size: f64, c: Rgb, x: f64, baseline: f64, max_w: f64, text: &str) {
-    let shown = fit_tail(cr, fonts, bold, size, max_w, text);
-    label(cr, fonts, bold, size, c, x, baseline, &shown);
+pub fn label_tail(cr: &Context, fonts: &Fonts, font: Font, c: Rgb, x: f64, baseline: f64, max_w: f64, text: &str) {
+    let shown = fit_tail(cr, fonts, font, max_w, text);
+    label(cr, fonts, font, c, x, baseline, &shown);
 }
 
 /// The end of `text` that fits in `max_w`, with a leading ellipsis when the start is cut.
-pub fn fit_tail(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, text: &str) -> String {
-    if text.is_empty() || max_w <= 0.0 || text_width(cr, fonts, bold, size, text) <= max_w {
+pub fn fit_tail(cr: &Context, fonts: &Fonts, font: Font, max_w: f64, text: &str) -> String {
+    if text.is_empty() || max_w <= 0.0 || text_width(cr, fonts, font, text) <= max_w {
         return text.to_string();
     }
     let mut kept: Vec<char> = text.chars().collect();
     while kept.len() > 1 {
         let shown: String = std::iter::once('…').chain(kept.iter().copied()).collect();
-        if text_width(cr, fonts, bold, size, &shown) <= max_w {
+        if text_width(cr, fonts, font, &shown) <= max_w {
             break;
         }
         kept.remove(0);
@@ -129,7 +149,7 @@ pub fn fit_tail(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, 
 
 /// Break `text` into lines no wider than `max_w`. Text without spaces (Japanese,
 /// Chinese) breaks between characters. Past `max_lines` the last line ends in an ellipsis.
-pub fn wrap(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, max_lines: usize, text: &str) -> Vec<String> {
+pub fn wrap(cr: &Context, fonts: &Fonts, font: Font, max_w: f64, max_lines: usize, text: &str) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     let mut line = String::new();
     let mut pieces: Vec<String> = Vec::new();
@@ -152,7 +172,7 @@ pub fn wrap(cr: &Context, fonts: &Fonts, bold: bool, size: f64, max_w: f64, max_
     }
     for piece in pieces {
         let candidate = format!("{line}{piece}");
-        if line.is_empty() || text_width(cr, fonts, bold, size, candidate.trim_end()) <= max_w {
+        if line.is_empty() || text_width(cr, fonts, font, candidate.trim_end()) <= max_w {
             line = candidate;
         } else {
             lines.push(line.trim_end().to_string());

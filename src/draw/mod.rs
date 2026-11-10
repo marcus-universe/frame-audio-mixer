@@ -1,8 +1,9 @@
 //! Cairo drawing. Colors match Frame Mic Tuner's panel so the two apps sit together.
 //!
 //! The module is split by concern:
+//! - [`geom`]: `Rect`, the rectangle every layout is expressed in.
 //! - [`palette`]: design tokens — colors, radii, the accent theme.
-//! - [`text`]: fonts and text layout (labels, fitting, wrapping).
+//! - [`text`]: fonts, text styles and text layout (labels, fitting, wrapping).
 //! - [`shape`]: path and surface primitives (rounded rects, fills, PNG paint).
 //! - [`widgets`]: the panel's controls — buttons, faders, LED meters, scrollbars.
 //! - [`svg`]: the tiny SVG path parser that renders the embedded icon data.
@@ -10,6 +11,7 @@
 //!
 //! Everything is re-exported here, so callers keep writing `draw::X`.
 
+mod geom;
 mod icons;
 mod palette;
 mod shape;
@@ -17,6 +19,7 @@ mod svg;
 mod text;
 mod widgets;
 
+pub use geom::Rect;
 pub use icons::*;
 pub use palette::*;
 pub use shape::*;
@@ -155,8 +158,9 @@ pub fn self_test_paths() -> Result<(), String> {
     stop_square(&cr, 8.0, 8.0, 6.0, TEXT);
     play_triangle(&cr, 8.0, 8.0, 8.0, TEXT);
     if let Ok(fonts) = Fonts::load() {
-        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, 100.0, &[0.2, 0.1], true, false, FaderGlyph::Mic, true);
-        if geom.capsule_w != 32.0 {
+        let fader = Fader { db: 100.0, levels: &[0.2, 0.1], meters: true, muted: false, glyph: FaderGlyph::Mic, snaps: true };
+        let geom = paint_fader(&cr, &fonts, 8.0, 0.0, 40.0, &fader);
+        if geom.capsule.w != 32.0 {
             return Err("fader width".into());
         }
     }

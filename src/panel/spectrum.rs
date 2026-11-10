@@ -2,7 +2,7 @@
 //! that scrolls upward, newest at the bottom.
 
 use crate::config::EqView;
-use crate::draw;
+use crate::draw::{self, Rect};
 use crate::fx::analyzer::{band_hz, BANDS};
 use cairo::{Context, Extend, Filter, Format, ImageSurface, LinearGradient};
 
@@ -103,13 +103,15 @@ impl SpectrumView {
         }
     }
 
-    pub fn paint(&self, cr: &Context, view: EqView, x: f64, y: f64, w: f64, h: f64) {
+    /// Draws the analyzer in `view` style over `area`, the EQ graph.
+    pub fn paint(&self, cr: &Context, view: EqView, area: Rect) {
+        let Rect { x, y, w, h } = area;
         let bottom = y + h;
         let point = |band: usize| (x + band as f64 / (BANDS - 1) as f64 * w, bottom - f64::from(self.levels[band]) * h);
         let accent = draw::accent();
         match view {
             EqView::Off => {}
-            EqView::Heat => self.paint_heat(cr, x, y, w, h),
+            EqView::Heat => self.paint_heat(cr, area),
             EqView::Line => {
                 trace(cr, BANDS, point);
                 cr.set_source_rgba(accent.r, accent.g, accent.b, 0.5);
@@ -142,11 +144,12 @@ impl SpectrumView {
         }
     }
 
-    fn paint_heat(&self, cr: &Context, x: f64, y: f64, w: f64, h: f64) {
+    /// Stretches the heat map, one pixel per band and row, over `area`.
+    fn paint_heat(&self, cr: &Context, area: Rect) {
         let Some(surface) = &self.heat else { return };
         let _ = cr.save();
-        cr.translate(x, y);
-        cr.scale(w / BANDS as f64, h / f64::from(HEAT_ROWS));
+        cr.translate(area.x, area.y);
+        cr.scale(area.w / BANDS as f64, area.h / f64::from(HEAT_ROWS));
         if cr.set_source_surface(surface, 0.0, 0.0).is_ok() {
             let source = cr.source();
             source.set_extend(Extend::Pad);
