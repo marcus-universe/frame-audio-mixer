@@ -52,32 +52,55 @@ body::before {
   z-index: 0;
   pointer-events: none;
   overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, transparent 76%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 42%, transparent 76%);
 }
 
-.waves svg {
+/* Each line is its own layer: a horizontal drift (transform) plus a slow
+   swell (translate + scale). Both run on the compositor, so no repaints. */
+.waves .wave {
   position: absolute;
   top: 6%;
   left: 0;
   width: 200%;
   height: 78%;
-  animation: wave-drift 36s linear infinite;
+  overflow: visible;
+  transform-origin: 50% 40%;
+  will-change: transform;
 }
 
-.waves path {
+.waves .wave.a { animation: wave-drift 26s linear infinite, wave-swell 11s ease-in-out -3s infinite alternate; }
+.waves .wave.b { animation: wave-drift-back 41s linear infinite, wave-swell 15s ease-in-out -9s infinite alternate-reverse; }
+.waves .wave.c { animation: wave-drift 33s linear -12s infinite, wave-swell 19s ease-in-out -5s infinite alternate; }
+
+.waves path,
+.waves use {
   fill: none;
   stroke: var(--accent);
   stroke-width: 1.25px;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
-  opacity: 0.34;
 }
 
+.waves .a { opacity: 0.34; }
 .waves .b { opacity: 0.16; }
-.waves .c { opacity: 0.2; stroke: color-mix(in srgb, var(--accent) 55%, var(--pink)); }
+.waves .c { opacity: 0.2; }
+.waves .c path,
+.waves .c use { stroke: color-mix(in srgb, var(--accent) 55%, var(--pink)); }
 
 @keyframes wave-drift {
+  from { transform: translateX(0); }
   to { transform: translateX(-50%); }
+}
+
+@keyframes wave-drift-back {
+  from { transform: translateX(-50%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes wave-swell {
+  from { translate: 0 -14px; scale: 1 0.9; }
+  to { translate: 0 14px; scale: 1 1.1; }
 }
 
 .top,
@@ -92,15 +115,16 @@ main,
 .skip {
   position: absolute;
   left: 16px;
-  top: -40px;
+  top: 12px;
   background: var(--accent);
   color: var(--accent-ink);
   padding: 8px 12px;
   border-radius: 8px;
   z-index: 2;
+  transform: translateY(calc(-100% - 24px));
 }
 
-.skip:focus { top: 12px; }
+.skip:focus { transform: none; }
 
 a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 3px; }
 a:hover { color: var(--soft); }
@@ -168,10 +192,24 @@ select, button {
   height: 40px;
 }
 
-select { padding: 0 12px; }
+/* Own chevron: the native arrow sits flush against the pill's right edge. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 0 34px 0 14px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5 6 7.5 9 4.5' fill='none' stroke='%23a3a9b4' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 12px;
+  cursor: pointer;
+}
+
+select option { background: var(--card); color: var(--text); }
 
 button { padding: 0 16px; cursor: pointer; }
-button:hover, select:hover { background: var(--control-hover); }
+button:hover, select:hover { background-color: var(--control-hover); }
+
+.nav-dl svg { display: none; }
 
 .themes { display: flex; gap: 6px; }
 
@@ -452,6 +490,7 @@ dialog.lightbox:modal {
 
 .float-apps a {
   display: block;
+  will-change: transform;
   animation: float 5.5s ease-in-out infinite;
 }
 
@@ -544,8 +583,25 @@ dialog.lightbox:modal {
 
 @media (max-width: 720px) {
   .wrap { width: min(1040px, calc(100% - 32px)); }
-  .top { flex-wrap: wrap; min-height: 0; padding: 16px 0; }
-  .nav { width: 100%; margin-left: 0; flex-wrap: wrap; }
+  /* One row: icon left, controls right. The hero banner below carries the name. */
+  .top { min-height: 0; padding: 12px 0; gap: 8px; }
+  .brand-name {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+  .nav { gap: 4px; }
+  .nav select,
+  .nav button,
+  .nav a.icon { height: 36px; }
+  .nav a.icon,
+  .themes button { width: 36px; }
+  .themes { gap: 4px; }
+  .nav a.quiet { padding: 6px 10px; }
+  .nav select { padding: 0 30px 0 12px; background-position: right 10px center; }
   .lead { font-size: 16px; }
   .command { flex-direction: column; align-items: stretch; padding: 12px; }
   .command button { height: 44px; }
@@ -554,10 +610,29 @@ dialog.lightbox:modal {
   .feature-bank li:nth-child(2) { border-top: 1px solid var(--divider); }
 }
 
+@media (max-width: 480px) {
+  .nav a.nav-dl {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+  }
+  .nav-dl svg { display: block; }
+  .nav-dl span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .float-apps a { animation: none; }
-  .waves svg { animation: none; }
+  .waves .wave { animation: none; will-change: auto; }
   .lightbox-scrim,
   .lightbox-nav,
   .lightbox-close { transition: none; }

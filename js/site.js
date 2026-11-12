@@ -26,8 +26,23 @@
     return window.FAM_I18N[code] || window.FAM_I18N.en;
   }
 
+  // Noto Sans JP / SC are large; fetch their stylesheet only for ja / sc.
+  var CJK_FONTS = { ja: "Noto+Sans+JP", sc: "Noto+Sans+SC" };
+  var cjkLoaded = {};
+
+  function loadCjkFont(code) {
+    var family = CJK_FONTS[code];
+    if (!family || cjkLoaded[code]) return;
+    cjkLoaded[code] = true;
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://fonts.googleapis.com/css2?family=" + family + ":wght@400;500&display=swap";
+    document.head.appendChild(link);
+  }
+
   function applyLang(code) {
     if (LANGS.indexOf(code) < 0) code = "en";
+    loadCjkFont(code);
     var pack = langPack(code);
     root.lang = code === "sc" ? "zh-Hans" : code;
     document.querySelectorAll("[data-i18n]").forEach(function (el) {
@@ -127,10 +142,42 @@
   var EASE_OUT = "cubic-bezier(0.16, 1, 0.3, 1)";
   var EASE_IN_OUT = "cubic-bezier(0.4, 0, 0.2, 1)";
 
-  shots.forEach(function (shot) {
-    var preload = new Image();
-    preload.src = shot.currentSrc || shot.src;
-  });
+  // Full-size images load on demand: on hover/focus of a thumbnail, and for
+  // all shots once the lightbox opens. The page itself only loads thumbnails.
+  var warmed = {};
+
+  function fullSrc(thumb) {
+    return thumb.getAttribute("data-full") || thumb.currentSrc || thumb.src;
+  }
+
+  function warm(src) {
+    if (!warmed[src]) {
+      var pre = new Image();
+      pre.decoding = "async";
+      pre.src = src;
+      warmed[src] = pre;
+    }
+    return warmed[src];
+  }
+
+  function warmAll() {
+    shots.forEach(function (shot) { warm(fullSrc(shot)); });
+  }
+
+  // Show the already-loaded thumbnail at once, then swap in the full image.
+  function showFull(img, thumb) {
+    var full = fullSrc(thumb);
+    var pre = warm(full);
+    img.setAttribute("data-want", full);
+    if (pre.complete && pre.naturalWidth) {
+      img.src = full;
+      return;
+    }
+    img.src = thumb.currentSrc || thumb.src;
+    pre.addEventListener("load", function () {
+      if (img.getAttribute("data-want") === full) img.src = full;
+    }, { once: true });
+  }
 
   function destRect() {
     var side = window.innerWidth < 720 ? 20 : 80;
@@ -199,8 +246,9 @@
     if (!lightbox || !frame || !lightboxImg || lightbox.open) return;
     index = Math.max(0, shots.indexOf(thumb));
     lightboxFrom = thumb;
-    lightboxImg.src = thumb.currentSrc || thumb.src;
+    showFull(lightboxImg, thumb);
     lightboxImg.alt = thumb.alt;
+    warmAll();
     var from = thumb.getBoundingClientRect();
     lightbox.showModal();
     placeFrame(destRect());
@@ -263,18 +311,17 @@
     if (!lightbox || !lightbox.open || phase !== "open" || shots.length < 2) return;
     var next = (index + dir + shots.length) % shots.length;
     var thumb = shots[next];
-    var src = thumb.currentSrc || thumb.src;
     index = next;
     lightboxFrom = thumb;
     if (!motionOk) {
-      lightboxImg.src = src;
+      showFull(lightboxImg, thumb);
       lightboxImg.alt = thumb.alt;
       return;
     }
     phase = "sliding";
     var incoming = document.createElement("img");
     incoming.alt = thumb.alt;
-    incoming.src = src;
+    showFull(incoming, thumb);
     frame.appendChild(incoming);
     var outTo = dir > 0 ? "-100%" : "100%";
     var inFrom = dir > 0 ? "100%" : "-100%";
@@ -290,7 +337,7 @@
     function settle() {
       if (settled) return;
       settled = true;
-      lightboxImg.src = src;
+      showFull(lightboxImg, thumb);
       lightboxImg.alt = thumb.alt;
       dropEffects(lightboxImg);
       lightboxImg.style.opacity = "";
@@ -303,6 +350,12 @@
   }
 
   document.querySelectorAll(".gallery .shot").forEach(function (button) {
+    function warmThis() {
+      var img = button.querySelector("img");
+      if (img) warm(fullSrc(img));
+    }
+    button.addEventListener("pointerenter", warmThis);
+    button.addEventListener("focus", warmThis);
     button.addEventListener("click", function () {
       var img = button.querySelector("img");
       if (img) showShot(img);
