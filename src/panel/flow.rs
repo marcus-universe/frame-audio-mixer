@@ -67,7 +67,6 @@ enum NodeIcon {
     Mic,
     App,
     Channel,
-    Fx(usize),
     Pc,
     Bus,
     Device(Device),
@@ -122,6 +121,24 @@ fn dsp_name(id: &str) -> String {
     format!("frame_amix_{id}_virtual_sink_dsp")
 }
 
+/// A strip tile's second line: `first`, then the effects the strip runs, as
+/// "FX1: Reverb · Delay". Effects sit inside the strip, so they are not tiles.
+fn with_effects(first: String, config: &config::Config, t: &Text, on: [bool; 2]) -> String {
+    let mut parts = Vec::new();
+    if !first.is_empty() {
+        parts.push(first);
+    }
+    for (index, fx) in [&config.fx_a, &config.fx_b].into_iter().enumerate() {
+        if !on[index] || fx.muted {
+            continue;
+        }
+        let names: Vec<&str> = fx.chain.iter().map(|slot| crate::i18n::effect_name(t, slot.kind)).collect();
+        let tag = if index == 0 { t.fx1 } else { t.fx2 };
+        parts.push(if names.is_empty() { tag.to_string() } else { format!("{tag}: {}", names.join(" · ")) });
+    }
+    parts.join("  ·  ")
+}
+
 /// The lane graph for the current config and live graph.
 fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>) -> Model {
     let graph = &snap.graph;
@@ -134,7 +151,7 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
     nodes.push(Node {
         key: "mic".into(),
         label: t.mic.to_string(),
-        sub: super::source_label(&config.mic_source, graph, t),
+        sub: with_effects(super::source_label(&config.mic_source, graph, t), config, t, [config.mic_send_fx1, config.mic_send_fx2]),
         lane: 1,
         icon: NodeIcon::Mic,
         level: Some(peak(peaks, &["mic"])),
@@ -149,7 +166,7 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
         nodes.push(Node {
             key: channel.id.clone(),
             label: channel.name.clone(),
-            sub: String::new(),
+            sub: with_effects(String::new(), config, t, [channel.send_fx1, channel.send_fx2]),
             lane: 1,
             icon: if channel.app.is_empty() { NodeIcon::Channel } else { NodeIcon::App },
             level: Some(peak(peaks, &[&format!("{}:l", channel.id), &format!("{}:r", channel.id)])),
@@ -158,24 +175,6 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
             muted: channel.muted,
         });
     }
-    let mut fx_nodes = [0usize; 2];
-    for (index, fx) in [&config.fx_a, &config.fx_b].into_iter().enumerate() {
-        let names: Vec<&str> = fx.chain.iter().map(|slot| crate::i18n::effect_name(t, slot.kind)).collect();
-        let name = format!("frame_amix_fx{}_virtual_sink", index + 1);
-        fx_nodes[index] = nodes.len();
-        nodes.push(Node {
-            key: format!("fx{}", index + 1),
-            label: format!("FX{}", index + 1),
-            sub: names.join(" · "),
-            lane: 1,
-            icon: NodeIcon::Fx(index),
-            level: None,
-            present: graph.node_by_name(&name).is_some(),
-            pw_name: name,
-            muted: fx.muted,
-        });
-    }
-
     // Lane 0: the microphone source, and every app stream feeding a channel.
     let mic_source = super::resolved_source(&config.mic_source, graph);
     let mic_src_node = nodes.len();
@@ -298,7 +297,7 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
     }
 
     // Edges out of every strip, checked against the engine's live links.
-    let mut strip_routes = |from: usize, id: &str, bits: u8, to_pc: bool, fx1: bool, fx2: bool, muted: bool, level: f64| {
+    let mut strip_routes = |from: usize, id: &str, bits: u8, to_pc: bool, muted: bool, level: f64| {
         let dsp = dsp_name(id);
         let mut push = |to: usize, sink: &str| {
             let live = graph.linked(&dsp, sink);
@@ -319,23 +318,14 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
                 push(*out, &format!("frame_amix_b{}_virtual_sink", index + 1));
             }
         }
-        if fx1 {
-            push(fx_nodes[0], "frame_amix_fx1_virtual_sink");
-        }
-        if fx2 {
-            push(fx_nodes[1], "frame_amix_fx2_virtual_sink");
-        }
     };
     let mic_level = peak(peaks, &["mic"]);
-    strip_routes(mic_strip, "mic", config.mic_routes, config.mic_to_pc, config.mic_send_fx1, config.mic_send_fx2, config.mic_muted, mic_level);
+    strip_routes(mic_strip, "mic", config.mic_routes, config.mic_to_pc, config.mic_muted, mic_level);
     for channel in &config.channels {
         if let Some(&from) = strip_of.get(&channel.id) {
             let level = peak(peaks, &[&format!("{}:l", channel.id), &format!("{}:r", channel.id)]);
-            strip_routes(from, &channel.id, channel.routes, channel.to_pc, channel.send_fx1, channel.send_fx2, channel.muted, level);
+            strip_routes(from, &channel.id, channel.routes, channel.to_pc, channel.muted, level);
         }
-    }
-    for (index, fx) in [&config.fx_a, &config.fx_b].into_iter().enumerate() {
-        strip_routes(fx_nodes[index], &format!("fx{}", index + 1), fx.routes, fx.to_pc, false, false, fx.muted, 0.0);
     }
 
     // Lane 3: the real devices, and whoever records the PC stream and the virtual mics.
@@ -721,10 +711,6 @@ fn paint_icon(cr: &Context, icon: NodeIcon, x: f64, y: f64, s: f64, c: Rgb) {
     match icon {
         NodeIcon::Mic => draw::icon(cr, draw::MIC_PATH, draw::FADER_ICON_VIEW, x, y, s, c),
         NodeIcon::App | NodeIcon::Channel => draw::icon(cr, draw::SPEAKER_PATH, draw::FADER_ICON_VIEW, x, y, s, c),
-        NodeIcon::Fx(index) => {
-            let color = if index == 0 { draw::FX1 } else { draw::FX2 };
-            draw::icon(cr, draw::FX_TAG_PATH, 24.0, x, y, s, color);
-        }
         NodeIcon::Pc => draw::pc_icon(cr, x, y, s, c),
         NodeIcon::Bus => draw::icon(cr, draw::HEADPHONES_PATH, 16.0, x, y, s, c),
         NodeIcon::Device(device) => {

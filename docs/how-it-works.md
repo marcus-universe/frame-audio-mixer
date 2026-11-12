@@ -57,7 +57,7 @@ Mix Check sits at the top of the Outputs drawer. Pick an output (PC, A or B), pr
 
 ## Effects
 
-Effects live on FX1 and FX2, shared sends that every strip can turn on next to its fader. Each chain holds up to three effects. The equalizer is one of them: parametric, 3, 6, 8 or 12 points, with a response curve. Its Edit button opens the full EQ sheet. The first and last points can be a bell, a shelf, a high-pass or a low-pass. A send is a copy; the dry routes stay. Each return has a fader and the same A, PC and B buttons as a strip.
+Effects live on FX1 and FX2, two effect chains that every strip can turn on next to its fader. Each chain holds up to three effects. The equalizer is one of them: parametric, 3, 6, 8 or 12 points, with a response curve. Its Edit button opens the full EQ sheet. The first and last points can be a bell, a shelf, a high-pass or a low-pass. The effects run inside the strip: the result replaces the strip's sound and goes to the outputs chosen for that strip, so there is no second, dry copy. If both are on, FX1 comes first. Each chain has one level fader.
 
 ## Echo cancellation
 

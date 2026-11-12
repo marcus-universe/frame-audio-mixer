@@ -30,7 +30,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ## ✨ Funzioni
 
 - 🔄 **Orientamento**: ingressi e uscite passano ciascuno dai fader verticali alle righe.
-- 🎛️ **Bus effetti**: FX1 e FX2, con riverbero, compressore, EQ, pitch, flanger e phaser. Ogni strip può mandare a entrambi.
+- 🎛️ **Bus effetti**: FX1 e FX2, con riverbero, compressore, EQ, pitch, flanger e phaser. Ogni strip può attivarli entrambi; il risultato sostituisce il suono della strip sulle sue uscite.
 - 🎤 **Microfoni virtuali**: da B1 a B4, con nome, oltre al microfono di streaming del PC.
 - 🎧 **Altoparlanti, Bluetooth e USB**: il mix esce dagli altoparlanti del Frame, da cuffie Bluetooth o dall'audio USB finché uno è collegato.
 - 🧩 **Canali software**: fino a 32 canali con nome. Ognuno è un'uscita che qualsiasi app può scegliere.

@@ -59,7 +59,7 @@ Le contrôle du mix se trouve en haut du tiroir Sorties. Choisissez une sortie (
 
 ## Effets
 
-Les effets se trouvent sur FX1 et FX2, des envois partagés que chaque tranche peut allumer à côté de son fader. Chaque chaîne contient jusqu'à trois effets. L'égaliseur en fait partie : paramétrique, à 3, 6, 8 ou 12 points, avec une courbe de réponse. Son bouton Modifier ouvre la vue complète de l'égaliseur. Le premier et le dernier point peuvent être une cloche, un shelf, un passe-haut ou un passe-bas. Un envoi est une copie ; les routes directes restent. Chaque retour a un fader et les mêmes boutons A, PC et B qu'une tranche.
+Les effets se trouvent sur FX1 et FX2, deux chaînes d'effets que chaque tranche peut allumer à côté de son fader. Chaque chaîne contient jusqu'à trois effets. L'égaliseur en fait partie : paramétrique, à 3, 6, 8 ou 12 points, avec une courbe de réponse. Son bouton Modifier ouvre la vue complète de l'égaliseur. Le premier et le dernier point peuvent être une cloche, un shelf, un passe-haut ou un passe-bas. Les effets tournent dans la tranche elle-même : le résultat remplace le son de la tranche et part vers les sorties choisies pour elle, sans seconde copie directe. Si les deux sont actifs, FX1 passe en premier. Chaque chaîne a un fader de niveau.
 
 ## Annulation d'écho
 

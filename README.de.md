@@ -30,7 +30,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 ## ✨ Funktionen
 
 - 🔄 **Ausrichtung**: Eingänge und Ausgänge wechseln jeweils zwischen stehenden Fadern und Zeilen.
-- 🎛️ **Effektbusse**: FX1 und FX2, mit Hall, Kompressor, EQ, Pitch, Flanger und Phaser. Jeder Streifen kann auf beide Busse senden.
+- 🎛️ **Effektbusse**: FX1 und FX2, mit Hall, Kompressor, EQ, Pitch, Flanger und Phaser. Jeder Streifen kann beide einschalten; das Ergebnis ersetzt den Klang des Streifens auf dessen eigenen Ausgängen.
 - 🎤 **Virtuelle Mikrofone**: B1 bis B4, benannt, zusätzlich zum Streaming-Mikrofon am PC.
 - 🎧 **Lautsprecher, Bluetooth und USB**: die Mischung läuft über die Frame-Lautsprecher, Bluetooth-Kopfhörer oder USB-Audio, solange eines verbunden ist.
 - 🧩 **Softwarekanäle**: bis zu 32 benannte Kanäle. Jeder ist ein Ausgang, den jede App wählen kann.

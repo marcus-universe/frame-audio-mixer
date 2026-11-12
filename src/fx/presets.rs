@@ -50,7 +50,7 @@ impl Preset {
     fn matches(&self, slot: &EffectSlot) -> bool {
         match slot.kind {
             EffectKind::Eq => slot.eq == self.eq_values(),
-            EffectKind::Pitcher => slot.params[0] == self.params[0],
+            EffectKind::Pitcher => slot.params == self.params,
             _ => slot.params == self.params && slot.extra == self.extra,
         }
     }
@@ -65,8 +65,21 @@ const fn fx(names: [&'static str; 7], params: [f64; 3], extra: [f64; 3]) -> Pres
     Preset { names, params, extra, eq: None }
 }
 
+/// A plain shift: the formants move with the pitch, as on a sped-up tape.
 const fn semitones(names: [&'static str; 7], value: f64) -> Preset {
-    fx(names, [value / 24.0 + 0.5, 0.0, 0.0], [0.5; 3])
+    let pitch = value / 24.0 + 0.5;
+    fx(names, [pitch, pitch, 0.5], [0.5; 3])
+}
+
+/// A natural voice: `pitch` and `formant` in semitones, set apart, and a brightness
+/// from 0 (darker) through 0.5 (flat) to 1 (brighter).
+///
+/// Measured adult voices: women speak about 9 semitones above men, and their vocal
+/// tract is about 15 to 20% shorter, so the formants sit about 3 semitones higher.
+/// The full pitch gap sounds forced, so the voice presets move about two thirds of
+/// it. Children have formants higher still.
+const fn voice(names: [&'static str; 7], pitch: f64, formant: f64, brightness: f64) -> Preset {
+    fx(names, [pitch / 24.0 + 0.5, formant / 24.0 + 0.5, brightness], [0.5; 3])
 }
 
 const fn eq(names: [&'static str; 7], low: BandType, high: BandType, bands: [Band; 6]) -> Preset {
@@ -107,7 +120,11 @@ static COMP: [Preset; 5] = [
     fx(["パンチ", "Punch", "冲击", "Punch", "Punch", "Pegada", "Punch"], [0.5, 0.21, 0.2], [0.85, 0.35, 0.5]),
 ];
 
-static PITCHER: [Preset; 6] = [
+static PITCHER: [Preset; 10] = [
+    voice(["男声→女声", "Male to female", "男声变女声", "Mann zu Frau", "Homme vers femme", "Hombre a mujer", "Uomo a donna"], 6.0, 3.0, 0.6),
+    voice(["男声→少女", "Male to girl", "男声变少女", "Mann zu Mädchen", "Homme vers fille", "Hombre a chica", "Uomo a ragazza"], 9.0, 4.5, 0.62),
+    voice(["女声→男声", "Female to male", "女声变男声", "Frau zu Mann", "Femme vers homme", "Mujer a hombre", "Donna a uomo"], -6.0, -3.0, 0.42),
+    voice(["少女→男声", "Girl to male", "少女变男声", "Mädchen zu Mann", "Fille vers homme", "Chica a hombre", "Ragazza a uomo"], -9.0, -4.5, 0.4),
     semitones(["1オクターブ下", "Octave down", "降八度", "Oktave tiefer", "Octave en dessous", "Octava abajo", "Ottava sotto"], -12.0),
     semitones(["低い声", "Deep voice", "低沉嗓音", "Tiefe Stimme", "Voix grave", "Voz grave", "Voce profonda"], -5.0),
     semitones(["明るい声", "Bright voice", "明亮嗓音", "Helle Stimme", "Voix claire", "Voz brillante", "Voce chiara"], 4.0),

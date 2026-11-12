@@ -59,7 +59,7 @@ Mix-Check sitzt oben in der Ausgänge-Schublade. Einen Ausgang wählen (PC, A od
 
 ## Effekte
 
-Effekte sitzen auf FX1 und FX2, gemeinsamen Sends, die jeder Streifen neben seinem Fader einschalten kann. Jede Kette fasst bis zu drei Effekte. Der Equalizer ist einer davon: parametrisch, mit 3, 6, 8 oder 12 Punkten und einer Frequenzgangkurve. Sein Knopf Bearbeiten öffnet die volle EQ-Ansicht. Der erste und der letzte Punkt können Glocke, Shelf, Hochpass oder Tiefpass sein. Ein Send ist eine Kopie, die trockenen Wege bleiben. Jeder Return hat einen Fader und dieselben A-, PC- und B-Knöpfe wie ein Streifen.
+Effekte sitzen auf FX1 und FX2, zwei Effektketten, die jeder Streifen neben seinem Fader einschalten kann. Jede Kette fasst bis zu drei Effekte. Der Equalizer ist einer davon: parametrisch, mit 3, 6, 8 oder 12 Punkten und einer Frequenzgangkurve. Sein Knopf Bearbeiten öffnet die volle EQ-Ansicht. Der erste und der letzte Punkt können Glocke, Shelf, Hochpass oder Tiefpass sein. Die Effekte laufen im Streifen selbst: Das Ergebnis ersetzt den Klang des Streifens und geht an die Ausgänge, die für diesen Streifen gewählt sind. Eine zweite, trockene Kopie gibt es nicht. Sind beide an, kommt FX1 zuerst. Jede Kette hat einen Pegel-Fader.
 
 ## Echounterdrückung
 

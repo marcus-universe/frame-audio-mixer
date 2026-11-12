@@ -1,15 +1,18 @@
 //! Effect-bus drawer: up to three chained effects, drag to reorder.
 
 use super::menu::{self, Menu};
-use super::{BusId, FaderId, FxSlot, Hit, Panel, Source, Ui};
+use super::{FaderId, FxSlot, Hit, Panel, Ui};
 use crate::config::{self, EffectKind, EffectSlot, FxBus};
 use crate::draw::{self, ButtonKind, Fader, FaderGlyph, Font, Rect, Rgb, BUTTON, INSET, MUTED, R_CONTROL, TEXT};
 use crate::i18n;
 
 const ROW_H: f64 = 52.0;
 const ROW_GAP: f64 = 8.0;
+/// The level fader of the bus, under the title.
+const LEVEL_TOP: f64 = 68.0;
+const LEVEL_H: f64 = 36.0;
 /// First chain row, from the top of the drawer.
-pub(crate) const CHAIN_TOP: f64 = 180.0;
+pub(crate) const CHAIN_TOP: f64 = 124.0;
 /// Distance from one chain row to the next.
 pub(crate) const CHAIN_STEP: f64 = ROW_H + ROW_GAP;
 /// A chain holds at most this many effects.
@@ -19,10 +22,6 @@ const PRESET_ROW: f64 = 46.0;
 /// One parameter slider and its gap.
 const PARAM_STEP: f64 = 48.0;
 const TRACK_H: f64 = 24.0;
-/// One route button of the return row.
-const ROUTE_W: f64 = 36.0;
-const ROUTE_H: f64 = 28.0;
-const ROUTE_STEP: f64 = 40.0;
 /// Edit, Open and × on a chain row.
 const ROW_BUTTON_H: f64 = 32.0;
 
@@ -32,7 +31,10 @@ fn bus_color(bus: usize) -> Rgb {
     if bus == 0 { draw::FX1 } else { draw::FX2 }
 }
 
-pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, bus: usize, a_slots: &[usize]) {
+/// The drawer of one effect bus: its level, then its chain. Where the result goes
+/// is not chosen here: a strip that switches the bus on plays the result on the
+/// strip's own outputs.
+pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, bus: usize) {
     let t = ui.t;
     let card = panel.stage().drawer;
     if card.w < 40.0 || card.h <= 0.0 {
@@ -44,7 +46,7 @@ pub(crate) fn draw(panel: &mut Panel, ui: &mut Ui, bus: usize, a_slots: &[usize]
     }
     ui.fill(Rect::new(card.x + 20.0, card.y + 28.0, 8.0, 20.0), 4.0, bus_color(bus));
     ui.label(Font::bold(18.0), TEXT, card.x + 36.0, card.y + 44.0, if bus == 0 { t.fx1 } else { t.fx2 });
-    return_row(panel, ui, bus, a_slots, card.x + 16.0, card.y + 56.0, card.w - 32.0);
+    level_fader(panel, ui, bus, Rect::new(card.x + 12.0, card.y + LEVEL_TOP, card.w - 28.0, LEVEL_H));
 
     let chain = bus_mut(&mut panel.config, bus).chain.clone();
     let left = card.x + 20.0;
@@ -111,8 +113,12 @@ fn chain_row(panel: &mut Panel, ui: &mut Ui, at: FxSlot, slot: &EffectSlot, row:
     ui.button_hot(remove, "×", ButtonKind::Plain, Hit::FxRemove { bus, index });
 }
 
+/// The pitch row of the Pitcher: its caption with Snap, then the wide track.
+const PITCH_BLOCK: f64 = 76.0;
+
 fn editor_height(kind: EffectKind) -> f64 {
-    PRESET_ROW + if kind == EffectKind::Pitcher { 76.0 } else { kind.param_count() as f64 * PARAM_STEP + 8.0 }
+    let sliders = if kind == EffectKind::Pitcher { PITCH_BLOCK + 2.0 * PARAM_STEP } else { kind.param_count() as f64 * PARAM_STEP };
+    PRESET_ROW + sliders + 8.0
 }
 
 /// The open effect: its preset dropdown, then one slider per parameter.
@@ -139,8 +145,47 @@ fn editor(panel: &mut Panel, ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64,
     }
 }
 
-/// Bipolar pitch, −12 at the left, 0 in the middle, +12 at the right. Snap locks whole semitones.
+/// Pitch, then formant and brightness. Pitch and formant apart are what make a
+/// shifted voice sound like another person instead of a chipmunk.
 fn pitcher(ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64, y: f64, w: f64) {
+    pitch_row(ui, at, slot, x, y, w);
+    let color = draw::effect_color(slot.kind);
+    let t = ui.t;
+    let FxSlot { bus, index } = at;
+    let formant = config::format_pitch(slot.params[1], false);
+    let row = y + PITCH_BLOCK;
+    bipolar_row(ui, t.param_formant, &formant, slot.params[1], color, FaderId::FxParam { bus, index, param: 1 }, x, row, w);
+    let percent = ((slot.params[2] - 0.5) * 200.0).round();
+    let brightness = if percent == 0.0 { "0".to_string() } else { format!("{percent:+.0}%") };
+    bipolar_row(ui, t.param_brightness, &brightness, slot.params[2], color, FaderId::FxParam { bus, index, param: 2 }, x, row + PARAM_STEP, w);
+}
+
+/// A slider that is neutral in the middle: the fill grows left or right from there.
+fn bipolar_row(ui: &mut Ui, caption: &str, value: &str, param: f64, color: Rgb, id: FaderId, x: f64, y: f64, w: f64) {
+    ui.label_fit(SMALL, MUTED, x, y + 16.0, 100.0, caption);
+    let track = Rect::new(x + 110.0, y + 8.0, (w - 160.0).max(80.0), TRACK_H);
+    bipolar_track(ui, track, param, color);
+    ui.fader(id, track, true);
+    ui.label(SMALL, TEXT, track.x + track.w + 8.0, y + 24.0, value);
+}
+
+/// The track, the fill from the center to the value, the center mark and the thumb.
+fn bipolar_track(ui: &mut Ui, track: Rect, param: f64, color: Rgb) {
+    let fraction = param.clamp(0.0, 1.0);
+    ui.fill(track, TRACK_H / 2.0, draw::track());
+    let center = track.x + track.w * 0.5;
+    let thumb = track.x + track.w * fraction;
+    let span_w = (thumb - center).abs();
+    if span_w > 1.0 {
+        let radius = (TRACK_H / 2.0).min(span_w / 2.0);
+        ui.fill(Rect::new(thumb.min(center), track.y, span_w, TRACK_H), radius, color);
+    }
+    ui.fill(Rect::new(center - 1.0, track.y + 4.0, 2.0, TRACK_H - 8.0), 1.0, MUTED);
+    ui.circle(thumb, track.y + TRACK_H / 2.0, 9.0, color);
+}
+
+/// Bipolar pitch, −12 at the left, 0 in the middle, +12 at the right. Snap locks whole semitones.
+fn pitch_row(ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64, y: f64, w: f64) {
     let t = ui.t;
     let FxSlot { bus, index } = at;
     let snap = slot.pitch_snap;
@@ -156,18 +201,7 @@ fn pitcher(ui: &mut Ui, at: FxSlot, slot: &EffectSlot, x: f64, y: f64, w: f64) {
     let track = Rect::new(x + mark + gap, y + 40.0, (w - 2.0 * (mark + gap)).max(48.0), TRACK_H);
     ui.label(SMALL, MUTED, x, track.y + 16.0, "-12");
     ui.label(SMALL, MUTED, track.x + track.w + gap, track.y + 16.0, "+12");
-    let color = draw::effect_color(slot.kind);
-    let fraction = slot.params[0].clamp(0.0, 1.0);
-    ui.fill(track, TRACK_H / 2.0, draw::track());
-    let center = track.x + track.w * 0.5;
-    let thumb = track.x + track.w * fraction;
-    let span_w = (thumb - center).abs();
-    if span_w > 1.0 {
-        let radius = (TRACK_H / 2.0).min(span_w / 2.0);
-        ui.fill(Rect::new(thumb.min(center), track.y, span_w, TRACK_H), radius, color);
-    }
-    ui.fill(Rect::new(center - 1.0, track.y + 4.0, 2.0, TRACK_H - 8.0), 1.0, MUTED);
-    ui.circle(thumb, track.y + TRACK_H / 2.0, 9.0, color);
+    bipolar_track(ui, track, slot.params[0], draw::effect_color(slot.kind));
     ui.fader(FaderId::FxParam { bus, index, param: 0 }, track, true);
 }
 
@@ -180,42 +214,12 @@ fn grip(ui: &Ui, x: f64, y: f64) {
     }
 }
 
-/// Where the effect return goes: the PC and the listen outputs on the first line,
-/// B1..B4 on the second, then its level.
-fn return_row(panel: &mut Panel, ui: &mut Ui, bus: usize, a_slots: &[usize], x: f64, y: f64, w: f64) {
-    let fx = bus_mut(&mut panel.config, bus).clone();
-    let from = Source::Fx(bus);
-    let pc = Rect::new(x, y, ROUTE_W, ROUTE_H);
-    let (fill, ink) = if fx.to_pc { (draw::accent(), draw::on_accent()) } else { (draw::CONTROL, draw::accent()) };
-    ui.fill(pc, 8.0, fill);
-    draw::pc_icon(ui.cr, pc.x + 8.0, pc.y + 4.0, 20.0, ink);
-    ui.hot(Hit::Route { from, to: BusId::Pc }, pc);
-
-    let mut cell = pc.shift(44.0, 0.0);
-    for &index in a_slots {
-        let on = config::route_on(fx.routes, true, index);
-        ui.fill(cell, 8.0, if on { TEXT } else { draw::CONTROL });
-        let ink = if on { draw::BG } else { MUTED };
-        let _ = draw::device_icon(ui.cr, super::outputs::a_device(index), cell.x + 8.0, cell.y + 4.0, 20.0, ink);
-        ui.hot(Hit::Route { from, to: BusId::A(index) }, cell);
-        cell.x += ROUTE_STEP;
-    }
-
-    let mut cell = Rect::new(x, y + 32.0, ROUTE_W, ROUTE_H);
-    for index in 0..config::B_SLOTS {
-        let on = config::route_on(fx.routes, false, index);
-        ui.fill(cell, 8.0, if on { draw::mix(draw::accent(), draw::CONTROL, 0.45) } else { draw::CONTROL });
-        let ink = if on { TEXT } else { MUTED };
-        let tag = BusId::B(index).tag();
-        let tw = ui.text_width(Font::bold(11.0), &tag);
-        ui.label_mid(Font::bold(11.0), ink, cell.x + (ROUTE_W - tw) / 2.0, y + 46.0, &tag);
-        ui.hot(Hit::Route { from, to: BusId::B(index) }, cell);
-        cell.x += ROUTE_STEP;
-    }
-
+/// The level of the bus after its chain, the same for every strip that uses it.
+fn level_fader(panel: &mut Panel, ui: &mut Ui, bus: usize, area: Rect) {
+    let fx = bus_mut(&mut panel.config, bus);
     let level = Fader { db: fx.gain_db, levels: &[], meters: false, muted: fx.muted, glyph: FaderGlyph::Speaker, snaps: false };
-    let geom = draw::paint_side_fader(ui.cr, ui.fonts, Rect::new(x - 4.0, y + 66.0, w + 4.0, 36.0), &level);
-    ui.fader(FaderId::FxReturn(bus), geom.capsule, true);
+    let geom = draw::paint_side_fader(ui.cr, ui.fonts, area, &level);
+    ui.fader(FaderId::FxLevel(bus), geom.capsule, true);
 }
 
 pub(crate) fn bus_mut(config: &mut config::Config, bus: usize) -> &mut FxBus {

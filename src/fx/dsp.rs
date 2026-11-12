@@ -15,6 +15,9 @@ pub struct Processor {
     stages: Vec<Stage>,
     /// Taps one chain position for the EQ's analyzer while a panel is watching.
     scope: Option<Arc<Scope>>,
+    /// Several strips can run the same chain. Only the lead feeds the analyzer and
+    /// trades blocks with a VST host, because both serve exactly one stream.
+    lead: bool,
 }
 
 enum Stage {
@@ -31,11 +34,15 @@ enum Stage {
 
 impl Processor {
     pub fn new() -> Self {
-        Self { stages: Vec::new(), scope: None }
+        Self { stages: Vec::new(), scope: None, lead: true }
     }
 
     pub fn with_scope(scope: Arc<Scope>) -> Self {
-        Self { stages: Vec::new(), scope: Some(scope) }
+        Self { stages: Vec::new(), scope: Some(scope), lead: true }
+    }
+
+    pub fn set_lead(&mut self, lead: bool) {
+        self.lead = lead;
     }
 
     pub fn set_chain(&mut self, chain: &[EffectSlot]) {
@@ -57,8 +64,15 @@ impl Processor {
         let mut offset = 0;
         while offset < n {
             let end = (offset + FRAMES).min(n);
-            let tapped = self.scope.as_ref().map_or(u32::MAX, |scope| scope.armed_slot());
+            let tapped = match &self.scope {
+                Some(scope) if self.lead => scope.armed_slot(),
+                _ => u32::MAX,
+            };
             for (index, stage) in self.stages.iter_mut().enumerate() {
+                // A plugin host has one stream. On any other strip the plugin is bypassed.
+                if !self.lead && matches!(stage, Stage::Vst(_)) {
+                    continue;
+                }
                 stage.process(&mut left[offset..end], &mut right[offset..end]);
                 if index as u32 == tapped {
                     if let Some(scope) = &self.scope {
@@ -816,7 +830,137 @@ pub fn self_test() -> Result<(), String> {
             return Err(format!("pitch {semitones:+} tone SNR {snr:.1} dB"));
         }
     }
+    voice_self_test()
+}
+
+/// A vowel at 120 Hz: a pulse train through three formants, like a man saying "ah".
+fn male_vowel(t: f64) -> f32 {
+    const F0: f64 = 120.0;
+    const FORMANTS: [(f64, f64); 3] = [(700.0, 90.0), (1220.0, 110.0), (2600.0, 160.0)];
+    let mut sample = 0.0;
+    let mut harmonic = 1.0;
+    while F0 * harmonic < 7000.0 {
+        let hz = F0 * harmonic;
+        let resonance: f64 = FORMANTS.iter().map(|(center, width)| 1.0 / (1.0 + ((hz - center) / width).powi(2))).sum();
+        sample += resonance / harmonic * (std::f64::consts::TAU * hz * t).sin();
+        harmonic += 1.0;
+    }
+    (sample * 0.08) as f32
+}
+
+/// Pitch and formant settings the voice tests and the report run, as (pitch, formant) in semitones.
+const VOICE_CASES: [(f64, f64); 8] = [(6.0, 0.0), (6.0, 3.0), (6.0, 6.0), (9.0, 4.5), (-6.0, 0.0), (-6.0, -3.0), (-6.0, -6.0), (-9.0, -4.5)];
+
+/// How far a shifted vowel's harmonics are from the envelope they should have:
+/// the dry vowel's envelope, stretched by `formant` semitones. RMS and worst
+/// error in dB, over the harmonics up to 3.5 kHz, where a voice is understood.
+fn envelope_error(dry: &[f32], out: &[f32], f0: f64, formant: f64) -> (f64, f64) {
+    let dry_envelope = |hz: f64| {
+        let below = (hz / 120.0).floor().max(1.0);
+        let (low, high) = (harmonic_level(dry, 120.0 * below), harmonic_level(dry, 120.0 * (below + 1.0)));
+        low + (high - low) * (hz / 120.0 - below)
+    };
+    let stretch = 2f64.powf(-formant / 12.0);
+    let (mut sum, mut worst, mut count) = (0.0f64, 0.0f64, 0.0f64);
+    let mut hz = f0;
+    while hz <= 3500.0 {
+        let want = dry_envelope(hz * stretch).max(1e-12);
+        let error = 20.0 * (harmonic_level(out, hz) / want).log10();
+        sum += error * error;
+        worst = worst.max(error.abs());
+        count += 1.0;
+        hz += f0;
+    }
+    ((sum / count.max(1.0)).sqrt(), worst)
+}
+
+/// Amplitude of the sine at `hz`, by correlating with it.
+fn harmonic_level(samples: &[f32], hz: f64) -> f64 {
+    let step = std::f64::consts::TAU * hz / RATE;
+    let (mut sin, mut cos) = (0.0, 0.0);
+    for (i, sample) in samples.iter().enumerate() {
+        let phase = step * i as f64;
+        sin += f64::from(*sample) * phase.sin();
+        cos += f64::from(*sample) * phase.cos();
+    }
+    2.0 * (sin * sin + cos * cos).sqrt() / samples.len() as f64
+}
+
+/// Pitch and formants move apart: the pitch lands where it is set, and every
+/// harmonic sits on the envelope it should, whether the formants stay, follow
+/// the pitch, or move by their own amount.
+fn voice_self_test() -> Result<(), String> {
+    let dry = pitched_vowel([0.5, 0.5, 0.5]);
+    let (dry_f0, dry_centroid) = (fundamental(&dry), centroid(&dry));
+    if (dry_f0 - 120.0).abs() > 3.0 {
+        return Err(format!("test vowel measured at {dry_f0:.1} Hz"));
+    }
+    let param = crate::config::pitch_param;
+    let mut failed = Vec::new();
+    for (pitch, formant) in VOICE_CASES {
+        let out = pitched_vowel([param(pitch), param(formant), 0.5]);
+        let want = 120.0 * 2f64.powf(pitch / 12.0);
+        let f0 = fundamental(&out);
+        if (f0 - want).abs() / want > 0.03 {
+            failed.push(format!("{pitch:+}/{formant:+}: pitch {f0:.1} Hz, expected {want:.1}"));
+        }
+        let (rms, worst) = envelope_error(&dry, &out, want, formant);
+        if rms > 2.0 || worst > 7.0 {
+            failed.push(format!("{pitch:+}/{formant:+}: envelope off by {rms:.1} dB RMS, {worst:.1} dB at worst"));
+        }
+    }
+    if !failed.is_empty() {
+        return Err(format!("voice: {}", failed.join("; ")));
+    }
+    // Brightness tilts the spectrum and nothing else.
+    let bright = pitched_vowel([0.5, 0.5, 1.0]);
+    let dark = pitched_vowel([0.5, 0.5, 0.0]);
+    if centroid(&bright) <= dry_centroid * 1.05 || centroid(&dark) >= dry_centroid * 0.95 {
+        return Err("brightness did not tilt the voice".into());
+    }
     Ok(())
+}
+
+/// Fundamental by autocorrelation: the first lag, from 70 to 500 Hz, that comes
+/// within 85% of the best one, so an octave below never wins.
+fn fundamental(samples: &[f32]) -> f64 {
+    let part = &samples[..samples.len().min(8192)];
+    let correlate = |lag: usize| -> f64 { part.iter().zip(&part[lag..]).map(|(a, b)| f64::from(*a) * f64::from(*b)).sum() };
+    let (shortest, longest) = ((RATE / 500.0) as usize, (RATE / 70.0) as usize);
+    let values: Vec<f64> = (shortest..=longest).map(correlate).collect();
+    let best = values.iter().copied().fold(f64::MIN, f64::max);
+    let index = values.iter().position(|value| *value >= best * 0.85).unwrap_or(0);
+    // Refine between the neighbouring lags.
+    let lag = (shortest + index) as f64;
+    let (before, at, after) = (values.get(index.wrapping_sub(1)).copied().unwrap_or(values[index]), values[index], values.get(index + 1).copied().unwrap_or(values[index]));
+    let bend = before - 2.0 * at + after;
+    let offset = if bend.abs() > 1e-12 { 0.5 * (before - after) / bend } else { 0.0 };
+    RATE / (lag + offset.clamp(-0.5, 0.5))
+}
+
+/// Power-weighted mean frequency between 150 Hz and 5 kHz: where the formants sit.
+fn centroid(samples: &[f32]) -> f64 {
+    const SIZE: usize = 4096;
+    let fft = super::fft::Fft::new(SIZE);
+    let window = super::fft::hann(SIZE);
+    let mut power = vec![0.0f64; SIZE / 2];
+    for frame in samples.as_chunks::<SIZE>().0 {
+        let mut data: Vec<super::fft::Complex> = frame.iter().zip(&window).map(|(s, w)| super::fft::Complex::new(s * w, 0.0)).collect();
+        fft.forward(&mut data);
+        for (sum, value) in power.iter_mut().zip(&data) {
+            *sum += f64::from(value.norm_sqr());
+        }
+    }
+    let bin_hz = RATE / SIZE as f64;
+    let (mut weighted, mut total) = (0.0, 0.0);
+    for (bin, value) in power.iter().enumerate() {
+        let hz = bin as f64 * bin_hz;
+        if (150.0..=5000.0).contains(&hz) {
+            weighted += hz * value;
+            total += value;
+        }
+    }
+    weighted / total.max(1e-30)
 }
 
 /// One second of 440 Hz through the pitcher, then the frequency of the tail.
@@ -824,6 +968,7 @@ fn pitched_hz(semitones: f64) -> f64 {
     let mut proc = Processor::new();
     let mut slot = EffectSlot::new(EffectKind::Pitcher);
     slot.params[0] = crate::config::pitch_param(semitones);
+    slot.params[1] = slot.params[0];
     proc.set_chain(std::slice::from_ref(&slot));
     let rate = 48_000.0;
     let total = rate as usize;
@@ -948,9 +1093,13 @@ pub fn report() {
         (seed as f32 / u32::MAX as f32 - 0.5) * 0.5
     };
     println!("effect      load of one core");
-    for kind in EffectKind::ALL {
+    // The Pitcher also runs once as Male to female, where the formant correction works.
+    let mut voice = EffectSlot::new(EffectKind::Pitcher);
+    super::presets::of(EffectKind::Pitcher)[0].apply(&mut voice);
+    let runs = EffectKind::ALL.into_iter().map(|kind| (kind.key(), EffectSlot::new(kind))).chain(std::iter::once(("voice", voice)));
+    for (name, slot) in runs {
         let mut proc = Processor::new();
-        proc.set_chain(&[EffectSlot::new(kind)]);
+        proc.set_chain(&[slot]);
         let mut left = [0.0f32; FRAMES];
         let mut right = [0.0f32; FRAMES];
         let blocks = SECONDS * RATE as usize / FRAMES;
@@ -964,7 +1113,7 @@ pub fn report() {
             worst = worst.max(block.elapsed());
         }
         let share = start.elapsed().as_secs_f64() / SECONDS as f64 * 100.0;
-        println!("{:<10}  {share:5.2}%   worst block {:.0} us of 10000", kind.key(), worst.as_secs_f64() * 1e6);
+        println!("{name:<10}  {share:5.2}%   worst block {:.0} us of 10000", worst.as_secs_f64() * 1e6);
     }
     println!("semitones   tone SNR dB   tone ripple dB   voice ripple dB");
     for semitones in [-12.0, -7.0, -5.0, -2.0, 2.0, 5.0, 7.0, 12.0] {
@@ -975,15 +1124,43 @@ pub fn report() {
         });
         println!("{semitones:+6.0}      {:8.1}   {:12.2}   {:12.2}", tone_snr(&tone, 440.0 * ratio), ripple_db(&tone), ripple_db(&voice));
     }
+    // A male vowel through pitch and formant settings: where the pitch landed, and
+    // how far its harmonics are from the envelope they should have.
+    let dry = pitched_vowel([0.5, 0.5, 0.5]);
+    println!("pitch  formant   f0 Hz   target Hz   envelope RMS dB   worst dB");
+    for (pitch, formant) in VOICE_CASES {
+        let param = crate::config::pitch_param;
+        let out = pitched_vowel([param(pitch), param(formant), 0.5]);
+        let want = 120.0 * 2f64.powf(pitch / 12.0);
+        let (rms, worst) = envelope_error(&dry, &out, want, formant);
+        println!("{pitch:+5.0}  {formant:+7.1}   {:5.1}   {want:9.1}   {rms:15.1}   {worst:8.1}", fundamental(&out));
+    }
+}
+
+/// A plain shift, formants moving with the pitch. See `pitched_with`.
+fn pitched(semitones: f64, signal: impl Fn(f64) -> f32) -> Vec<f32> {
+    let pitch = crate::config::pitch_param(semitones);
+    pitched_with([pitch, pitch, 0.5], signal)
 }
 
 /// The settled second of a two-second signal through the pitcher, left channel.
-fn pitched(semitones: f64, signal: impl Fn(f64) -> f32) -> Vec<f32> {
+fn pitched_with(params: [f64; 3], signal: impl Fn(f64) -> f32) -> Vec<f32> {
+    pitched_for(params, signal, RATE as usize * 2, RATE as usize)
+}
+
+/// A vowel through the pitcher: three quarters of a second, of which the last
+/// half is kept. That is past the latency, and long enough that the beating of
+/// close harmonics after a downward shift averages out.
+fn pitched_vowel(params: [f64; 3]) -> Vec<f32> {
+    pitched_for(params, male_vowel, RATE as usize * 3 / 4, RATE as usize / 4)
+}
+
+/// `total` samples of `signal` through the pitcher, left channel, from `keep_from` on.
+fn pitched_for(params: [f64; 3], signal: impl Fn(f64) -> f32, total: usize, keep_from: usize) -> Vec<f32> {
     let mut proc = Processor::new();
     let mut slot = EffectSlot::new(EffectKind::Pitcher);
-    slot.params[0] = crate::config::pitch_param(semitones);
+    slot.params = params;
     proc.set_chain(std::slice::from_ref(&slot));
-    let total = RATE as usize * 2;
     let mut out = Vec::with_capacity(total);
     let mut at = 0;
     while at < total {
@@ -996,7 +1173,7 @@ fn pitched(semitones: f64, signal: impl Fn(f64) -> f32) -> Vec<f32> {
         out.extend_from_slice(&left);
         at += FRAMES;
     }
-    out.split_off(RATE as usize)
+    out.split_off(keep_from.min(out.len()))
 }
 
 /// Signal against everything that is not a pure sine at `hz`, by least squares.

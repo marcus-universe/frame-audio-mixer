@@ -102,8 +102,8 @@ impl Panel {
                 mix::draw(self, ui, snap, peaks);
                 match self.drawer {
                     Drawer::Outputs => outputs::draw(self, ui, snap, peaks),
-                    Drawer::FxA => fx::draw(self, ui, 0, &outputs::present_a(&snap.graph)),
-                    Drawer::FxB => fx::draw(self, ui, 1, &outputs::present_a(&snap.graph)),
+                    Drawer::FxA => fx::draw(self, ui, 0),
+                    Drawer::FxB => fx::draw(self, ui, 1),
                     Drawer::Closed => {}
                 }
                 self.split_handle(ui);

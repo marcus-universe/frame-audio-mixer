@@ -12,14 +12,12 @@ use super::{Drawer, Page};
 use crate::config::EffectKind;
 use crate::i18n::Lang;
 
-/// A signal that can be routed: the microphone, a channel, or an effect return.
+/// A signal that can be routed: the microphone or a channel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
     Mic,
     /// Position in `config.channels`.
     Channel(usize),
-    /// 0 is FX1, 1 is FX2.
-    Fx(usize),
 }
 
 /// An output: the PC streaming microphone, a listen output A1..A4, or a virtual microphone B1..B4.
@@ -75,8 +73,8 @@ pub(crate) enum FaderId {
     /// Position in `config.channels`.
     Channel(usize),
     Bus(BusId),
-    /// Return level of an effect bus.
-    FxReturn(usize),
+    /// Level of an effect bus, after its chain.
+    FxLevel(usize),
     /// One parameter of an effect in a chain.
     FxParam { bus: usize, index: usize, param: usize },
     Eq(EqSlider),
@@ -163,8 +161,9 @@ pub(crate) enum Hit {
     Mute(Source),
     /// Toggles one route of a source.
     Route { from: Source, to: BusId },
-    /// Toggles the send of a source to an effect bus (0 or 1).
-    Send { from: Source, fx: usize },
+    /// Switches an effect bus (0 or 1) on or off for a source. The effect's result
+    /// replaces the source's signal on every output the source is routed to.
+    Insert { from: Source, fx: usize },
 
     // Add-channel dialog.
     RefreshApps,

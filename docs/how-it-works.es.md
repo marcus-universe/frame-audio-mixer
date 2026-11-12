@@ -59,7 +59,7 @@ La prueba de mezcla está arriba del todo en el cajón Salidas. Elige una salida
 
 ## Efectos
 
-Los efectos están en FX1 y FX2, envíos compartidos que cada tira puede encender junto a su fader. Cada cadena admite hasta tres efectos. El ecualizador es uno de ellos: paramétrico, de 3, 6, 8 o 12 puntos, con curva de respuesta. Su botón Editar abre la vista completa del EQ. El primer y el último punto pueden ser campana, shelf, paso alto o paso bajo. Un envío es una copia; las rutas en seco se mantienen. Cada retorno tiene un fader y los mismos botones A, PC y B que una tira.
+Los efectos están en FX1 y FX2, dos cadenas de efectos que cada tira puede encender junto a su fader. Cada cadena admite hasta tres efectos. El ecualizador es uno de ellos: paramétrico, de 3, 6, 8 o 12 puntos, con curva de respuesta. Su botón Editar abre la vista completa del EQ. El primer y el último punto pueden ser campana, shelf, paso alto o paso bajo. Los efectos se procesan dentro de la tira: el resultado sustituye al sonido de la tira y va a las salidas elegidas para ella, sin una segunda copia en seco. Si los dos están activos, FX1 va primero. Cada cadena tiene un fader de nivel.
 
 ## Cancelación de eco
 

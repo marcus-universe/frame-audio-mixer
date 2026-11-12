@@ -139,8 +139,8 @@ impl Panel {
                 self.toggle_route(from, to);
                 Action::Save
             }
-            Hit::Send { from, fx } => {
-                self.toggle_send(from, fx);
+            Hit::Insert { from, fx } => {
+                self.toggle_insert(from, fx);
                 Action::Save
             }
 
@@ -477,7 +477,6 @@ impl Panel {
                     channel.muted = !channel.muted;
                 }
             }
-            Source::Fx(_) => {}
         }
     }
 
@@ -485,10 +484,6 @@ impl Panel {
         let config = &mut self.config;
         let (to_pc, routes) = match from {
             Source::Mic => (&mut config.mic_to_pc, &mut config.mic_routes),
-            Source::Fx(bus) => {
-                let fx = fx::bus_mut(config, bus);
-                (&mut fx.to_pc, &mut fx.routes)
-            }
             Source::Channel(index) => match config.channels.get_mut(index) {
                 Some(channel) => (&mut channel.to_pc, &mut channel.routes),
                 None => return,
@@ -501,8 +496,8 @@ impl Panel {
         }
     }
 
-    /// `fx` is 0 for FX1 and 1 for FX2. An effect return has no sends.
-    fn toggle_send(&mut self, from: Source, fx: usize) {
+    /// `fx` is 0 for FX1 and 1 for FX2.
+    fn toggle_insert(&mut self, from: Source, fx: usize) {
         let config = &mut self.config;
         let (send_fx1, send_fx2) = match from {
             Source::Mic => (&mut config.mic_send_fx1, &mut config.mic_send_fx2),
@@ -510,7 +505,6 @@ impl Panel {
                 Some(channel) => (&mut channel.send_fx1, &mut channel.send_fx2),
                 None => return,
             },
-            Source::Fx(_) => return,
         };
         let send = if fx == 0 { send_fx1 } else { send_fx2 };
         *send = !*send;

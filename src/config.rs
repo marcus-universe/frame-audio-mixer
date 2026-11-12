@@ -243,7 +243,6 @@ impl EffectKind {
 
     pub fn param_count(self) -> usize {
         match self {
-            EffectKind::Pitcher => 1,
             EffectKind::Vst => 0,
             _ => 3,
         }
@@ -254,7 +253,9 @@ impl EffectKind {
             EffectKind::Reverb => [0.55, 0.45, 0.25],
             EffectKind::Comp => [0.55, 0.4, 0.2],
             EffectKind::Eq => [0.5, 0.5, 0.5],
-            EffectKind::Pitcher => [0.5, 0.0, 0.0], // center is 0 semitones; ±1 is ±12
+            // Pitch and formant: 0.5 is 0 semitones, 0 and 1 are ±12. A formant of 0.5
+            // keeps the voice's own. Brightness: 0.5 is flat.
+            EffectKind::Pitcher => [0.5, 0.5, 0.5],
             EffectKind::Flanger => [0.35, 0.5, 0.35],
             EffectKind::Phaser => [0.3, 0.55, 0.4],
             EffectKind::Delay => [0.35, 0.3, 0.3],
@@ -342,11 +343,14 @@ impl Default for Bus {
 pub struct FxBus {
     #[serde(default)]
     pub chain: Vec<EffectSlot>,
+    /// Level after the chain, for every strip that runs it.
     #[serde(default)]
     pub gain_db: f64,
     #[serde(default)]
     pub muted: bool,
-    /// Where the effect return plays. A fresh return is heard on A1 and the PC.
+    /// From when an effect was a send with its own return. An effect now runs
+    /// inside each strip and leaves through that strip's routes, so `routes` and
+    /// `to_pc` are only kept so older config files still load.
     #[serde(default = "default_routes")]
     pub routes: u8,
     #[serde(default = "default_true")]
@@ -416,7 +420,8 @@ fn default_check_output() -> String {
     "pc".to_string()
 }
 
-pub const CONFIG_VERSION: u32 = 3;
+/// 4: the Pitcher gained formant and brightness. See `keep_pitcher_sound`.
+pub const CONFIG_VERSION: u32 = 4;
 
 /// Whether a Mix Check target names one of the outputs.
 pub fn check_output_valid(value: &str) -> bool {
@@ -607,7 +612,7 @@ pub fn load(path: &Path) -> Config {
         }
     };
     let version = value.get("version").and_then(|v| v.as_u64());
-    let config = if version == Some(2) || version == Some(u64::from(CONFIG_VERSION)) {
+    let mut config = if matches!(version, Some(2..=4)) {
         match serde_json::from_value::<Config>(value) {
             Ok(config) if version == Some(2) => migrate_v2(config),
             Ok(config) => config,
@@ -619,7 +624,22 @@ pub fn load(path: &Path) -> Config {
     } else {
         migrate_v1(&value)
     };
+    if version.unwrap_or(1) < 4 {
+        keep_pitcher_sound(&mut config);
+    }
     sanitize(config)
+}
+
+/// Before version 4 the Pitcher moved the formants with the pitch, and its other
+/// two values were unused zeros. Setting the formant to the pitch and the
+/// brightness to flat keeps every saved Pitcher sounding as it did.
+fn keep_pitcher_sound(config: &mut Config) {
+    for slot in config.fx_a.chain.iter_mut().chain(config.fx_b.chain.iter_mut()) {
+        if slot.kind == EffectKind::Pitcher {
+            slot.params[1] = slot.params[0];
+            slot.params[2] = 0.5;
+        }
+    }
 }
 
 /// v2 had no PC output: B1 was the PC streaming microphone. Its bit becomes
@@ -831,8 +851,6 @@ fn sanitize_chain(chain: &mut Vec<EffectSlot>) {
             *value = value.clamp(0.0, 1.0);
         }
         if slot.kind == EffectKind::Pitcher {
-            slot.params[1] = 0.0;
-            slot.params[2] = 0.0;
             slot.eq = None;
             if slot.pitch_snap {
                 slot.params[0] = pitch_snapped(slot.params[0]);
@@ -993,7 +1011,10 @@ pub fn save_project_in(dir: &Path, name: &str, config: &Config) -> Result<PathBu
 /// The project's routing, with the live config's screen preferences kept.
 pub fn load_project(path: &Path, current: &Config) -> Option<Config> {
     let text = fs::read_to_string(path).ok()?;
-    let project: Project = serde_json::from_str(&text).ok()?;
+    let mut project: Project = serde_json::from_str(&text).ok()?;
+    if project.config.version < 4 {
+        keep_pitcher_sound(&mut project.config);
+    }
     Some(adopt_project(project.config, current))
 }
 
@@ -1217,6 +1238,19 @@ pub fn self_test() -> Result<(), String> {
     }
     if !check_play_valid("") || !check_play_valid("a:1") || check_play_valid("pc") || check_play_valid("b:0") || check_play_valid("a:3") {
         return Err("check play".into());
+    }
+    // A version 3 Pitcher keeps its sound: formants follow the pitch, brightness flat.
+    let v3 = r#"{"version":3,"fx_a":{"chain":[{"kind":"pitcher","params":[0.75,0.0,0.0]}]}}"#;
+    let path_v3 = dir.join("v3.json");
+    fs::write(&path_v3, v3).map_err(|e| e.to_string())?;
+    let pitched = load(&path_v3);
+    if pitched.fx_a.chain.first().map(|slot| slot.params) != Some([0.75, 0.75, 0.5]) || pitched.version != CONFIG_VERSION {
+        return Err(format!("v3 pitcher {:?}", pitched.fx_a.chain.first().map(|slot| slot.params)));
+    }
+    let v4 = r#"{"version":4,"fx_a":{"chain":[{"kind":"pitcher","params":[0.75,0.625,0.6]}]}}"#;
+    fs::write(&path_v3, v4).map_err(|e| e.to_string())?;
+    if load(&path_v3).fx_a.chain.first().map(|slot| slot.params) != Some([0.75, 0.625, 0.6]) {
+        return Err("v4 pitcher changed on load".into());
     }
     let _ = fs::remove_dir_all(&dir);
     Ok(())

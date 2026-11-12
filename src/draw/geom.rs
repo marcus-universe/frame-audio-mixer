@@ -50,10 +50,6 @@ impl Rect {
         Self { x: self.x + dx, y: self.y + dy, w: self.w - 2.0 * dx, h: self.h - 2.0 * dy }
     }
 
-    pub fn shift(self, dx: f64, dy: f64) -> Self {
-        Self { x: self.x + dx, y: self.y + dy, ..self }
-    }
-
     /// The top `h` pixels.
     pub fn take_top(self, h: f64) -> Self {
         Self { h, ..self }

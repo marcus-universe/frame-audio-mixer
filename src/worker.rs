@@ -129,7 +129,12 @@ struct State {
     echo_cancel: Option<bool>,
     autostart: bool,
     facts_at: Option<Instant>,
-    pinned: HashMap<u64, u32>,
+    /// Until then the graph is polled every loop pass, so apps return to their
+    /// channels right after the engine (re)builds them.
+    settle_until: Option<Instant>,
+    /// Stream serial to (stream id, channel sink serial) written for it. A new
+    /// sink serial (engine restarted) pins the stream again.
+    pinned: HashMap<u64, (u32, u64)>,
     /// (stream serial, wrong sink serial) pairs already moved once. A stream the
     /// user deliberately puts back is not moved again.
     bounced: HashSet<(u64, u64)>,
@@ -161,6 +166,7 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         echo_cancel: None,
         autostart: false,
         facts_at: None,
+        settle_until: None,
         pinned: HashMap::new(),
         bounced: HashSet::new(),
         target_pins: HashMap::new(),
@@ -189,7 +195,8 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
     }
     publish(&snap, &state);
     loop {
-        let job = rx.recv_timeout(Duration::from_millis(800));
+        let wait = if settling(&state) { 150 } else { 800 };
+        let job = rx.recv_timeout(Duration::from_millis(wait));
         let mut urgent = false;
         let mut dragging = false;
         match job {
@@ -293,14 +300,32 @@ fn apply_job(state: &mut State, snap: &Mutex<Snapshot>, job: Job) -> bool {
     false
 }
 
+fn settling(state: &State) -> bool {
+    state.settle_until.is_some_and(|until| Instant::now() < until)
+}
+
+/// True once every configured channel has its sink in the graph.
+fn channels_up(state: &State) -> bool {
+    state.config.channels.iter().all(|channel| {
+        state.graph.node_by_name(&format!("frame_amix_{}", channel.id)).is_some_and(|node| node.serial != 0)
+    })
+}
+
 fn refresh_facts(state: &mut State, force: bool) {
     let due = force || state.facts_at.is_none_or(|start| start.elapsed() >= Duration::from_secs(2));
-    if !due {
+    if !due && !settling(state) {
         return;
     }
     state.graph = Graph::default();
     if let Some(status) = crate::engine::call("status", None) {
         apply_status(state, status);
+    }
+    if settling(state) && channels_up(state) {
+        // This pass pins the apps; the normal pace is enough after it.
+        state.settle_until = None;
+    }
+    if !due {
+        return;
     }
     state.echo_cancel = echo_cancel();
     state.autostart = unit_enabled("frame-audio-mixer.service");
@@ -447,7 +472,7 @@ fn enforce_channels(state: &mut State, graph: &Graph) {
             let _ = Command::new("pw-metadata")
                 .args(["-n", "default", &stream.id.to_string(), "target.object", &wanted.serial.to_string(), "Spa:Id"])
                 .status();
-            state.pinned.insert(stream.serial, stream.id);
+            state.pinned.insert(stream.serial, (stream.id, wanted.serial));
         } else if graph.default_sink.starts_with("frame_amix_") {
             // The session default itself is a mixer channel, so dropping the
             // target would land right back here. Aim at the real device.
@@ -475,6 +500,14 @@ fn ensure_engine(state: &mut State) {
     let running = unit_active(unit);
     if want && !running {
         let _ = Command::new("systemctl").args(["--user", "start", unit]).status();
+        // `systemctl start` returns once the process runs, before its socket is up.
+        // Waiting here lets the "apply" that follows build the channels at once,
+        // instead of the engine loading the config from disk a second later.
+        let until = Instant::now() + Duration::from_secs(3);
+        while Instant::now() < until && crate::engine::call("status", None).is_none() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        state.settle_until = Some(Instant::now() + Duration::from_secs(8));
     } else if !want && running {
         let _ = Command::new("systemctl").args(["--user", "stop", unit]).status();
     }
@@ -587,14 +620,14 @@ fn unpin_vrlink(state: &mut State) {
 fn pin_apps(state: &mut State, graph: &Graph) {
     for stream in graph.playback_apps() {
         let Some(channel) = pin_channel_for(&state.config.pins, &state.config.channels, &stream) else { continue };
-        if state.pinned.contains_key(&stream.serial) {
+        let Some(sink) = graph.node_by_name(&format!("frame_amix_{channel}")).filter(|sink| sink.serial != 0) else { continue };
+        if state.pinned.get(&stream.serial) == Some(&(stream.id, sink.serial)) {
             continue;
         }
-        let Some(sink) = graph.node_by_name(&format!("frame_amix_{channel}")) else { continue };
         let _ = Command::new("pw-metadata")
             .args(["-n", "default", &stream.id.to_string(), "target.object", &sink.serial.to_string(), "Spa:Id"])
             .status();
-        state.pinned.insert(stream.serial, stream.id);
+        state.pinned.insert(stream.serial, (stream.id, sink.serial));
     }
 }
 
@@ -631,7 +664,7 @@ fn pin_targets(state: &mut State, graph: &Graph) {
 }
 
 fn clear_pins(state: &mut State) {
-    for id in state.pinned.values() {
+    for (id, _) in state.pinned.values() {
         let _ = Command::new("pw-metadata").args(["-n", "default", "-d", &id.to_string(), "target.object"]).status();
     }
     state.pinned.clear();

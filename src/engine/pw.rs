@@ -116,10 +116,22 @@ pub fn serve(spike: bool) -> Result<(), String> {
                         if let Ok(md) = registry.bind::<Metadata, _>(global) {
                             let listener = md
                                 .add_listener_local()
-                                .property(move |_subject, key, _type, value| {
+                                .property(move |subject, key, _type, value| {
                                     let mut engine = engine_md.borrow_mut();
                                     let name = value.and_then(parse_default_name);
                                     match key {
+                                        Some("target.object") => match value {
+                                            Some(value) => {
+                                                engine.model.targets.insert(subject, value.to_string());
+                                            }
+                                            None => {
+                                                engine.model.targets.remove(&subject);
+                                            }
+                                        },
+                                        // A cleared subject drops every key it had.
+                                        None => {
+                                            engine.model.targets.remove(&subject);
+                                        }
                                         Some("default.audio.sink") => {
                                             if let Some(name) = name {
                                                 if name != engine.model.default_sink {
@@ -152,6 +164,7 @@ pub fn serve(spike: bool) -> Result<(), String> {
         .global_remove(move |id| {
             let mut engine = engine_rm.borrow_mut();
             let mut device_gone = false;
+            engine.model.targets.remove(&id);
             if let Some(node) = engine.model.nodes.remove(&id) {
                 device_gone = is_device_sink(&node);
                 engine.bound.remove(&node.name);
@@ -257,6 +270,15 @@ pub fn serve(spike: bool) -> Result<(), String> {
     std::mem::forget(timer);
 
     mainloop.run();
+    // Apps and VRLink pinned to a mixer node would keep that dead serial as their
+    // target, and WirePlumber leaves such a stream unlinked: the app goes silent
+    // until the mixer is back. Clearing the target first sends them to the default
+    // output while the mixer nodes still exist. The loop runs once more (the tick
+    // quits it, since STOP is set) so the metadata writes reach the server.
+    if engine.borrow_mut().release_streams() > 0 {
+        STOP.store(true, Ordering::Relaxed);
+        mainloop.run();
+    }
     // Every module and filter is owned by this process, so PipeWire removes them all
     // when it exits. Only the WirePlumber setting outlives it.
     engine.borrow_mut().vst_hosts.stop_all();
@@ -377,7 +399,9 @@ struct Engine {
     buses_b: Vec<Bus>,
     /// Feeds `frame_amix_source`, which VRLink records for the PC.
     bus_pc: Option<Bus>,
-    fx: Vec<Strip>,
+    fx: [FxBus; FX_BUSES],
+    /// Whether any strip runs each effect bus. An unused bus has no spectrum.
+    fx_used: [bool; FX_BUSES],
     check_live: Option<CheckLive>,
     held_links: HashMap<(u32, u32), HeldLink>,
     bound: HashMap<String, Node>,
@@ -412,6 +436,8 @@ struct Model {
     clients: Vec<AppRef>,
     default_sink: String,
     default_source: String,
+    /// `target.object` from the default metadata, by subject (node id).
+    targets: HashMap<u32, String>,
 }
 
 impl Model {
@@ -423,6 +449,7 @@ impl Model {
             clients: Vec::new(),
             default_sink: String::new(),
             default_source: String::new(),
+            targets: HashMap::new(),
         }
     }
 
@@ -473,13 +500,50 @@ fn peak_of(samples: &[f32]) -> f32 {
     })
 }
 
+/// The two effect buses, FX1 and FX2.
+const FX_BUSES: usize = 2;
+
+/// One effect bus: the chain every strip inserts, its level, and the analyzer tap.
+/// A strip that has the bus switched on runs its own copy of the chain, so the
+/// result leaves through that strip's own routes and nothing else hears it.
+struct FxBus {
+    chain: Arc<Mutex<Vec<EffectSlot>>>,
+    /// Linear level after the chain.
+    level: Arc<AtomicU32>,
+    scope: Arc<Scope>,
+}
+
+impl FxBus {
+    fn new() -> Self {
+        Self { chain: Arc::new(Mutex::new(Vec::new())), level: Arc::new(AtomicU32::new(1.0f32.to_bits())), scope: Arc::new(Scope::new()) }
+    }
+}
+
+/// Whether one strip runs one effect bus.
+struct InsertSwitch {
+    on: Arc<AtomicBool>,
+    /// Set on the first strip that uses the bus. Only that strip feeds the EQ's
+    /// analyzer and talks to a VST host: both serve exactly one stream.
+    lead: Arc<AtomicBool>,
+}
+
+impl InsertSwitch {
+    fn new() -> Self {
+        Self { on: Arc::new(AtomicBool::new(false)), lead: Arc::new(AtomicBool::new(false)) }
+    }
+
+    fn set(&self, on: bool, lead: bool) {
+        self.on.store(on, Ordering::Relaxed);
+        self.lead.store(on && lead, Ordering::Relaxed);
+    }
+}
+
 struct Controls {
     gain: Arc<AtomicU32>,
     mute: Arc<AtomicBool>,
     hold: Arc<AtomicBool>,
-    chain: Arc<Mutex<Vec<EffectSlot>>>,
+    inserts: [InsertSwitch; FX_BUSES],
     peak: Arc<Peaks>,
-    scope: Arc<Scope>,
 }
 
 impl Controls {
@@ -488,9 +552,8 @@ impl Controls {
             gain: Arc::new(AtomicU32::new(1.0f32.to_bits())),
             mute: Arc::new(AtomicBool::new(false)),
             hold: Arc::new(AtomicBool::new(false)),
-            chain: Arc::new(Mutex::new(Vec::new())),
+            inserts: [InsertSwitch::new(), InsertSwitch::new()],
             peak: Peaks::new(),
-            scope: Arc::new(Scope::new()),
         }
     }
 
@@ -504,7 +567,6 @@ impl Controls {
 enum Kind {
     Channel,
     Mic,
-    Fx,
 }
 
 struct Strip {
@@ -514,7 +576,6 @@ struct Strip {
     base: String,
     label: String,
     capture: String,
-    kind: Kind,
 }
 
 impl Strip {
@@ -525,38 +586,79 @@ impl Strip {
     fn loop_out(&self) -> String {
         format!("{}_virtual_sink_out", self.base)
     }
-    fn sink(&self) -> String {
-        match self.kind {
-            Kind::Fx => format!("{}_virtual_sink", self.base),
-            _ => self.base.clone(),
-        }
-    }
 }
 
-/// Gain, mute, the effect chain and the meter of one strip, in the graph cycle.
-struct StripDsp {
+/// One effect bus as a strip runs it: this strip's own copy of the bus's chain.
+/// The effects carry their own dry/wet mix, so the result replaces the signal.
+struct Insert {
     proc: Processor,
     applied: Vec<EffectSlot>,
-    gain: f32,
-    target: Arc<AtomicU32>,
-    mute: Arc<AtomicBool>,
-    hold: Arc<AtomicBool>,
     chain: Arc<Mutex<Vec<EffectSlot>>>,
-    peak: Arc<Peaks>,
+    target: Arc<AtomicU32>,
+    level: f32,
+    on: Arc<AtomicBool>,
+    lead: Arc<AtomicBool>,
 }
 
-impl Dsp for StripDsp {
-    fn process(&mut self, input: Option<[&[f32]; 2]>, output: Option<[&mut [f32]; 2]>) {
-        let (Some([in_l, in_r]), Some([out_l, out_r])) = (input, output) else { return };
+impl Insert {
+    fn new(bus: &FxBus, switch: &InsertSwitch) -> Self {
+        Self {
+            proc: Processor::with_scope(bus.scope.clone()),
+            applied: Vec::new(),
+            chain: bus.chain.clone(),
+            target: bus.level.clone(),
+            level: 1.0,
+            on: switch.on.clone(),
+            lead: switch.lead.clone(),
+        }
+    }
+
+    fn process(&mut self, left: &mut [f32], right: &mut [f32]) {
+        if !self.on.load(Ordering::Relaxed) {
+            // Dropping the stages drops their tails, so switching the bus back on starts clean.
+            if !self.applied.is_empty() {
+                self.proc.set_chain(&[]);
+                self.applied.clear();
+            }
+            self.level = 1.0;
+            return;
+        }
         if let Ok(chain) = self.chain.try_lock() {
             if chain.as_slice() != self.applied.as_slice() {
                 self.proc.set_chain(chain.as_slice());
                 self.applied.clone_from(&chain);
             }
         }
+        self.proc.set_lead(self.lead.load(Ordering::Relaxed));
+        self.proc.process_planar(left, right);
+        let dest = f32::from_bits(self.target.load(Ordering::Relaxed));
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            self.level += 0.02 * (dest - self.level);
+            *l *= self.level;
+            *r *= self.level;
+        }
+    }
+}
+
+/// The inserted effect buses, gain, mute and the meter of one strip, in the graph cycle.
+struct StripDsp {
+    /// FX1, then FX2. A strip with both on runs them in series.
+    inserts: [Insert; FX_BUSES],
+    gain: f32,
+    target: Arc<AtomicU32>,
+    mute: Arc<AtomicBool>,
+    hold: Arc<AtomicBool>,
+    peak: Arc<Peaks>,
+}
+
+impl Dsp for StripDsp {
+    fn process(&mut self, input: Option<[&[f32]; 2]>, output: Option<[&mut [f32]; 2]>) {
+        let (Some([in_l, in_r]), Some([out_l, out_r])) = (input, output) else { return };
         out_l.copy_from_slice(in_l);
         out_r.copy_from_slice(in_r);
-        self.proc.process_planar(out_l, out_r);
+        for insert in &mut self.inserts {
+            insert.process(out_l, out_r);
+        }
         let muted = self.mute.load(Ordering::Relaxed) || self.hold.load(Ordering::Relaxed);
         let dest = if muted { 0.0 } else { f32::from_bits(self.target.load(Ordering::Relaxed)) };
         // The ceiling is transparent below 0.8. Above it, the +12 dB mic fader rounds off
@@ -728,7 +830,6 @@ impl Engine {
             buses_a: Vec::new(),
             buses_b: Vec::new(),
             bus_pc: None,
-            fx: Vec::new(),
             check_live: None,
             held_links: HashMap::new(),
             bound: HashMap::new(),
@@ -749,6 +850,8 @@ impl Engine {
             bt_sinks: HashMap::new(),
             quit: false,
             held_routes: Vec::new(),
+            fx: [FxBus::new(), FxBus::new()],
+            fx_used: [false; FX_BUSES],
             analyzer: Analyzer::new(),
             vst_hosts: super::vst::Hosts::default(),
             spectrum_at: None,
@@ -804,23 +907,27 @@ impl Engine {
 
     /// Spectrum after chain position `slot` of one effect bus, in tenths of a dB.
     fn spectrum(&mut self, bus: usize, slot: usize) -> Vec<f32> {
-        let Some(strip) = self.fx.get(bus) else { return Vec::new() };
+        let Some(fx) = self.fx.get(bus) else { return Vec::new() };
         for (index, other) in self.fx.iter().enumerate() {
             if index != bus {
-                other.controls.scope.disarm();
+                other.scope.disarm();
             }
         }
-        strip.controls.scope.arm(slot);
-        let bands = self.analyzer.bands(&strip.controls.scope);
+        fx.scope.arm(slot);
         self.spectrum_at = Some(Instant::now());
+        // No strip runs this bus, so the scope only holds what passed through it last.
+        if !self.fx_used[bus] {
+            return vec![crate::fx::analyzer::SILENCE_DB; crate::fx::analyzer::BANDS];
+        }
+        let bands = self.analyzer.bands(&fx.scope);
         bands.into_iter().map(|db| (db * 10.0).round() / 10.0).collect()
     }
 
     fn expire_spectrum(&mut self) {
         if self.spectrum_at.is_some_and(|at| at.elapsed() > Duration::from_secs(1)) {
             self.spectrum_at = None;
-            for strip in &self.fx {
-                strip.controls.scope.disarm();
+            for fx in &self.fx {
+                fx.scope.disarm();
             }
         }
     }
@@ -920,6 +1027,18 @@ impl Engine {
         graph
     }
 
+    /// Clears every metadata target that points at one of this engine's nodes,
+    /// except on the engine's own streams. Returns how many were cleared.
+    fn release_streams(&mut self) -> usize {
+        let Some((metadata, _)) = &self.metadata else { return 0 };
+        let ids = released_subjects(&self.model);
+        for id in &ids {
+            metadata.set_property(*id, "target.object", None, None);
+            self.model.targets.remove(id);
+        }
+        ids.len()
+    }
+
     fn publish_bt(&self) {
         self.bt.set_sinks(self.bt_sinks.values().cloned().collect());
     }
@@ -932,7 +1051,7 @@ impl Engine {
         let recreate = self.mic.as_ref().map(|mic| mic.capture != source).unwrap_or(true);
         if recreate {
             self.mic = None;
-            match make_strip(&self.context, &self.core, "mic", "Mic", Kind::Mic, Some(&source)) {
+            match make_strip(&self.context, &self.core, &self.fx, "mic", "Mic", Kind::Mic, Some(&source)) {
                 Ok(strip) => self.mic = Some(strip),
                 Err(err) => eprintln!("frame-audio-mixer: mic: {err}"),
             }
@@ -947,7 +1066,7 @@ impl Engine {
             if self.strips.contains_key(&channel.id) {
                 continue;
             }
-            match make_strip(&self.context, &self.core, &channel.id, &channel.name, Kind::Channel, None) {
+            match make_strip(&self.context, &self.core, &self.fx, &channel.id, &channel.name, Kind::Channel, None) {
                 Ok(strip) => {
                     self.strips.insert(channel.id.clone(), strip);
                 }
@@ -984,14 +1103,6 @@ impl Engine {
                 }
             }
         }
-        if self.fx.len() != 2 {
-            self.fx.clear();
-            for label in ["fx1", "fx2"] {
-                if let Ok(strip) = make_strip(&self.context, &self.core, label, label, Kind::Fx, None) {
-                    self.fx.push(strip);
-                }
-            }
-        }
         if self.check_live.is_none() {
             match make_check(&self.core, &self.share) {
                 Ok(live) => self.check_live = Some(live),
@@ -1007,19 +1118,39 @@ impl Engine {
             [&config.fx_a, &config.fx_b].iter().flat_map(|bus| bus.chain.iter()).filter_map(|slot| slot.vst.clone()).collect();
         self.vst_hosts.sync(&plugins);
         // A take is recorded with the mic in it. Only playback on the headset holds the
-        // mic and the headset effect returns, so the clip cannot feed back.
+        // mic, effects included, so the clip cannot feed back.
         let hold_mic = self.check.phase == "playing";
+        let buses = [&config.fx_a, &config.fx_b];
+        for (fx, bus) in self.fx.iter().zip(buses) {
+            fx.level.store((config::db_to_lin(bus.gain_db) as f32).to_bits(), Ordering::Relaxed);
+            if let Ok(mut chain) = fx.chain.lock() {
+                chain.clone_from(&bus.chain);
+            }
+        }
+        // The microphone comes first, then the channels in their order: the first
+        // strip that uses a bus leads it.
+        let mut used = [false; FX_BUSES];
+        let mut switch = |controls: &Controls, sends: [bool; FX_BUSES]| {
+            for (index, send) in sends.into_iter().enumerate() {
+                let on = send && !buses[index].muted;
+                controls.inserts[index].set(on, !used[index]);
+                used[index] |= on;
+            }
+        };
         if let Some(mic) = &self.mic {
             mic.controls.set_gain_db(config.mic_gain_db, config::MIC_PREAMP);
             mic.controls.mute.store(config.mic_muted, Ordering::Relaxed);
             mic.controls.hold.store(hold_mic, Ordering::Relaxed);
+            switch(&mic.controls, [config.mic_send_fx1, config.mic_send_fx2]);
         }
         for channel in &config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
                 strip.controls.set_gain_db(channel.gain_db, 1.0);
                 strip.controls.mute.store(channel.muted, Ordering::Relaxed);
+                switch(&strip.controls, [channel.send_fx1, channel.send_fx2]);
             }
         }
+        self.fx_used = used;
         let pc_name = self.bus_pc.as_ref().map(|bus| bus.sink_name.clone());
         if let Some(name) = pc_name {
             self.set_named_volume(&name, config.pc.gain_db, config.pc.muted);
@@ -1034,17 +1165,6 @@ impl Engine {
             let b_name = self.buses_b.get(index).map(|bus| bus.sink_name.clone());
             if let Some(name) = b_name {
                 self.set_named_volume(&name, config.b[index].gain_db, config.b[index].muted);
-            }
-        }
-        for (index, fx) in [&config.fx_a, &config.fx_b].into_iter().enumerate() {
-            if let Some(strip) = self.fx.get(index) {
-                strip.controls.set_gain_db(fx.gain_db, 1.0);
-                let hold = hold_mic && config::route_on(fx.routes, true, 0);
-                strip.controls.mute.store(fx.muted, Ordering::Relaxed);
-                strip.controls.hold.store(hold, Ordering::Relaxed);
-                if let Ok(mut chain) = strip.controls.chain.lock() {
-                    *chain = fx.chain.clone();
-                }
             }
         }
         self.sync_routes();
@@ -1069,22 +1189,15 @@ impl Engine {
 
     fn sync_routes(&mut self) {
         let mut routes = Vec::new();
-        let dest = Dest { a: &self.buses_a, b: &self.buses_b, pc: self.bus_pc.as_ref(), fx: &self.fx };
+        let dest = Dest { a: &self.buses_a, b: &self.buses_b, pc: self.bus_pc.as_ref() };
         if let Some(mic) = &self.mic {
-            let flow = Flow { bits: self.config.mic_routes, to_pc: self.config.mic_to_pc, fx1: self.config.mic_send_fx1, fx2: self.config.mic_send_fx2 };
+            let flow = Flow { bits: self.config.mic_routes, to_pc: self.config.mic_to_pc };
             push_routes(&mut routes, &mic.dsp(), &dest, flow);
             routes.push(Wanted { output_node: mic.loop_out(), input_node: mic.dsp() });
         }
         for channel in &self.config.channels {
             if let Some(strip) = self.strips.get(&channel.id) {
-                let flow = Flow { bits: channel.routes, to_pc: channel.to_pc, fx1: channel.send_fx1, fx2: channel.send_fx2 };
-                push_routes(&mut routes, &strip.dsp(), &dest, flow);
-                routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.dsp() });
-            }
-        }
-        for (index, fx) in [&self.config.fx_a, &self.config.fx_b].into_iter().enumerate() {
-            if let Some(strip) = self.fx.get(index) {
-                let flow = Flow { bits: fx.routes, to_pc: fx.to_pc, fx1: false, fx2: false };
+                let flow = Flow { bits: channel.routes, to_pc: channel.to_pc };
                 push_routes(&mut routes, &strip.dsp(), &dest, flow);
                 routes.push(Wanted { output_node: strip.loop_out(), input_node: strip.dsp() });
             }
@@ -1240,20 +1353,19 @@ struct Dest<'a> {
     a: &'a [Bus],
     b: &'a [Bus],
     pc: Option<&'a Bus>,
-    fx: &'a [Strip],
 }
 
+/// The outputs one strip plays on.
 #[derive(Clone, Copy)]
 struct Flow {
     bits: u8,
     to_pc: bool,
-    fx1: bool,
-    fx2: bool,
 }
 
+/// A strip is linked to its outputs only. Effects run inside the strip, so there
+/// is no second, dry copy of it anywhere in the graph.
 fn push_routes(routes: &mut Vec<Wanted>, from: &str, dest: &Dest, flow: Flow) {
-    let Flow { bits, to_pc, fx1, fx2 } = flow;
-    let fx = dest.fx;
+    let Flow { bits, to_pc } = flow;
     for (index, bus) in dest.a.iter().enumerate() {
         if config::route_on(bits, true, index) {
             routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
@@ -1269,16 +1381,6 @@ fn push_routes(routes: &mut Vec<Wanted>, from: &str, dest: &Dest, flow: Flow) {
             routes.push(Wanted { output_node: from.into(), input_node: bus.sink_name.clone() });
         }
     }
-    if fx1 {
-        if let Some(strip) = fx.first() {
-            routes.push(Wanted { output_node: from.into(), input_node: strip.sink() });
-        }
-    }
-    if fx2 {
-        if let Some(strip) = fx.get(1) {
-            routes.push(Wanted { output_node: from.into(), input_node: strip.sink() });
-        }
-    }
 }
 
 fn mic_target(config: &Config, default_source: &str) -> String {
@@ -1289,24 +1391,14 @@ fn mic_target(config: &Config, default_source: &str) -> String {
     }
 }
 
-fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: Kind, capture_target: Option<&str>) -> Result<Strip, String> {
+fn make_strip(context: &ContextRc, core: &CoreRc, fx: &[FxBus; FX_BUSES], id: &str, label: &str, kind: Kind, capture_target: Option<&str>) -> Result<Strip, String> {
     let base = format!("frame_amix_{id}");
     let module = match kind {
         Kind::Mic => load_loopback(context, &mic_loopback_args(&base, capture_target.unwrap_or(Graph::BUILTIN_SOURCE)))?,
         Kind::Channel => load_loopback(context, &channel_loopback_args(&base, label))?,
-        Kind::Fx => load_loopback(context, &fx_loopback_args(&base, label))?,
     };
     let controls = Controls::new();
-    let dsp = StripDsp {
-        proc: Processor::with_scope(controls.scope.clone()),
-        applied: Vec::new(),
-        gain: 1.0,
-        target: controls.gain.clone(),
-        mute: controls.mute.clone(),
-        hold: controls.hold.clone(),
-        chain: controls.chain.clone(),
-        peak: controls.peak.clone(),
-    };
+    let dsp = strip_dsp(fx, &controls);
     // Not passive, so a routed strip wakes the output it feeds.
     let filter = Filter::new(core, &format!("{base}_virtual_sink_dsp"), Ports { input: true, output: true, passive: false }, dsp)?;
     Ok(Strip {
@@ -1316,8 +1408,18 @@ fn make_strip(context: &ContextRc, core: &CoreRc, id: &str, label: &str, kind: K
         base,
         label: label.to_string(),
         capture: capture_target.unwrap_or("").to_string(),
-        kind,
     })
+}
+
+fn strip_dsp(fx: &[FxBus; FX_BUSES], controls: &Controls) -> StripDsp {
+    StripDsp {
+        inserts: [Insert::new(&fx[0], &controls.inserts[0]), Insert::new(&fx[1], &controls.inserts[1])],
+        gain: 1.0,
+        target: controls.gain.clone(),
+        mute: controls.mute.clone(),
+        hold: controls.hold.clone(),
+        peak: controls.peak.clone(),
+    }
 }
 
 fn make_listen_bus(context: &ContextRc, core: &CoreRc, name: &str, key: u32, share: &Arc<CheckShare>) -> Result<Bus, String> {
@@ -1410,24 +1512,6 @@ fn mic_loopback_args(base: &str, target: &str) -> String {
             "state.restore-props": false
         },
         "playback.props": playback_props(&format!("{base}_virtual_sink_out"), false)
-    })
-    .to_string()
-}
-
-fn fx_loopback_args(base: &str, label: &str) -> String {
-    serde_json::json!({
-        "capture.props": {
-            "media.class": INTERNAL_SINK,
-            "node.name": format!("{base}_virtual_sink"),
-            "node.description": label,
-            "node.virtual": true,
-            "audio.position": ["FL", "FR"],
-            "priority.session": 1,
-            "audio.rate": 48000,
-            "node.latency": "480/48000",
-            "state.restore-props": false
-        },
-        "playback.props": playback_props(&format!("{base}_virtual_sink_out"), true)
     })
     .to_string()
 }
@@ -1603,6 +1687,26 @@ fn read_link(id: u32, props: &libspa::utils::dict::DictRef) -> Option<(u32, (u32
     Some((id, (output, input)))
 }
 
+/// Subjects whose metadata target is a `frame_amix_*` node, leaving out this
+/// engine's own nodes (their targets go away with them).
+fn released_subjects(model: &Model) -> Vec<u32> {
+    let ours: HashSet<u64> = model
+        .nodes
+        .values()
+        .filter(|node| node.name.starts_with("frame_amix_") && node.serial != 0)
+        .map(|node| node.serial)
+        .collect();
+    let mut ids: Vec<u32> = model
+        .targets
+        .iter()
+        .filter(|(id, _)| model.nodes.get(id).is_none_or(|node| !node.name.starts_with("frame_amix_")))
+        .filter(|(_, value)| value.trim().trim_matches('"').parse::<u64>().is_ok_and(|serial| ours.contains(&serial)))
+        .map(|(id, _)| *id)
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
 fn parse_default_name(value: &str) -> Option<String> {
     let parsed: serde_json::Value = serde_json::from_str(value).ok()?;
     parsed.get("name").and_then(|name| name.as_str()).map(|name| name.to_string())
@@ -1625,6 +1729,100 @@ pub fn self_test() -> Result<(), String> {
     }
     if bus_key("") != 0 || bus_key("x:1") != 0 || bus_key("a:x") != 0 {
         return Err("bus key rejects".into());
+    }
+    release_self_test()?;
+    insert_self_test()?;
+    route_self_test()
+}
+
+/// Quitting the mixer must hand pinned apps back to the default output.
+fn release_self_test() -> Result<(), String> {
+    let mut model = Model::new();
+    let node = |id: u32, serial: u64, name: &str| AudioNode {
+        id,
+        serial,
+        name: name.into(),
+        description: String::new(),
+        media_class: String::new(),
+        media_name: String::new(),
+        app_name: String::new(),
+        binary: String::new(),
+        is_virtual: false,
+        target: String::new(),
+    };
+    model.nodes.insert(10, node(10, 110, "frame_amix_ch1"));
+    model.nodes.insert(11, node(11, 111, "frame_amix_source"));
+    model.nodes.insert(12, node(12, 112, "frame_amix_mic_from_mic"));
+    model.nodes.insert(20, node(20, 120, "Chromium"));
+    model.nodes.insert(21, node(21, 121, "vrlink"));
+    model.nodes.insert(22, node(22, 122, "Zen"));
+    model.nodes.insert(30, node(30, 130, "alsa_output.speaker"));
+    model.targets.insert(20, "110".into());
+    model.targets.insert(21, "111".into());
+    model.targets.insert(22, "130".into());
+    model.targets.insert(12, "130".into());
+    model.targets.insert(23, "\"110\"".into());
+    if released_subjects(&model) != vec![20, 21, 23] {
+        return Err(format!("released {:?}", released_subjects(&model)));
+    }
+    Ok(())
+}
+
+/// A strip with an effect bus on puts out the effect's result, once, and a strip
+/// without it stays dry.
+fn insert_self_test() -> Result<(), String> {
+    let fx = [FxBus::new(), FxBus::new()];
+    // A delay at full mix: the result is the delayed signal only, so the first block is silent.
+    let mut delay = EffectSlot::new(config::EffectKind::Delay);
+    delay.params[2] = 1.0;
+    *fx[0].chain.lock().map_err(|_| "chain lock")? = vec![delay];
+    let wet = Controls::new();
+    let dry = Controls::new();
+    wet.inserts[0].set(true, true);
+    let run = |controls: &Controls| {
+        let mut dsp = strip_dsp(&fx, controls);
+        let input = [0.5f32; 480];
+        let (mut left, mut right) = ([0.0f32; 480], [0.0f32; 480]);
+        // The fader glides to its level, so judge the second block.
+        for _ in 0..2 {
+            dsp.process(Some([&input, &input]), Some([&mut left, &mut right]));
+        }
+        peak_of(&left).max(peak_of(&right))
+    };
+    let (wet_peak, dry_peak) = (run(&wet), run(&dry));
+    if (dry_peak - 0.5).abs() > 0.01 {
+        return Err(format!("dry strip level {dry_peak}"));
+    }
+    // An effect bus with nothing in its chain changes nothing, on either bus.
+    let empty = Controls::new();
+    empty.inserts[1].set(true, true);
+    let empty_peak = run(&empty);
+    if (empty_peak - dry_peak).abs() > 1e-6 {
+        return Err(format!("empty effect bus changed the level: {empty_peak} vs {dry_peak}"));
+    }
+    if wet_peak > 0.01 {
+        return Err(format!("effect strip still carries the dry signal: {wet_peak}"));
+    }
+    // The bus level scales the result, and a strip that does not lead skips nothing built in.
+    let mut comp = EffectSlot::new(config::EffectKind::Eq);
+    comp.eq = Some(config::ParamEq::new(3));
+    *fx[1].chain.lock().map_err(|_| "chain lock")? = vec![comp];
+    fx[1].level.store(0.5f32.to_bits(), Ordering::Relaxed);
+    let follower = Controls::new();
+    follower.inserts[1].set(true, false);
+    let level = run(&follower);
+    if (level - 0.25).abs() > 0.02 {
+        return Err(format!("effect bus level {level}"));
+    }
+    Ok(())
+}
+
+/// Every route of a strip ends on an output. None goes to an effect node.
+fn route_self_test() -> Result<(), String> {
+    let mut routes = Vec::new();
+    push_routes(&mut routes, "strip", &Dest { a: &[], b: &[], pc: None }, Flow { bits: 0xff, to_pc: true });
+    if !routes.is_empty() {
+        return Err("route without an output".into());
     }
     Ok(())
 }

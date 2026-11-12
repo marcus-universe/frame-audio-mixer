@@ -10,7 +10,7 @@ pub const BANDS: usize = 128;
 const SIZE: usize = 4096;
 const RATE: f32 = 48_000.0;
 const NOT_ARMED: u32 = u32::MAX;
-const SILENCE_DB: f32 = -120.0;
+pub const SILENCE_DB: f32 = -120.0;
 
 /// A lock-free ring of the newest mono samples. One writer, one reader. A sample
 /// read while being overwritten only makes one analyzer frame slightly wrong.

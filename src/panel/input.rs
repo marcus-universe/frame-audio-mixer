@@ -223,7 +223,7 @@ impl Panel {
                     eq::set_slider(self, slot, slider, t);
                 }
             }
-            FaderId::Mic | FaderId::Channel(_) | FaderId::Bus(_) | FaderId::FxReturn(_) => {
+            FaderId::Mic | FaderId::Channel(_) | FaderId::Bus(_) | FaderId::FxLevel(_) => {
                 // The snap button sits on Outputs and moves only those faders. Input strips always snap.
                 let magnetic = if matches!(id, FaderId::Bus(_)) { self.config.snap } else { true };
                 let db = snapped_db(config::t_to_db(t), span, magnetic);
@@ -242,7 +242,7 @@ impl Panel {
             FaderId::Bus(BusId::Pc) => Some(&mut self.config.pc.gain_db),
             FaderId::Bus(BusId::A(index)) => self.config.a.get_mut(index).map(|bus| &mut bus.gain_db),
             FaderId::Bus(BusId::B(index)) => self.config.b.get_mut(index).map(|bus| &mut bus.gain_db),
-            FaderId::FxReturn(bus) => Some(&mut fx::bus_mut(&mut self.config, bus).gain_db),
+            FaderId::FxLevel(bus) => Some(&mut fx::bus_mut(&mut self.config, bus).gain_db),
             FaderId::FxParam { .. } | FaderId::Eq(_) => None,
         }
     }

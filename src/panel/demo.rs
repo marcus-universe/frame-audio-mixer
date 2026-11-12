@@ -195,6 +195,14 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     let _ = panel.handle(Hit::OpenMenu(Menu::Preset { bus: 0, index: 0 }));
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-presets"))?;
     panel.menu = None;
+    // The Pitcher as Male to female, with its preset list open.
+    let reverb = std::mem::replace(&mut panel.config.fx_a.chain[0], EffectSlot::new(EffectKind::Pitcher));
+    crate::fx::presets::of(EffectKind::Pitcher)[0].apply(&mut panel.config.fx_a.chain[0]);
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-pitcher"))?;
+    let _ = panel.handle(Hit::OpenMenu(Menu::Preset { bus: 0, index: 0 }));
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-pitcher-presets"))?;
+    panel.menu = None;
+    panel.config.fx_a.chain[0] = reverb;
     let _ = panel.handle(Hit::FxAdd { bus: 0, kind: EffectKind::Eq });
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "fx-eq"))?;
     for (view, name) in [(config::EqView::Line, "eq-line"), (config::EqView::Area, "eq-area"), (config::EqView::Bars, "eq-bars"), (config::EqView::Heat, "eq-heat")] {

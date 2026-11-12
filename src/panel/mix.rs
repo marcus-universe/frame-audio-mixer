@@ -305,7 +305,6 @@ fn fader_of(source: Source) -> FaderId {
     match source {
         Source::Mic => FaderId::Mic,
         Source::Channel(index) => FaderId::Channel(index),
-        Source::Fx(bus) => FaderId::FxReturn(bus),
     }
 }
 
@@ -428,8 +427,8 @@ fn route_cells(from: Source, routes: Routes, a_slots: &[usize]) -> Vec<RouteCell
             device: Device::Other,
         });
     }
-    cells.push(RouteCell { kind: Cell::Fx1, caption: "FX1".into(), hit: Hit::Send { from, fx: 0 }, on: routes.fx1, device: Device::Other });
-    cells.push(RouteCell { kind: Cell::Fx2, caption: "FX2".into(), hit: Hit::Send { from, fx: 1 }, on: routes.fx2, device: Device::Other });
+    cells.push(RouteCell { kind: Cell::Fx1, caption: "FX1".into(), hit: Hit::Insert { from, fx: 0 }, on: routes.fx1, device: Device::Other });
+    cells.push(RouteCell { kind: Cell::Fx2, caption: "FX2".into(), hit: Hit::Insert { from, fx: 1 }, on: routes.fx2, device: Device::Other });
     cells
 }
 

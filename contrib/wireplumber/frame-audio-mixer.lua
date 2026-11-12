@@ -155,6 +155,29 @@ local function pin_channel_targets ()
   end
 end
 
+-- A mixer node went away (the engine quit or crashed). Every stream whose
+-- metadata target is that node's serial would stay unlinked and silent, so
+-- clear the target and let it follow the default output again. The engine
+-- clears these itself on a clean exit; this covers a crash.
+local function release_removed (serial)
+  local metadata = default_om:lookup ()
+  if metadata == nil or serial == nil then
+    return
+  end
+  local gone = tostring (serial)
+  for _, om in ipairs ({ playback_om, capture_om }) do
+    for node in om:iterate () do
+      local id = tonumber (node.properties["object.id"])
+      local name = node.properties["node.name"] or ""
+      if id ~= nil and not name:find ("^frame_amix_") and metadata_target (metadata, id) == gone then
+        set_target (metadata, id, nil)
+        routed[id] = nil
+        channel_pinned[id] = nil
+      end
+    end
+  end
+end
+
 local function apply_all ()
   apply_route ()
   pin_channel_targets ()
@@ -183,6 +206,10 @@ node_om:connect ("object-added", function (_, node)
   on_node (node)
 end)
 node_om:connect ("object-removed", function (_, node)
+  local name = node.properties["node.name"] or ""
+  if name:find ("^frame_amix_") then
+    release_removed (node.properties["object.serial"])
+  end
   on_node (node)
 end)
 

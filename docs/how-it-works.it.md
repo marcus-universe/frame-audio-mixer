@@ -59,7 +59,7 @@ Prova mix si trova in cima al cassetto Uscite. Scegli un'uscita (PC, A o B), pre
 
 ## Effetti
 
-Gli effetti stanno su FX1 e FX2, mandate condivise che ogni strip può accendere accanto al suo fader. Ogni catena contiene fino a tre effetti. L'equalizzatore è uno di questi: parametrico, a 3, 6, 8 o 12 punti, con curva di risposta. Il suo pulsante Modifica apre la vista completa dell'EQ. Il primo e l'ultimo punto possono essere una campana, uno shelf, un passa-alto o un passa-basso. Una mandata è una copia; i percorsi dry restano. Ogni ritorno ha un fader e gli stessi pulsanti A, PC e B di una strip.
+Gli effetti stanno su FX1 e FX2, due catene di effetti che ogni strip può accendere accanto al suo fader. Ogni catena contiene fino a tre effetti. L'equalizzatore è uno di questi: parametrico, a 3, 6, 8 o 12 punti, con curva di risposta. Il suo pulsante Modifica apre la vista completa dell'EQ. Il primo e l'ultimo punto possono essere una campana, uno shelf, un passa-alto o un passa-basso. Gli effetti lavorano dentro la strip: il risultato sostituisce il suono della strip e va alle uscite scelte per quella strip, senza una seconda copia dry. Se sono attivi entrambi, FX1 viene per primo. Ogni catena ha un fader di livello.
 
 ## Cancellazione dell'eco
 

@@ -122,9 +122,9 @@ fn clicks() -> Result<(), String> {
     if panel.config.mic_to_pc == to_pc {
         return Err("mic to pc".into());
     }
-    let _ = panel.handle(Hit::Send { from: Source::Channel(0), fx: 1 });
+    let _ = panel.handle(Hit::Insert { from: Source::Channel(0), fx: 1 });
     if !panel.config.channels[0].send_fx2 || panel.config.channels[0].send_fx1 {
-        return Err("send to FX2".into());
+        return Err("FX2 on a channel".into());
     }
     let _ = panel.handle(Hit::Mute(Source::Channel(2)));
     let _ = panel.handle(Hit::BusMute(BusId::A(0)));
