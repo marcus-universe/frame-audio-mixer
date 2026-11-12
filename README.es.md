@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo/logo_banner_blue.svg" alt="Frame Audio Mixer" width="640">
+  <a href="https://frame-audio-mixer.marcus-universe.com/"><img src="assets/logo/logo_banner_blue.svg" alt="Frame Audio Mixer" width="640"></a>
 </p>
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/github/license/marcus-universe/frame-audio-mixer?style=flat-square&color=33C4FF" alt="License"></a>
