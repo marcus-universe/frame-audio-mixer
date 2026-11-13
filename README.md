@@ -12,7 +12,7 @@
 
 # 🎚️ Frame Audio Mixer
 
-Frame Audio Mixer mixes app audio with the headset microphone and sends that mix to the PC over the wireless stream, into the **Steam Streaming Microphone** that SteamVR already provides.
+Frame Audio Mixer lets you create multiple audio channels and mixes on the Steam Frame. Combine app audio with the headset microphone, then send each mix where you need it: to the Frame speakers or headphones inside the headset, or over the wireless stream to your PC, where it arrives as the **Steam Streaming Microphone** that SteamVR already provides.
 
 It sits after [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), which still handles echo cancellation and noise suppression.
 
@@ -26,19 +26,20 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 - 🛠️ Turn on Developer Mode first: Steam Settings, then System, then **Enable Developer Mode**. Konsole is not in the list until you do.
 - 💻 From a PC: [Install over SSH](docs/install-ssh.md).
+- 🖥️ PC audio devices (Steam Streaming Mic B1–B4 and Out PC1–PC4, Windows and Linux): [Install on the PC](docs/install-pc.md).
 
 ## ✨ Features
 
-- 🔄 **Orientation**: inputs and outputs each switch between upright faders and rows.
-- 🎛️ **Effect buses**: FX1 and FX2, each with reverb, compressor, EQ, pitch, flanger and phaser. Every strip can switch either one on, and the result replaces that strip's sound on its own outputs.
+- 🧩 **Software channels**: add up to 32 apps as inputs. Pick an app that is already running, or create a named virtual output that any app on the Steam Frame can select. Its sound then arrives in the mixer as its own channel.
 - 🎤 **Virtual microphones**: B1 to B4, named, on top of the PC streaming microphone.
+- 🔗 **PC audio link**: with the Frame Audio Link add-on for SteamVR, B1 to B4 are also four microphones on the PC, and four PC outputs (PC1 to PC4) can be added as channels. Each stream can be switched off to save bandwidth.
 - 🎧 **Speakers, Bluetooth and USB**: the mix plays on the Frame speakers, Bluetooth headphones, or USB audio while one is connected.
-- 🧩 **Software channels**: up to 32 named channels. Each one is an output any app can select.
-- 🖥️ **Wide view**: a 21:9 layout. Drag the split between the two sections. Each side stops at a fifth of the window.
+- 🎛️ **Effect buses**: FX1 and FX2, each with reverb, compressor, EQ, pitch, flanger and phaser. Every strip can switch either one on, and the result replaces that strip's sound on its own outputs.
+- 🗂️ **Projects**: save the current channels, routing, effects and levels under a name, and load a setup back anytime.
+- 🗺️ **Signal flow**: a live routing map of the whole mix. Every route is checked against the real PipeWire links, so a broken link shows up as a dashed red line. Drag to pan, select a node for its PipeWire identity.
 - 📊 **Meters, mute and snap**: the same peak scale on every fader, from +6 down to −48, a mute button under each one, and output faders that snap to the marks.
 - ⏺️ **Mix Check**: at the top of Outputs. Pick an output, record up to 10 seconds, then play or pause the take.
-- 🗺️ **Signal flow**: a live routing map of the whole mix. Every route is checked against the real PipeWire links, so a broken link shows up as a dashed red line. Drag to pan, select a node for its PipeWire identity.
-- 🗂️ **Projects**: save the current channels, routing, effects and levels under a name, and load a setup back anytime.
+- 🔄 **Orientation**: inputs and outputs each switch between upright faders and rows.
 - 🌐 Seven languages, and a blue or pink color theme.
 
 <table>
@@ -66,6 +67,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 - 📖 [How it works](docs/how-it-works.md): the audio graph, and how VRLink and apps are routed.
 - 🔧 [Technical details](docs/technical.md): what gets installed, microphone and level meter details, Apps and updates, uninstall, build.
+- 🔗 [PC audio link](docs/pc-link.md): the SteamVR add-on for the PC, how to install and use it, and how the link behaves.
 
 ## 🙏 Credits
 

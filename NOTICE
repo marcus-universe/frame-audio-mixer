@@ -45,3 +45,21 @@ https://api.iconify.design/collection?prefix=<set>&info=1):
 
 Record, Stop, Play, the chevrons and the back arrow are drawn as shapes in
 this repository. They are not Iconify icons.
+
+The PC audio link (link/core, and Frame Audio Link in link/addon) codes audio
+with Opus. The codec is built in from the unsafe-libopus crate, a Rust
+translation of libopus:
+
+- libopus — Copyright 2001-2011 Xiph.Org, Skype Limited, Octasic, Jean-Marc
+  Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell, Mark Borgerding,
+  Erik de Castro Lopo. BSD-3-Clause.
+  https://opus-codec.org/license/
+- unsafe-libopus — DCNick3, BSD-3-Clause
+  https://github.com/DCNick3/unsafe-libopus
+
+Frame Audio Link's overlay uses the PC glyph andrsrxn:device-pc-speaker
+(Andrés Raxón, MIT), the same one as the mixer panel. It talks to SteamVR
+through the OpenVR API (Valve Corporation, BSD-3-Clause), whose library is
+loaded from the installed SteamVR and is not shipped. The add-on is built
+from Rust crates under MIT, Apache-2.0, BSD and Zlib licenses; `cargo tree`
+in link/addon lists them.

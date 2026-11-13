@@ -44,6 +44,8 @@ pub struct Snapshot {
     pub vsts: Vec<crate::vst::VstInfo>,
     /// Host progress by plugin instance.
     pub vst_status: HashMap<String, String>,
+    /// The session with Frame Audio Link on the PC.
+    pub link: frame_link_core::LinkStatus,
 }
 
 impl Default for Snapshot {
@@ -65,6 +67,7 @@ impl Default for Snapshot {
             meters: HashMap::new(),
             vsts: Vec::new(),
             vst_status: HashMap::new(),
+            link: frame_link_core::LinkStatus::default(),
         }
     }
 }
@@ -156,6 +159,7 @@ struct State {
     engine_up: bool,
     vsts: Vec<crate::vst::VstInfo>,
     vst_status: HashMap<String, String>,
+    link: frame_link_core::LinkStatus,
 }
 
 fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
@@ -185,6 +189,7 @@ fn run(rx: mpsc::Receiver<Job>, snap: Arc<Mutex<Snapshot>>, config: Config) {
         engine_up: false,
         vsts: crate::vst::load_cache(),
         vst_status: HashMap::new(),
+        link: frame_link_core::LinkStatus::default(),
     };
     install_icons(&state.config.accent);
     refresh_facts(&mut state, true);
@@ -304,10 +309,12 @@ fn settling(state: &State) -> bool {
     state.settle_until.is_some_and(|until| Instant::now() < until)
 }
 
-/// True once every configured channel has its sink in the graph.
+/// True once every configured channel has its node in the graph: the sink apps
+/// play to, or the source node of a channel that plays a PC input.
 fn channels_up(state: &State) -> bool {
     state.config.channels.iter().all(|channel| {
-        state.graph.node_by_name(&format!("frame_amix_{}", channel.id)).is_some_and(|node| node.serial != 0)
+        let node = if channel.pc_index().is_some() { format!("frame_amix_{}_virtual_sink_out", channel.id) } else { format!("frame_amix_{}", channel.id) };
+        state.graph.node_by_name(&node).is_some_and(|node| node.serial != 0)
     })
 }
 
@@ -364,6 +371,7 @@ fn publish(snap: &Mutex<Snapshot>, state: &State) {
         meters: state.meters.clone(),
         vsts: state.vsts.clone(),
         vst_status: state.vst_status.clone(),
+        link: state.link.clone(),
     };
 }
 
@@ -541,6 +549,7 @@ fn apply_status(state: &mut State, status: crate::engine::Status) {
     state.has_take = status.has_take;
     state.take_secs = status.take_secs;
     state.vst_status = status.vst;
+    state.link = status.link;
     state.check_phase = match status.check.as_str() {
         "recording" => CheckPhase::Recording,
         "ready" => CheckPhase::Ready,
@@ -856,6 +865,20 @@ pub fn self_test() -> Result<(), String> {
     let open_pin = vec![Pin { app: "Spotify".into(), channel: "ch3".into() }];
     if pin_channel_for(&open_pin, &open, &stream("Spotify", "spotify")) != Some("ch3") {
         return Err("name pin without binary".into());
+    }
+    // The SteamVR dashboard reports "Chromium" too. Named after SteamVR, its
+    // hover and click sounds stay off a channel made for the browser.
+    let browser = vec![channel("ch4", "Chromium", "Chromium", "")];
+    let browser_pin = vec![Pin { app: "Chromium".into(), channel: "ch4".into() }];
+    let mut dashboard = stream("Chromium", "");
+    dashboard.set_binary("vrwebhelper");
+    if pin_channel_for(&browser_pin, &browser, &dashboard).is_some() {
+        return Err("the SteamVR dashboard followed the Chromium channel".into());
+    }
+    let mut chromium = stream("Chromium", "");
+    chromium.set_binary("chromium");
+    if pin_channel_for(&browser_pin, &browser, &chromium) != Some("ch4") {
+        return Err("chromium lost its channel".into());
     }
     Ok(())
 }

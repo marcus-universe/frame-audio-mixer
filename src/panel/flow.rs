@@ -161,14 +161,25 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
     });
     let mut strip_of: HashMap<String, usize> = HashMap::new();
     for channel in &config.channels {
-        let sink = format!("frame_amix_{}", channel.id);
+        // A channel that plays a PC output has no sink for apps: its node is the
+        // source the link feeds.
+        let sink = match channel.pc_index() {
+            Some(_) => format!("frame_amix_{}_virtual_sink_out", channel.id),
+            None => format!("frame_amix_{}", channel.id),
+        };
         strip_of.insert(channel.id.clone(), nodes.len());
         nodes.push(Node {
             key: channel.id.clone(),
             label: channel.name.clone(),
             sub: with_effects(String::new(), config, t, [channel.send_fx1, channel.send_fx2]),
             lane: 1,
-            icon: if channel.app.is_empty() { NodeIcon::Channel } else { NodeIcon::App },
+            icon: if channel.pc_index().is_some() {
+                NodeIcon::Pc
+            } else if channel.app.is_empty() {
+                NodeIcon::Channel
+            } else {
+                NodeIcon::App
+            },
             level: Some(peak(peaks, &[&format!("{}:l", channel.id), &format!("{}:r", channel.id)])),
             present: graph.node_by_name(&sink).is_some(),
             pw_name: sink,
@@ -234,6 +245,32 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
             from,
             to: strip,
             state: EdgeState::Live,
+            level: peak(peaks, &[&format!("{}:l", channel.id), &format!("{}:r", channel.id)]),
+            muted: channel.muted,
+        });
+    }
+
+    // The PC outputs that feed a channel, over the link.
+    for channel in &config.channels {
+        let (Some(index), Some(&strip)) = (channel.pc_index(), strip_of.get(&channel.id)) else { continue };
+        let sending = panel.pc_sends_input(index);
+        let from = nodes.len();
+        nodes.push(Node {
+            key: format!("link:in:{index}"),
+            label: config::pc_input_name(index),
+            sub: if panel.link.connected() { panel.link.peer.clone() } else { t.pc_link_wait.to_string() },
+            lane: 0,
+            icon: NodeIcon::Pc,
+            level: None,
+            pw_name: String::new(),
+            present: sending,
+            muted: false,
+        });
+        edges.push(Edge {
+            from,
+            to: strip,
+            // Not a broken route: the PC has this output switched off, or is not linked.
+            state: if sending { EdgeState::Live } else { EdgeState::Idle },
             level: peak(peaks, &[&format!("{}:l", channel.id), &format!("{}:r", channel.id)]),
             muted: channel.muted,
         });
@@ -414,6 +451,27 @@ fn model(panel: &Panel, t: &Text, snap: &Snapshot, peaks: &HashMap<String, f32>)
                 level: nodes[*out].level.unwrap_or(0.0),
                 muted: config.b[index].muted,
             });
+        }
+    }
+
+    // The linked PC, taking virtual microphones as its own.
+    let taken: Vec<usize> = (0..config::B_SLOTS).filter(|index| panel.pc_takes_bus(*index) == Some(true)).collect();
+    if !taken.is_empty() {
+        let to = nodes.len();
+        nodes.push(Node {
+            key: "dev:link".into(),
+            label: panel.link.peer.clone(),
+            sub: t.pc_link.to_string(),
+            lane: 3,
+            icon: NodeIcon::Pc,
+            level: None,
+            pw_name: String::new(),
+            present: true,
+            muted: false,
+        });
+        for index in taken {
+            let out = b_outs[index];
+            edges.push(Edge { from: out, to, state: EdgeState::Live, level: nodes[out].level.unwrap_or(0.0), muted: config.b[index].muted });
         }
     }
 

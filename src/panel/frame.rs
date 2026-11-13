@@ -74,6 +74,9 @@ impl Panel {
     /// What the frame needs from the worker's snapshot before anything is drawn.
     fn take_snapshot(&mut self, snap: &Snapshot) {
         self.note_check(snap);
+        if self.link != snap.link {
+            self.link = snap.link.clone();
+        }
         if self.vst_plugins != snap.vsts {
             self.vst_plugins = snap.vsts.clone();
         }

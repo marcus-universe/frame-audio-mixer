@@ -1,0 +1,23 @@
+[package]
+name = "frame-link-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Audio link between Frame Audio Mixer on the headset and Frame Audio Link on the PC"
+publish = false
+
+[dependencies]
+unsafe-libopus = "0.2"
+rtrb = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# The codec is a transpiled C library. Unoptimized, one stereo frame costs more
+# than the 10 ms it covers, so a debug build could never keep up.
+[profile.dev.package.unsafe-libopus]
+opt-level = 3
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

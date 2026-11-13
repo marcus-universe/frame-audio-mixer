@@ -87,6 +87,25 @@ pub fn pc_icon(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
     let _ = cr.restore();
 }
 
+/// The PC glyph struck through: this stream is switched off on the PC, or no
+/// PC is linked. The glyph is dimmed so the stroke reads first.
+pub fn pc_icon_off(cr: &Context, x: f64, y: f64, size: f64, c: Rgb) {
+    let _ = cr.save();
+    cr.push_group();
+    pc_icon(cr, x, y, size, c);
+    let _ = cr.pop_group_to_source();
+    let _ = cr.paint_with_alpha(0.45);
+    cr.translate(x, y);
+    cr.scale(size / 24.0, size / 24.0);
+    cr.set_line_cap(cairo::LineCap::Round);
+    cr.set_source_rgb(c.r, c.g, c.b);
+    cr.set_line_width(1.9);
+    cr.move_to(3.2, 3.6);
+    cr.line_to(20.8, 20.4);
+    let _ = cr.stroke();
+    let _ = cr.restore();
+}
+
 /// andrsrxn:usb-port, view box 24, MIT, Andrés Raxón. A stroked duotone like `pc_icon`.
 const USB_RING_STROKE: &str = "M13.5 20.8a1.54 1.54 0 1 1-3.08 0a1.54 1.54 0 0 1 3.08 0M8.84 9.53a1.48 1.48 0 1 1-2.96 0a1.48 1.48 0 0 1 2.96 0";
 const USB_TREE_STROKE: &str = "M11.96 17.19L9.4 15.75c-1-.56-1.49-.84-1.76-1.3c-.28-.47-.28-1.05-.28-2.19v-1.24m4.6 3.4l3.14-1.38c.87-.39 1.3-.58 1.6-.91a2 2 0 0 0 .3-.47c.2-.4.2-.88.2-1.84m-5.24 9.44V1.99";

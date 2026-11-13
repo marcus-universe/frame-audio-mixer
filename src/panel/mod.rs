@@ -207,6 +207,8 @@ pub struct Panel {
     /// The last scan, and plugin host progress by instance, from the snapshot.
     pub(crate) vst_plugins: Vec<crate::vst::VstInfo>,
     pub(crate) vst_status: HashMap<String, String>,
+    /// The session with Frame Audio Link on the PC, from the snapshot.
+    pub(crate) link: frame_link_core::LinkStatus,
 }
 
 pub enum Action {
@@ -287,7 +289,19 @@ impl Panel {
             spectrum: spectrum::SpectrumView::new(),
             vst_plugins: Vec::new(),
             vst_status: HashMap::new(),
+            link: frame_link_core::LinkStatus::default(),
         }
+    }
+
+    /// Whether the PC takes virtual microphone B`index` + 1 over the link.
+    /// `None` while no PC is linked: the bus is then only a microphone on the headset.
+    pub(crate) fn pc_takes_bus(&self, index: usize) -> Option<bool> {
+        (self.config.pc_link && self.link.connected()).then(|| frame_link_core::mask_has(self.link.remote_recv, index))
+    }
+
+    /// Whether the PC is sending its output PC`index` + 1 over the link.
+    pub(crate) fn pc_sends_input(&self, index: usize) -> bool {
+        self.config.pc_link && self.link.connected() && frame_link_core::mask_has(self.link.remote_send, index)
     }
 
     /// Drop an armed Quit or delete, take the icon index when the scan finishes,

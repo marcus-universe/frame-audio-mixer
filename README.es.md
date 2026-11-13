@@ -12,7 +12,7 @@
 
 # 🎚️ Frame Audio Mixer
 
-Frame Audio Mixer mezcla el audio de las apps con el micrófono del visor y envía esa mezcla al PC por el flujo inalámbrico, al **Steam Streaming Microphone** que SteamVR ya ofrece.
+Frame Audio Mixer te permite crear varios canales de audio y mezclas en el Steam Frame. Combina el audio de las apps con el micrófono del visor y envía cada mezcla adonde la necesites: a los altavoces del Frame o a auriculares dentro del visor, o al PC por el flujo inalámbrico, donde llega como el **Steam Streaming Microphone** que SteamVR ya ofrece.
 
 Va después de [Frame Mic Tuner](https://github.com/sasaken1102r/frame-mic-tuner), que sigue encargándose de la cancelación de eco y la reducción de ruido.
 
@@ -26,19 +26,20 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 - 🛠️ Primero activa el modo de desarrollador: Ajustes de Steam, luego Sistema, luego **Activar modo de desarrollador**. Konsole no aparece en la lista hasta que lo hagas.
 - 💻 Desde un PC: [Instalar por SSH](docs/install-ssh.es.md).
+- 🖥️ Dispositivos de audio del PC (Steam Streaming Mic B1–B4 y Out PC1–PC4, Windows y Linux): [Instalar en el PC](docs/install-pc.es.md).
 
 ## ✨ Funciones
 
-- 🔄 **Orientación**: las entradas y las salidas cambian cada una entre faders verticales y filas.
-- 🎛️ **Buses de efectos**: FX1 y FX2, con reverberación, compresor, EQ, pitch, flanger y phaser. Cada canal puede activar cualquiera de los dos; el resultado sustituye al sonido del canal en sus propias salidas.
+- 🧩 **Canales de software**: añade hasta 32 apps como entradas. Elige una app que ya esté abierta, o crea una salida virtual con nombre que cualquier app del Steam Frame puede seleccionar. Su sonido llega al mezclador en su propio canal.
 - 🎤 **Micrófonos virtuales**: B1 a B4, con nombre, además del micrófono de streaming del PC.
+- 🔗 **Enlace de audio con el PC**: con el complemento Frame Audio Link para SteamVR, B1 a B4 son también cuatro micrófonos en el PC, y cuatro salidas del PC (PC1 a PC4) se pueden añadir como canales. Cada flujo se puede apagar para ahorrar ancho de banda.
 - 🎧 **Altavoces, Bluetooth y USB**: la mezcla suena en los altavoces del Frame, en auriculares Bluetooth o en audio USB mientras haya uno conectado.
-- 🧩 **Canales de software**: hasta 32 canales con nombre. Cada uno es una salida que cualquier app puede elegir.
-- 🖥️ **Vista ancha**: un diseño 21:9. Se puede arrastrar la división entre las dos zonas. Cada lado se detiene en un quinto de la ventana.
+- 🎛️ **Buses de efectos**: FX1 y FX2, con reverberación, compresor, EQ, pitch, flanger y phaser. Cada canal puede activar cualquiera de los dos; el resultado sustituye al sonido del canal en sus propias salidas.
+- 🗂️ **Proyectos**: guarda los canales, el enrutado, los efectos y los niveles con un nombre, y carga una configuración cuando quieras.
+- 🗺️ **Flujo de señal**: un mapa en vivo de todo el enrutado. Cada ruta se comprueba contra los enlaces reales de PipeWire; un enlace roto aparece como una línea roja discontinua. Arrastra para desplazar, selecciona un nodo para ver su identidad PipeWire.
 - 📊 **Medidores, silencio y ajuste**: la misma escala en cada fader, de +6 a −48, un botón de silencio debajo de cada uno, y faders de salida que se ajustan a las marcas.
 - ⏺️ **Prueba de mezcla**: arriba en Salidas. Elige una salida, graba hasta 10 segundos y reproduce o pausa la toma.
-- 🗺️ **Flujo de señal**: un mapa en vivo de todo el enrutado. Cada ruta se comprueba contra los enlaces reales de PipeWire; un enlace roto aparece como una línea roja discontinua. Arrastra para desplazar, selecciona un nodo para ver su identidad PipeWire.
-- 🗂️ **Proyectos**: guarda los canales, el enrutado, los efectos y los niveles con un nombre, y carga una configuración cuando quieras.
+- 🔄 **Orientación**: las entradas y las salidas cambian cada una entre faders verticales y filas.
 - 🌐 Siete idiomas, y un tema azul o rosa.
 
 <table>
@@ -66,6 +67,7 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 - 📖 [Cómo funciona](docs/how-it-works.es.md): el grafo de audio y cómo se enrutan VRLink y las apps.
 - 🔧 [Detalles técnicos](docs/technical.es.md): qué se instala, detalles del micrófono y de los medidores, Apps y actualizaciones, desinstalación, compilación.
+- 🔗 [Enlace de audio con el PC](docs/pc-link.md) (en inglés): el complemento de SteamVR para el PC, cómo instalarlo y usarlo, y cómo se comporta el enlace.
 
 ## 🙏 Créditos
 

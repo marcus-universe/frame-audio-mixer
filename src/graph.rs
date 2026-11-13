@@ -21,10 +21,49 @@ pub struct AudioNode {
     pub target: String,
 }
 
+impl AudioNode {
+    /// Records the program behind this node. A program of Steam's own
+    /// interface also gets that name (see [`system_app`]).
+    pub fn set_binary(&mut self, binary: &str) {
+        if binary.is_empty() {
+            return;
+        }
+        self.binary = binary.to_string();
+        if let Some(name) = system_app(binary) {
+            self.app_name = name.to_string();
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppRef {
     pub name: String,
     pub binary: String,
+}
+
+impl AppRef {
+    /// An app as PipeWire reports it, named after Steam where it is part of
+    /// Steam's interface (see [`system_app`]).
+    pub fn reported(name: String, binary: String) -> Self {
+        let name = system_app(&binary).map_or(name, str::to_string);
+        Self { name, binary }
+    }
+}
+
+/// What a program of Steam's own interface is shown and pinned as.
+///
+/// Steam and SteamVR draw their interface in Chromium helper processes, and
+/// the sound of those (a hover or a click in the dashboard) reports the app
+/// name "Chromium", the same as the browser and every Electron app. Under
+/// that name they followed a channel made for Chromium.
+pub fn system_app(binary: &str) -> Option<&'static str> {
+    if binary.eq_ignore_ascii_case("vrwebhelper") {
+        Some("SteamVR")
+    } else if binary.eq_ignore_ascii_case("steamwebhelper") {
+        Some("Steam")
+    } else {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -52,10 +91,7 @@ pub fn parse_dump(text: &str) -> Result<Graph, String> {
         }
         if kind.ends_with("Client") {
             if let Some(props) = item.pointer("/info/props") {
-                graph.clients.push(AppRef {
-                    name: prop_str(props, "application.name"),
-                    binary: prop_str(props, "application.process.binary"),
-                });
+                graph.clients.push(AppRef::reported(prop_str(props, "application.name"), prop_str(props, "application.process.binary")));
             }
             continue;
         }
@@ -71,7 +107,7 @@ pub fn parse_dump(text: &str) -> Result<Graph, String> {
         }
         let id = item.get("id").and_then(Value::as_u64).unwrap_or(0) as u32;
         let serial = prop_u64(props, "object.serial");
-        graph.nodes.push(AudioNode {
+        let mut node = AudioNode {
             id,
             serial,
             name,
@@ -79,7 +115,7 @@ pub fn parse_dump(text: &str) -> Result<Graph, String> {
             media_class: prop_str(props, "media.class"),
             media_name: prop_str(props, "media.name"),
             app_name: prop_str(props, "application.name"),
-            binary: prop_str(props, "application.process.binary"),
+            binary: String::new(),
             is_virtual: prop_flag(props, "node.virtual"),
             target: {
                 let target = prop_str(props, "target.object");
@@ -89,7 +125,9 @@ pub fn parse_dump(text: &str) -> Result<Graph, String> {
                     target
                 }
             },
-        });
+        };
+        node.set_binary(&prop_str(props, "application.process.binary"));
+        graph.nodes.push(node);
     }
     Ok(graph)
 }
@@ -404,6 +442,18 @@ pub fn self_test() -> Result<(), String> {
     if graph.nodes.iter().any(|node| node.name.starts_with("frame_amix_") && node.is_virtual && Graph::is_vrlink(node))
     {
         return Err("virtual node counted as vrlink".into());
+    }
+    // Steam's interface helpers report "Chromium". They are named after Steam instead.
+    let helpers = parse_dump(
+        r#"[{"id":5,"type":"PipeWire:Interface:Node","info":{"props":{"node.name":"Chromium","object.serial":70,
+            "media.class":"Stream/Output/Audio","application.name":"Chromium","application.process.binary":"vrwebhelper"}}},
+        {"id":6,"type":"PipeWire:Interface:Node","info":{"props":{"node.name":"Chromium","object.serial":71,
+            "media.class":"Stream/Output/Audio","application.name":"Chromium","application.process.binary":"chromium"}}},
+        {"id":7,"type":"PipeWire:Interface:Client","info":{"props":{"application.name":"Chromium input","application.process.binary":"steamwebhelper"}}}]"#,
+    )?;
+    let helper_names: Vec<&str> = helpers.nodes.iter().map(|node| node.app_name.as_str()).collect();
+    if helper_names != ["SteamVR", "Chromium"] || helpers.clients[0].name != "Steam" {
+        return Err(format!("steam helpers named {helper_names:?} and {}", helpers.clients[0].name));
     }
     let extra = parse_dump(SOURCE_FIXTURE)?;
     let names: Vec<_> = extra.pickable_sources().into_iter().map(|node| node.name).collect();

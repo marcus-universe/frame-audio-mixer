@@ -1,5 +1,7 @@
 /target
 /dist
+/link/*/target
+/link/addon/dist
 /site
 **/*.rs.bk
 .DS_Store

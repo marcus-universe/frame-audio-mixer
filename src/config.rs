@@ -14,6 +14,8 @@ pub const NAME_MAX_CHARS: usize = 32;
 pub const A_SLOTS: usize = 3;
 /// Virtual microphones B1..B4. Always present.
 pub const B_SLOTS: usize = 4;
+/// PC outputs PC1..PC4 that Frame Audio Link on the PC can send here.
+pub const PC_INPUTS: usize = 4;
 /// Linear gain on `frame_amix_mic_virtual_sink` at a fader of 1.0.
 /// The filtered Frame mic sits well below a mix bus; 100% is this
 /// trim, not digital unity. 4.0 is +12 dB.
@@ -48,9 +50,22 @@ pub struct Channel {
     pub app: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub binary: String,
+    /// 1..4 makes this channel play PC1..PC4, sent by Frame Audio Link on the
+    /// PC. Such a channel is not an output apps can pick. 0 is a normal channel.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub pc_input: u8,
+}
+
+fn is_zero(value: &u8) -> bool {
+    *value == 0
 }
 
 impl Channel {
+    /// The PC input this channel plays, counted from 0.
+    pub fn pc_index(&self) -> Option<usize> {
+        (1..=PC_INPUTS).contains(&usize::from(self.pc_input)).then(|| usize::from(self.pc_input) - 1)
+    }
+
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -64,8 +79,19 @@ impl Channel {
             send_fx2: false,
             app: String::new(),
             binary: String::new(),
+            pc_input: 0,
         }
     }
+}
+
+/// The name a channel for PC input `index` starts with: PC1..PC4.
+pub fn pc_input_name(index: usize) -> String {
+    format!("PC{}", index + 1)
+}
+
+/// Whether a channel already plays PC input `index`.
+pub fn pc_input_used(channels: &[Channel], index: usize) -> bool {
+    channels.iter().any(|channel| channel.pc_index() == Some(index))
 }
 
 /// The Frame speakers. With `to_pc`, a fresh channel is heard in the headset and on the PC.
@@ -179,6 +205,10 @@ pub struct Config {
     pub fx_a: FxBus,
     #[serde(default)]
     pub fx_b: FxBus,
+    /// Talks to Frame Audio Link on the PC this headset streams from: B1..B4
+    /// become microphones there, and PC1..PC4 can be added as channels here.
+    #[serde(default = "default_true")]
+    pub pc_link: bool,
     #[serde(default = "default_version")]
     pub version: u32,
 }
@@ -584,6 +614,7 @@ impl Default for Config {
             flow_apps: false,
             eq_view: EqView::default(),
             vst_folder: default_vst_folder(),
+            pc_link: true,
             version: CONFIG_VERSION,
         }
     }
@@ -805,8 +836,14 @@ fn sanitize(mut config: Config) -> Config {
         seen.push(channel.id.clone());
         true
     });
+    // One channel per PC input: two would each get half of its samples.
+    let mut taken = [false; PC_INPUTS];
     for channel in &mut config.channels {
         channel.gain_db = clamp_db(channel.gain_db);
+        match channel.pc_index() {
+            Some(index) if !taken[index] => taken[index] = true,
+            _ => channel.pc_input = 0,
+        }
     }
     config.pc.gain_db = clamp_db(config.pc.gain_db);
     config.pc.name.clear();
@@ -1030,6 +1067,7 @@ fn adopt_project(mut loaded: Config, current: &Config) -> Config {
     loaded.flow_apps = current.flow_apps;
     loaded.eq_view = current.eq_view;
     loaded.vst_folder = current.vst_folder.clone();
+    loaded.pc_link = current.pc_link;
     loaded.check_updates = current.check_updates;
     loaded.version = current.version;
     loaded

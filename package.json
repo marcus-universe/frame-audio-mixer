@@ -1,0 +1,9 @@
+{
+  "name": "frame-audio-mixer-site",
+  "private": true,
+  "description": "Local preview of the Frame Audio Mixer website in site/",
+  "scripts": {
+    "site": "bun scripts/serve-site.ts",
+    "dev": "bun scripts/serve-site.ts"
+  }
+}

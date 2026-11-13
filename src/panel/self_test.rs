@@ -131,6 +131,26 @@ fn clicks() -> Result<(), String> {
     if !panel.config.channels[2].muted || !panel.config.a[0].muted || panel.config.mic_muted {
         return Err("mute".into());
     }
+    // A PC output becomes a channel once; a second press on the same one adds nothing.
+    let before = panel.config.channels.len();
+    let _ = panel.handle(Hit::AddPcInput(1));
+    let added = panel.config.channels.last().map(|channel| (channel.name.clone(), channel.pc_input));
+    if panel.config.channels.len() != before + 1 || added != Some(("PC2".to_string(), 2)) {
+        return Err(format!("PC input channel {added:?}"));
+    }
+    if !matches!(panel.handle(Hit::AddPcInput(1)), Action::None) || panel.config.channels.len() != before + 1 {
+        return Err("PC input added twice".into());
+    }
+    if !matches!(panel.handle(Hit::AddPcInput(9)), Action::None) || panel.config.channels.len() != before + 1 {
+        return Err("PC input out of range".into());
+    }
+    panel.config.channels.pop();
+    panel.channels_changed();
+    let _ = panel.handle(Hit::PcLink(false));
+    if panel.config.pc_link || panel.pc_takes_bus(0).is_some() || panel.pc_sends_input(0) {
+        return Err("PC link switch".into());
+    }
+    panel.config.pc_link = true;
     // Removing a channel takes two presses, and drops the positions of the old frame.
     let count = panel.config.channels.len();
     let second = panel.config.channels[1].id.clone();

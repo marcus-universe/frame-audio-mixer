@@ -4,6 +4,7 @@
 mod bluetooth;
 mod filter;
 mod link;
+mod pclink;
 mod pw;
 mod vst;
 
@@ -27,6 +28,7 @@ pub fn vst_bridge_test(bundle: &str, arch: &str) -> Result<(), String> {
 
 pub fn self_test() -> Result<(), String> {
     link::self_test()?;
+    pclink::self_test()?;
     pw::self_test()
 }
 
@@ -49,6 +51,9 @@ pub struct Status {
     /// Plugin host progress by instance: starting, running, failed or stopped.
     #[serde(default)]
     pub vst: HashMap<String, String>,
+    /// The session with Frame Audio Link on the PC.
+    #[serde(default)]
+    pub link: frame_link_core::LinkStatus,
 }
 
 /// One request to the engine. `None` means the socket is not there yet.

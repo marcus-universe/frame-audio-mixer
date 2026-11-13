@@ -26,11 +26,14 @@ use crate::config::{self, Config, EffectSlot};
 use crate::engine::bluetooth;
 use crate::engine::filter::{Dsp, Filter, Ports};
 use crate::engine::link::{self, Direction, Port, Wanted};
+use crate::engine::pclink::{self, PcLink, PcSourceDsp, TapSlot};
 use crate::fx::analyzer::{Analyzer, Scope};
 use crate::fx::dsp::{soft_ceiling, Processor};
 use crate::graph::{self, AppRef, AudioNode, Graph};
 
 const CHECK_MAX: usize = 48_000 * 10 * 2;
+/// How long a new app stream is held back while its properties are on the way.
+const UNNAMED_WAIT: Duration = Duration::from_millis(500);
 
 pub fn socket_path() -> std::path::PathBuf {
     let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".into());
@@ -73,7 +76,34 @@ pub fn serve(spike: bool) -> Result<(), String> {
                         if node.media_class == "Stream/Input/Audio" && !node.is_virtual {
                             unity_vrlink(node.clone());
                         }
+                        let app_stream = node.media_class == "Stream/Output/Audio" && !name.starts_with("frame_amix_");
                         engine.model.nodes.insert(global.id, node);
+                        // The registry does not say which program plays a stream; the
+                        // stream's own properties do. They arrive a moment later.
+                        if app_stream {
+                            if let Some(registry) = registry_weak.upgrade() {
+                                if let Ok(proxy) = registry.bind::<Node, _>(global) {
+                                    let engine_info = engine_md.clone();
+                                    let id = global.id;
+                                    let client = props.get("client.id").and_then(|id| id.parse::<u32>().ok());
+                                    let listener = proxy
+                                        .add_listener_local()
+                                        .info(move |info| {
+                                            // A PulseAudio client's stream names its program itself.
+                                            let named = info.props().and_then(|props| props.get("application.process.binary")).unwrap_or("").to_string();
+                                            // Never held here: the loop runs one callback at a time.
+                                            if let Ok(mut engine) = engine_info.try_borrow_mut() {
+                                                // A native client's stream does not: its process does.
+                                                let binary = if named.is_empty() { engine.client_program(client).unwrap_or_default() } else { named };
+                                                engine.name_stream(id, &binary);
+                                            }
+                                        })
+                                        .register();
+                                    engine.unnamed.insert(id, Instant::now());
+                                    engine.streams.insert(id, (proxy, Box::new(listener)));
+                                }
+                            }
+                        }
                         let want = name.starts_with("frame_amix_") && (name.ends_with("_virtual_sink") || engine.pending_volume.contains_key(&name));
                         if want && !engine.bound.contains_key(&name) {
                             if let Some(registry) = registry_weak.upgrade() {
@@ -107,7 +137,10 @@ pub fn serve(spike: bool) -> Result<(), String> {
                     let name = props.get("application.name").unwrap_or("").to_string();
                     let binary = props.get("application.process.binary").unwrap_or("").to_string();
                     if !name.is_empty() || !binary.is_empty() {
-                        engine.model.clients.push(AppRef { name, binary });
+                        engine.model.clients.push(AppRef::reported(name, binary));
+                    }
+                    if let Some(pid) = props.get("pipewire.sec.pid").and_then(|pid| pid.parse::<u32>().ok()) {
+                        engine.client_pids.insert(global.id, pid);
                     }
                 }
                 ObjectType::Metadata
@@ -165,6 +198,9 @@ pub fn serve(spike: bool) -> Result<(), String> {
             let mut engine = engine_rm.borrow_mut();
             let mut device_gone = false;
             engine.model.targets.remove(&id);
+            engine.streams.remove(&id);
+            engine.unnamed.remove(&id);
+            engine.client_pids.remove(&id);
             if let Some(node) = engine.model.nodes.remove(&id) {
                 device_gone = is_device_sink(&node);
                 engine.bound.remove(&node.name);
@@ -223,6 +259,7 @@ pub fn serve(spike: bool) -> Result<(), String> {
         }
         let mut engine = engine_tick.borrow_mut();
         engine.poll_check();
+        engine.poll_link();
         engine.heal_links();
         engine.vst_hosts.reap();
         engine.expire_spectrum();
@@ -405,6 +442,14 @@ struct Engine {
     check_live: Option<CheckLive>,
     held_links: HashMap<(u32, u32), HeldLink>,
     bound: HashMap<String, Node>,
+    /// App playback streams, bound so their own properties are heard.
+    streams: HashMap<u32, (Node, Box<dyn ProxyListener>)>,
+    /// Streams whose program is not known yet, and since when. They are kept
+    /// out of the graph meanwhile, so none is pinned by its app name alone:
+    /// Steam's interface and every Electron app share the name "Chromium".
+    unnamed: HashMap<u32, Instant>,
+    /// The process behind each PipeWire client, as the server saw it connect.
+    client_pids: HashMap<u32, u32>,
     metadata: Option<(Metadata, Box<dyn ProxyListener>)>,
     core: CoreRc,
     context: ContextRc,
@@ -427,6 +472,10 @@ struct Engine {
     vst_hosts: super::vst::Hosts,
     /// Last spectrum request. The capture stops soon after a panel stops asking.
     spectrum_at: Option<Instant>,
+    /// The link to Frame Audio Link on the PC.
+    pc_link: PcLink,
+    /// The virtual microphones the PC took when the routes were last built.
+    link_taken: frame_link_core::Mask,
 }
 
 struct Model {
@@ -567,15 +616,22 @@ impl Controls {
 enum Kind {
     Channel,
     Mic,
+    /// A channel that plays one of the PC's outputs, by its index.
+    PcInput(usize),
 }
 
 struct Strip {
     _modules: Vec<LoadedModule>,
+    /// Stands where the loopback's playback side is on an app channel, so the
+    /// route into the strip is the same for both.
+    _pc_source: Option<Filter<PcSourceDsp>>,
     _filter: Filter<StripDsp>,
     controls: Controls,
     base: String,
     label: String,
     capture: String,
+    /// What the strip was built as. A channel that changes kind is rebuilt.
+    kind: Kind,
 }
 
 impl Strip {
@@ -676,6 +732,10 @@ struct Bus {
     _module: LoadedModule,
     _source: Option<LoadedModule>,
     _meter: Option<Filter<MeterDsp>>,
+    /// B1..B4 only: the tap that sends the bus to the PC.
+    _link: Option<Filter<LinkTapDsp>>,
+    /// Node name of that tap. Empty on a bus without one.
+    link_name: String,
     sink_name: String,
     play_name: String,
     /// What leaves this output after its fader: the listen playback, or the PC and B sources.
@@ -707,6 +767,21 @@ struct MeterDsp {
     peak: Arc<Peaks>,
     share: Arc<CheckShare>,
     key: u32,
+}
+
+/// What a virtual microphone emits, on its way to the PC. Input-only and not
+/// passive: the meter tap would not do, because a bus nobody on the headset
+/// records is suspended and its passive tap hears nothing. Linked only while
+/// the PC takes the bus, this keeps it running for exactly that long.
+struct LinkTapDsp {
+    tap: TapSlot,
+}
+
+impl Dsp for LinkTapDsp {
+    fn process(&mut self, input: Option<[&[f32]; 2]>, _output: Option<[&mut [f32]; 2]>) {
+        let Some([left, right]) = input else { return };
+        pclink::write_tap(&self.tap, left, right);
+    }
 }
 
 impl Dsp for MeterDsp {
@@ -833,6 +908,9 @@ impl Engine {
             check_live: None,
             held_links: HashMap::new(),
             bound: HashMap::new(),
+            streams: HashMap::new(),
+            unnamed: HashMap::new(),
+            client_pids: HashMap::new(),
             metadata: None,
             core,
             context,
@@ -855,6 +933,16 @@ impl Engine {
             analyzer: Analyzer::new(),
             vst_hosts: super::vst::Hosts::default(),
             spectrum_at: None,
+            pc_link: PcLink::new(),
+            link_taken: 0,
+        }
+    }
+
+    /// Rebuilds the routes when the PC starts or stops taking a virtual
+    /// microphone: its link tap is only linked while it does.
+    fn poll_link(&mut self) {
+        if self.pc_link.taken() != self.link_taken {
+            self.sync_routes();
         }
     }
 
@@ -995,14 +1083,30 @@ impl Engine {
             "check_output": self.check.output,
             "has_take": !self.check.take.is_empty(),
             "vst": self.vst_hosts.statuses(),
+            "link": self.pc_link.status(),
             "take_secs": stereo_secs(self.check.take.len()),
         })
         .to_string()
     }
 
+    /// The program of the process behind a client.
+    fn client_program(&self, client: Option<u32>) -> Option<String> {
+        program_of(*self.client_pids.get(&client?)?)
+    }
+
+    /// A stream's own properties arrived: they name the program that plays it.
+    fn name_stream(&mut self, id: u32, binary: &str) {
+        self.unnamed.remove(&id);
+        if let Some(node) = self.model.nodes.get_mut(&id) {
+            node.set_binary(binary);
+        }
+    }
+
     fn graph(&self) -> Graph {
         let mut graph = Graph::default();
-        graph.nodes = self.model.nodes.values().cloned().collect();
+        // A stream that never reports its properties is shown after a moment anyway.
+        let unnamed = |id: &u32| self.unnamed.get(id).is_some_and(|since| since.elapsed() < UNNAMED_WAIT);
+        graph.nodes = self.model.nodes.iter().filter(|(id, _)| !unnamed(id)).map(|(_, node)| node.clone()).collect();
         graph.clients = self.model.clients.clone();
         // Port-level links folded to node pairs, for the Signal Flow view.
         let mut edges: Vec<(u32, u32)> = self
@@ -1049,9 +1153,11 @@ impl Engine {
         self.bt.set_guard(!mic_target(config, &self.model.default_source).starts_with("bluez_"));
         let source = mic_target(&self.config, &self.model.default_source);
         let recreate = self.mic.as_ref().map(|mic| mic.capture != source).unwrap_or(true);
+        // Before the buses and strips: they take their link slots from it.
+        self.pc_link.set_enabled(self.config.pc_link);
         if recreate {
             self.mic = None;
-            match make_strip(&self.context, &self.core, &self.fx, "mic", "Mic", Kind::Mic, Some(&source)) {
+            match make_strip(&self.context, &self.core, &self.fx, &self.pc_link, "mic", "Mic", Kind::Mic, Some(&source)) {
                 Ok(strip) => self.mic = Some(strip),
                 Err(err) => eprintln!("frame-audio-mixer: mic: {err}"),
             }
@@ -1059,14 +1165,15 @@ impl Engine {
         let wanted: HashSet<_> = self.config.channels.iter().map(|channel| channel.id.clone()).collect();
         self.strips.retain(|id, _| wanted.contains(id));
         for channel in &self.config.channels {
-            let renamed = self.strips.get(&channel.id).is_some_and(|strip| strip.label != channel.name);
-            if renamed {
+            let kind = channel.pc_index().map_or(Kind::Channel, Kind::PcInput);
+            let changed = self.strips.get(&channel.id).is_some_and(|strip| strip.label != channel.name || strip.kind != kind);
+            if changed {
                 self.strips.remove(&channel.id);
             }
             if self.strips.contains_key(&channel.id) {
                 continue;
             }
-            match make_strip(&self.context, &self.core, &self.fx, &channel.id, &channel.name, Kind::Channel, None) {
+            match make_strip(&self.context, &self.core, &self.fx, &self.pc_link, &channel.id, &channel.name, kind, None) {
                 Ok(strip) => {
                     self.strips.insert(channel.id.clone(), strip);
                 }
@@ -1074,7 +1181,7 @@ impl Engine {
             }
         }
         if self.bus_pc.is_none() {
-            match make_send_bus(&self.context, &self.core, "frame_amix_pc", "frame_amix_source", "Frame Mix", bus_key("pc"), &self.share) {
+            match make_send_bus(&self.context, &self.core, "frame_amix_pc", "frame_amix_source", "Frame Mix", bus_key("pc"), &self.share, None) {
                 Ok(bus) => self.bus_pc = Some(bus),
                 Err(err) => eprintln!("frame-audio-mixer: pc bus: {err}"),
             }
@@ -1095,7 +1202,8 @@ impl Engine {
             let custom = self.config.b.get(index).map(|bus| bus.name.clone()).unwrap_or_default();
             let label = if custom.is_empty() { format!("B{}", index + 1) } else { custom };
             let name = format!("frame_amix_b{}", index + 1);
-            match make_send_bus(&self.context, &self.core, &name, &name, &label, bus_key(&format!("b:{index}")), &self.share) {
+            let tap = self.pc_link.tap(index);
+            match make_send_bus(&self.context, &self.core, &name, &name, &label, bus_key(&format!("b:{index}")), &self.share, tap) {
                 Ok(bus) => self.buses_b.push(bus),
                 Err(err) => {
                     eprintln!("frame-audio-mixer: {name}: {err}");
@@ -1151,6 +1259,9 @@ impl Engine {
             }
         }
         self.fx_used = used;
+        let pc_inputs = config.channels.iter().filter_map(config::Channel::pc_index).fold(0, |mask, index| mask | (1 << index));
+        let b_names = config.b.iter().enumerate().map(|(index, bus)| if bus.name.is_empty() { format!("B{}", index + 1) } else { bus.name.clone() });
+        self.pc_link.sync(pc_inputs, b_names.collect());
         let pc_name = self.bus_pc.as_ref().map(|bus| bus.sink_name.clone());
         if let Some(name) = pc_name {
             self.set_named_volume(&name, config.pc.gain_db, config.pc.muted);
@@ -1218,6 +1329,15 @@ impl Engine {
         }
         for bus in self.bus_pc.iter().chain(self.buses_a.iter()).chain(self.buses_b.iter()) {
             routes.push(Wanted { output_node: bus.emit_name.clone(), input_node: bus.meter_name.clone() });
+        }
+        // A virtual microphone goes to the PC while the PC takes it and
+        // something is routed into it. An empty bus stays asleep.
+        self.link_taken = self.pc_link.taken();
+        for (index, bus) in self.buses_b.iter().enumerate() {
+            let fed = config::route_on(self.config.mic_routes, false, index) || self.config.channels.iter().any(|channel| config::route_on(channel.routes, false, index));
+            if fed && frame_link_core::mask_has(self.link_taken, index) && !bus.link_name.is_empty() {
+                routes.push(Wanted { output_node: bus.emit_name.clone(), input_node: bus.link_name.clone() });
+            }
         }
         if self.check.phase == "recording" {
             if let Some(bus) = self.check_bus(&self.check.output) {
@@ -1391,23 +1511,42 @@ fn mic_target(config: &Config, default_source: &str) -> String {
     }
 }
 
-fn make_strip(context: &ContextRc, core: &CoreRc, fx: &[FxBus; FX_BUSES], id: &str, label: &str, kind: Kind, capture_target: Option<&str>) -> Result<Strip, String> {
+fn make_strip(
+    context: &ContextRc,
+    core: &CoreRc,
+    fx: &[FxBus; FX_BUSES],
+    pc_link: &PcLink,
+    id: &str,
+    label: &str,
+    kind: Kind,
+    capture_target: Option<&str>,
+) -> Result<Strip, String> {
     let base = format!("frame_amix_{id}");
-    let module = match kind {
-        Kind::Mic => load_loopback(context, &mic_loopback_args(&base, capture_target.unwrap_or(Graph::BUILTIN_SOURCE)))?,
-        Kind::Channel => load_loopback(context, &channel_loopback_args(&base, label))?,
-    };
+    let mut modules = Vec::new();
+    let mut pc_source = None;
+    match kind {
+        Kind::Mic => modules.push(load_loopback(context, &mic_loopback_args(&base, capture_target.unwrap_or(Graph::BUILTIN_SOURCE)))?),
+        Kind::Channel => modules.push(load_loopback(context, &channel_loopback_args(&base, label))?),
+        Kind::PcInput(index) => {
+            let source = pc_link.source(index).ok_or("no such PC input")?;
+            // Not passive: a routed PC channel keeps its outputs awake, like an app playing.
+            let ports = Ports { input: false, output: true, passive: false };
+            pc_source = Some(Filter::new(core, &format!("{base}_virtual_sink_out"), ports, PcSourceDsp { source })?);
+        }
+    }
     let controls = Controls::new();
     let dsp = strip_dsp(fx, &controls);
     // Not passive, so a routed strip wakes the output it feeds.
     let filter = Filter::new(core, &format!("{base}_virtual_sink_dsp"), Ports { input: true, output: true, passive: false }, dsp)?;
     Ok(Strip {
-        _modules: vec![module],
+        _modules: modules,
+        _pc_source: pc_source,
         _filter: filter,
         controls,
         base,
         label: label.to_string(),
         capture: capture_target.unwrap_or("").to_string(),
+        kind,
     })
 }
 
@@ -1429,6 +1568,8 @@ fn make_listen_bus(context: &ContextRc, core: &CoreRc, name: &str, key: u32, sha
         _module: module,
         _source: None,
         _meter: None,
+        _link: None,
+        link_name: String::new(),
         sink_name: format!("{name}_virtual_sink"),
         emit_name: play_name.clone(),
         play_name,
@@ -1438,20 +1579,43 @@ fn make_listen_bus(context: &ContextRc, core: &CoreRc, name: &str, key: u32, sha
     }))
 }
 
-fn make_send_bus(context: &ContextRc, core: &CoreRc, name: &str, source_name: &str, label: &str, key: u32, share: &Arc<CheckShare>) -> Result<Bus, String> {
+fn make_send_bus(
+    context: &ContextRc,
+    core: &CoreRc,
+    name: &str,
+    source_name: &str,
+    label: &str,
+    key: u32,
+    share: &Arc<CheckShare>,
+    link_tap: Option<TapSlot>,
+) -> Result<Bus, String> {
     let module = load_loopback(context, &send_bus_args(name))?;
     let source = load_loopback(context, &source_args(name, source_name, label))?;
-    Ok(with_meter(core, name, share, Bus {
+    let mut bus = with_meter(core, name, share, Bus {
         _module: module,
         _source: Some(source),
         _meter: None,
+        _link: None,
+        link_name: String::new(),
         sink_name: format!("{name}_virtual_sink"),
         play_name: format!("{name}_virtual_sink_discard"),
         emit_name: source_name.to_string(),
         meter_name: String::new(),
         peak: Peaks::new(),
         key,
-    }))
+    });
+    if let Some(tap) = link_tap {
+        let link_name = format!("{name}_virtual_sink_link");
+        // A bus without its tap still works as a microphone on the headset.
+        match Filter::new(core, &link_name, Ports { input: true, output: false, passive: false }, LinkTapDsp { tap }) {
+            Ok(filter) => {
+                bus._link = Some(filter);
+                bus.link_name = link_name;
+            }
+            Err(err) => eprintln!("frame-audio-mixer: {name}: PC link tap: {err}"),
+        }
+    }
+    Ok(bus)
 }
 
 /// A passive tap on what the output emits, for its level meter and the Mix Check
@@ -1655,6 +1819,20 @@ impl Drop for LoadedModule {
     }
 }
 
+/// The program a process runs: the file name of its executable.
+fn program_of(pid: u32) -> Option<String> {
+    let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+    program_name(&exe)
+}
+
+fn program_name(exe: &std::path::Path) -> Option<String> {
+    // The kernel marks a replaced executable (an update while it runs).
+    let name = exe.file_name()?.to_str()?.trim_end_matches(" (deleted)");
+    // The PulseAudio server connects for its clients. It is not the program that plays.
+    let stands_in = name == "pipewire-pulse" || name == "pipewire";
+    (!name.is_empty() && !stands_in).then(|| name.to_string())
+}
+
 fn read_node(id: u32, props: &libspa::utils::dict::DictRef) -> Option<AudioNode> {
     let name = props.get("node.name")?.to_string();
     Some(AudioNode {
@@ -1729,6 +1907,14 @@ pub fn self_test() -> Result<(), String> {
     }
     if bus_key("") != 0 || bus_key("x:1") != 0 || bus_key("a:x") != 0 {
         return Err("bus key rejects".into());
+    }
+    let program = |exe: &str| program_name(std::path::Path::new(exe));
+    if program("/opt/steamvr/bin/vrwebhelper/linuxarm64/vrwebhelper").as_deref() != Some("vrwebhelper")
+        || program("/app/chromium/chrome (deleted)").as_deref() != Some("chrome")
+        || program("/usr/bin/pipewire-pulse").is_some()
+        || program("/").is_some()
+    {
+        return Err("program of a client process".into());
     }
     release_self_test()?;
     insert_self_test()?;

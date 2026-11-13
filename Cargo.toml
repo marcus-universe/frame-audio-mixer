@@ -1,6 +1,6 @@
 [package]
 name = "frame-audio-mixer"
-version = "2.1.0"
+version = "2.2.0"
 edition = "2021"
 license = "MIT"
 description = "Mix app audio with the Steam Frame microphone for the PC wireless stream"
@@ -20,6 +20,7 @@ flate2 = "1"
 tar = "0.4"
 pipewire = { version = "0.10", features = ["v0_3_49"] }
 libspa = "0.10"
+frame-link-core = { path = "link/core" }
 
 [profile.release]
 lto = "thin"
@@ -37,6 +38,11 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.pipewire-sys]
+opt-level = 3
+
+# The PC link's codec is a transpiled C library. Unoptimized, one frame costs
+# more than the 10 ms it covers.
+[profile.dev.package.unsafe-libopus]
 opt-level = 3
 
 [lints.clippy]

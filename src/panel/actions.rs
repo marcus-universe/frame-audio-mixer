@@ -80,6 +80,10 @@ impl Panel {
                 Action::Save
             }
             Hit::VstSettings => self.open(Overlay::Vst),
+            Hit::PcLink(on) => {
+                self.config.pc_link = on;
+                Action::Save
+            }
 
             // Mixer card.
             Hit::Snap(on) => {
@@ -153,6 +157,7 @@ impl Panel {
             Hit::CustomName => self.begin_name(NameEdit::Add, String::new()),
             Hit::UseApp(app) => self.add_app_channel(&app),
             Hit::Suggest(name) => self.add_channel(name.to_string(), None),
+            Hit::AddPcInput(index) => self.add_pc_channel(index),
 
             // Name dialog.
             Hit::NameField => self.show_keyboard(),
@@ -443,6 +448,32 @@ impl Panel {
             }
         }
         action
+    }
+
+    /// A channel that plays PC output `index`, sent by Frame Audio Link on the
+    /// PC. Each PC output has at most one channel.
+    fn add_pc_channel(&mut self, index: usize) -> Action {
+        self.pin_app = None;
+        self.overlay = Overlay::None;
+        if index >= config::PC_INPUTS || config::pc_input_used(&self.config.channels, index) {
+            return Action::None;
+        }
+        let Some(id) = config::next_channel_id(&self.config.channels) else {
+            self.notice = i18n::text(self.lang).name_rejected.to_string();
+            return Action::None;
+        };
+        // "PC1", or "PC1 2" when a channel was already given that name by hand.
+        let base = config::pc_input_name(index);
+        let name = (1..)
+            .map(|n| if n == 1 { base.clone() } else { format!("{base} {n}") })
+            .find(|name| !config::name_taken(&self.config.channels, name, None))
+            .unwrap_or(base);
+        let mut channel = config::Channel::new(id, name);
+        channel.pc_input = (index + 1) as u8;
+        self.config.channels.push(channel);
+        self.channels_changed();
+        self.scroll = f64::MAX;
+        Action::Save
     }
 
     fn binary_of(&self, app: &str) -> String {

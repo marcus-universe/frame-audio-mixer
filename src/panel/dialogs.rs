@@ -61,10 +61,27 @@ fn running_apps(panel: &mut Panel, ui: &mut Ui, snap: &Snapshot, sheet: Rect) {
     let row_w = w / 2.0 - 64.0;
     let apps = snap.graph.picker_apps();
     panel.app_binaries = apps.iter().map(|app| (app.name.clone(), app.binary.clone())).collect();
-    let content = apps.len() as f64 * ROW_STEP;
+    // The PC outputs that have no channel yet come first, while the link is on.
+    let pc_inputs: Vec<usize> = (0..crate::config::PC_INPUTS)
+        .filter(|index| panel.config.pc_link && !crate::config::pc_input_used(&panel.config.channels, *index))
+        .collect();
+    let content = (pc_inputs.len() + apps.len()) as f64 * ROW_STEP;
     panel.dialog_scroll = panel.dialog_scroll.clamp(0.0, (content - list_h).max(0.0));
     ui.clip(Rect::new(mid + 16.0, list_top, w / 2.0 - 40.0, list_h));
     let mut ry = list_top - panel.dialog_scroll;
+    for index in pc_inputs {
+        if ry + ROW_H >= list_top && ry <= list_top + list_h {
+            let row = Rect::new(mid + ROW_PAD, ry, row_w, ROW_H);
+            row_fill(ui, row);
+            super::mix::pc_input_mark(panel, ui, index, mid + 36.0, ry + 10.0, 32.0);
+            let name = crate::config::pc_input_name(index);
+            let name_w = ui.text_width(BODY, &name);
+            ui.label(BODY, TEXT, mid + 80.0, ry + 31.0, &name);
+            ui.label_fit(NOTE, MUTED, mid + 92.0 + name_w, ry + 31.0, row_w - 108.0 - name_w, t.pc_input_hint);
+            ui.hot(Hit::AddPcInput(index), row);
+        }
+        ry += ROW_STEP;
+    }
     for app in &apps {
         if ry + ROW_H < list_top || ry > list_top + list_h {
             ry += ROW_STEP;
@@ -145,7 +162,7 @@ fn mic_rows(t: &Text, snap: &Snapshot) -> Vec<MicRow> {
 /// Accent color, meters, and the way to the VST plugins.
 pub(crate) fn settings(panel: &mut Panel, ui: &mut Ui) {
     let t = ui.t;
-    let sheet = panel.dialog_rect(640.0, if panel.color_open { 408.0 } else { 300.0 }, 24.0);
+    let sheet = panel.dialog_rect(640.0, if panel.color_open { 472.0 } else { 364.0 }, 24.0);
     ui.dialog(panel.window(), sheet);
     let Rect { x, y, w, .. } = sheet;
     ui.label_mid(HEADING, TEXT, x + PAD, y + 44.0, t.settings);
@@ -165,7 +182,21 @@ pub(crate) fn settings(panel: &mut Panel, ui: &mut Ui) {
     let meters = Rect::new(control_x, meters_y, SETTING_W, BUTTON_H);
     ui.pill_toggle(meters, panel.config.meters, (t.on, t.off), (Hit::Meters(true), Hit::Meters(false)));
 
-    let vst_y = meters_y + 64.0;
+    // The PC link: its switch, and under its name who is at the other end.
+    let link_y = meters_y + 64.0;
+    ui.label_mid(BODY, TEXT, x + PAD, link_y + 15.0, t.pc_link);
+    let status = if !panel.config.pc_link {
+        String::new()
+    } else if panel.link.connected() {
+        super::fmt_token(t.pc_link_on, "name", &panel.link.peer)
+    } else {
+        t.pc_link_wait.to_string()
+    };
+    ui.label_fit(NOTE, MUTED, x + PAD, link_y + 40.0, control_x - x - PAD - 16.0, &status);
+    let link = Rect::new(control_x, link_y, SETTING_W, BUTTON_H);
+    ui.pill_toggle(link, panel.config.pc_link, (t.on, t.off), (Hit::PcLink(true), Hit::PcLink(false)));
+
+    let vst_y = link_y + 64.0;
     ui.label_mid(BODY, TEXT, x + PAD, vst_y + 24.0, t.vst_plugins);
     ui.button_hot(Rect::new(control_x, vst_y, SETTING_W, BUTTON_H), t.vst_manage, ButtonKind::Plain, Hit::VstSettings);
 

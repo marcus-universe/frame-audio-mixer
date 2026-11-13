@@ -181,14 +181,14 @@ fn channel_strip(panel: &mut Panel, ui: &mut Ui, cols: &Columns, index: usize, c
         ui.hot(Hit::RemoveChannel(index), confirm);
     } else {
         // Icon and name are centered as one group and stay clear of the ×.
-        let with_icon = !channel.app.is_empty();
+        let with_icon = !channel.app.is_empty() || channel.pc_index().is_some();
         let icon_room = if with_icon { ICON_S + 6.0 } else { 0.0 };
         let name_room = strip_w - 52.0 - icon_room;
         let name_w = ui.text_width(CHANNEL_NAME, &channel.name).min(name_room);
         let group = icon_room + name_w;
         let title_x = (x + (strip_w - group) / 2.0).min(x + strip_w - 38.0 - group);
         if with_icon {
-            super::art::desktop_icon(panel, ui, &channel.app, &channel.binary, title_x, top + STRIP_TITLE_Y - 15.0, ICON_S);
+            channel_icon(panel, ui, channel, title_x, top + STRIP_TITLE_Y - 15.0);
         }
         ui.label_fit(CHANNEL_NAME, draw::accent(), title_x + icon_room, top + STRIP_TITLE_Y, name_room, &channel.name);
         ui.hot(Hit::RenameChannel(index), Rect::new(x + 8.0, top + 8.0, strip_w - 48.0, 32.0));
@@ -275,10 +275,10 @@ fn channel_row(panel: &mut Panel, ui: &mut Ui, index: usize, channel: &Channel, 
         ui.label_fit(CONFIRM, draw::DANGER_TEXT, x + ROW_PAD, y + 25.0, w - 80.0, t.delete_confirm);
         ui.hot(Hit::RemoveChannel(index), confirm);
     } else {
-        let with_icon = !channel.app.is_empty();
+        let with_icon = !channel.app.is_empty() || channel.pc_index().is_some();
         let icon_room = if with_icon { ICON_S + 8.0 } else { 0.0 };
         if with_icon {
-            super::art::desktop_icon(panel, ui, &channel.app, &channel.binary, x + ROW_PAD, y + TITLE_Y - 15.0, ICON_S);
+            channel_icon(panel, ui, channel, x + ROW_PAD, y + TITLE_Y - 15.0);
         }
         ui.label_fit(CHANNEL_NAME, draw::accent(), x + ROW_PAD + icon_room, y + TITLE_Y, 180.0, &channel.name);
         ui.hot(Hit::RenameChannel(index), Rect::new(x + 8.0, y + 4.0, 220.0, 30.0));
@@ -288,6 +288,25 @@ fn channel_row(panel: &mut Panel, ui: &mut Ui, index: usize, channel: &Channel, 
     ui.hot(Hit::RemoveChannel(index), remove);
     let fader = Fader { db: channel.gain_db, levels, meters: panel.config.meters, muted: channel.muted, glyph: FaderGlyph::Speaker, snaps: true };
     row_controls(ui, row, Source::Channel(index), &fader, Routes::of(channel), a_slots);
+}
+
+/// The icon in front of a channel's name: the PC glyph for a channel that plays
+/// a PC output, otherwise the icon of the app the channel was made from.
+fn channel_icon(panel: &mut Panel, ui: &Ui, channel: &Channel, x: f64, y: f64) {
+    match channel.pc_index() {
+        Some(index) => pc_input_mark(panel, ui, index, x, y, ICON_S),
+        None => super::art::desktop_icon(panel, ui, &channel.app, &channel.binary, x, y, ICON_S),
+    }
+}
+
+/// The PC glyph for PC output `index`: plain while the PC sends it, struck
+/// through while it is switched off there or no PC is linked.
+pub(crate) fn pc_input_mark(panel: &Panel, ui: &Ui, index: usize, x: f64, y: f64, size: f64) {
+    if panel.pc_sends_input(index) {
+        draw::pc_icon(ui.cr, x, y, size, draw::accent());
+    } else {
+        draw::pc_icon_off(ui.cr, x, y, size, MUTED);
+    }
 }
 
 /// The sideways fader of a list row, then Mute and the route buttons under it.

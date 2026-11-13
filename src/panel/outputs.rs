@@ -364,6 +364,21 @@ fn container(ui: &Ui, rect: Rect, pc: bool) {
     }
 }
 
+/// Size of the PC glyph on a virtual microphone the PC link carries.
+const LINK_MARK: f64 = 18.0;
+
+/// The PC glyph on virtual microphone B`index` + 1 while a PC is linked: plain
+/// when the PC takes this microphone, struck through when it is switched off
+/// there. Returns false, and draws nothing, while no PC is linked.
+fn link_mark(panel: &Panel, ui: &Ui, index: usize, x: f64, y: f64) -> bool {
+    match panel.pc_takes_bus(index) {
+        Some(true) => draw::pc_icon(ui.cr, x, y, LINK_MARK, draw::accent()),
+        Some(false) => draw::pc_icon_off(ui.cr, x, y, LINK_MARK, MUTED),
+        None => return false,
+    }
+    true
+}
+
 /// Left and right peaks of an output, as the engine publishes them.
 fn bus_levels(peaks: &HashMap<String, f32>, bus: BusId) -> [f32; 2] {
     let id = bus.value();
@@ -394,6 +409,7 @@ fn output_column(panel: &mut Panel, ui: &mut Ui, peaks: &HashMap<String, f32>, i
     ui.label_fit(name_font, TEXT, cx - tw / 2.0, y + 42.0, room, &label);
     if let BusId::B(index) = id {
         ui.hot(Hit::BusRename(index), Rect::new(x + 8.0, y + 28.0, w - 16.0, 20.0));
+        link_mark(panel, ui, index, x + w - LINK_MARK - 8.0, y + 8.0);
     }
     let bus = bus_of(panel, id);
     let cap_h = (h - COL_CAP_TOP - draw::FADER_FOOT).max(48.0);
@@ -421,7 +437,10 @@ fn output_box(panel: &mut Panel, ui: &mut Ui, graph: &Graph, peaks: &HashMap<Str
     let text_x = choice_mark(ui, id, x + BOX_PAD, name_mid, TEXT);
     let label = output_label(panel, t, id);
     let mute = Rect::square(x + w - BOX_PAD - MUTE_S, y + BOX_PAD, MUTE_S);
-    let name_w = mute.x - 8.0 - text_x;
+    // A virtual microphone the PC link carries shows the PC glyph left of Mute.
+    let mark_x = mute.x - 8.0 - LINK_MARK;
+    let marked = matches!(id, BusId::B(index) if link_mark(panel, ui, index, mark_x, name_mid - LINK_MARK / 2.0));
+    let name_w = if marked { mark_x } else { mute.x } - 8.0 - text_x;
     ui.label_fit(Font::weight(!pc, 15.0), TEXT, text_x, name_mid + 5.0, name_w, &label);
     let detail = if pc { t.frame_mix.to_string() } else { output_detail(graph, id) };
     if !detail.is_empty() {

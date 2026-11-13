@@ -142,6 +142,8 @@ pub(crate) enum Hit {
     /// `blue` or `pink`.
     Accent(&'static str),
     VstSettings,
+    /// The link to Frame Audio Link on the PC, on or off.
+    PcLink(bool),
 
     // Mixer card.
     Snap(bool),
@@ -171,6 +173,8 @@ pub(crate) enum Hit {
     /// A running app, by name.
     UseApp(String),
     Suggest(&'static str),
+    /// A channel that plays PC output PC1..PC4, by its index.
+    AddPcInput(usize),
 
     // Name dialog.
     NameField,

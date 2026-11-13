@@ -1,0 +1,60 @@
+[package]
+name = "frame-audio-link"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "SteamVR add-on: four more streaming microphones and four PC outputs for Frame Audio Mixer"
+publish = false
+
+[dependencies]
+frame-link-core = { path = "../core" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libloading = "0.8"
+if-addrs = "0.15"
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd", "png-format"] }
+fontdue = "0.9"
+sys-locale = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+# `windows::core::interface` expands to paths in this crate.
+windows-core = "0.62"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Console",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_System_Registry",
+    "Win32_Media",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# 0.3.49 is the first PipeWire whose stream buffers say how much to fill.
+pipewire = { version = "0.10", features = ["v0_3_49"] }
+libspa = "0.10"
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# The codec is a transpiled C library. Unoptimized, it cannot keep up with real time.
+[profile.dev.package.unsafe-libopus]
+opt-level = 3
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

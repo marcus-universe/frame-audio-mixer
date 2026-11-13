@@ -239,6 +239,39 @@ pub fn render_png(fonts: &Fonts, lang: Lang, path: &std::path::Path) -> Result<(
     panel.config.eq_view = config::EqView::Heat;
     let _ = panel.handle(Hit::OpenMenu(Menu::EqView));
     write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "eq-menu"))?;
+    // A linked PC: it takes B1 and B3, and sends PC1 but not PC2.
+    panel.menu = None;
+    panel.overlay = Overlay::None;
+    panel.fx_edit = None;
+    panel.config.channels.truncate(2);
+    panel.channels_changed();
+    let _ = panel.handle(Hit::AddPcInput(0));
+    let _ = panel.handle(Hit::AddPcInput(1));
+    panel.scroll = 0.0;
+    panel.config.b[0].name = "Discord".into();
+    snap.link.state = frame_link_core::LinkState::Connected;
+    snap.link.peer = "DESKTOP-PC".into();
+    snap.link.remote_recv = 0b0101;
+    snap.link.remote_send = 0b0001;
+    panel.set_drawer(Drawer::Outputs);
+    panel.drawer_progress = 1.0;
+    panel.drawer = Drawer::Outputs;
+    // Scrolled to the end, where the virtual microphones are.
+    panel.out_scroll = f64::MAX;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "link"))?;
+    panel.config.list = true;
+    panel.config.input_list = true;
+    panel.out_scroll = f64::MAX;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "link-rows"))?;
+    panel.config.list = false;
+    panel.config.input_list = false;
+    let _ = panel.handle(Hit::AddChannel);
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "link-add"))?;
+    let _ = panel.handle(Hit::Settings);
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "link-settings"))?;
+    panel.overlay = Overlay::None;
+    panel.page = Page::Flow;
+    write_surface(&mut panel, fonts, &snap, &loud, &suffix(path, "link-flow"))?;
     Ok(())
 }
 
