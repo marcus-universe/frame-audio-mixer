@@ -44,12 +44,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="宽屏，蓝色主题" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="输入横排，粉色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="带 PC1 通道的混音器，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="混音器，粉色主题" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="效果总线，粉色主题" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="仪表板，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="信号流向，蓝色主题" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="在 SteamVR 中放在 Mixxx 下方的混音器" height="320"></td>
   </tr>
 </table>
 

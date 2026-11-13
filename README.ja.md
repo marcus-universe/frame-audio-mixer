@@ -44,12 +44,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="ワイド表示、青のテーマ" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="入力が横並び、ピンクのテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="PC1 チャンネルのあるミキサー、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="ミキサー、ピンクのテーマ" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="エフェクトバス、ピンクのテーマ" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="ダッシュボード、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="信号フロー、青のテーマ" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="SteamVR で Mixxx の下に置いたミキサー" height="320"></td>
   </tr>
 </table>
 

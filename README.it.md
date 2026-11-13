@@ -44,12 +44,12 @@ curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="Vista larga, tema blu" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="Ingressi in righe, tema rosa" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-1.jpg" alt="Mixer con un canale PC1, tema blu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-2.jpg" alt="Mixer, tema rosa" height="320"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="Bus effetti, tema rosa" height="320"></td>
-    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="Dashboard, tema blu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-3.jpg" alt="Flusso del segnale, tema blu" height="320"></td>
+    <td width="50%"><img src="docs/assets/Preview-Frame-Audio-Mixer-4.jpg" alt="Mixer sotto Mixxx in SteamVR" height="320"></td>
   </tr>
 </table>
 
