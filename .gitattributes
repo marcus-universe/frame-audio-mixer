@@ -1,4 +1,6 @@
 i text eol=lf
+get-windows text eol=lf
+get-linux text eol=lf
 *.js text eol=lf
 *.css text eol=lf
 *.html text eol=lf

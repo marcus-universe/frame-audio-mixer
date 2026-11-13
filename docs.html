@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Docs · Frame Audio Mixer</title>
+  <meta name="description" content="How to install and use Frame Audio Mixer on the Steam Frame: channels, outputs, effects, Mix Check, projects, and the PC audio link.">
+  <link rel="icon" href="assets/logo/logo_icon_blue.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@400&family=Noto+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/site.css?v=20261113d">
+  <link rel="stylesheet" href="css/docs.css?v=20261113d">
+</head>
+<body data-page="docs">
+  <a class="skip" href="#doc" data-i18n="skip">Skip to content</a>
+  <header class="wrap top">
+    <a class="brand" href="./">
+      <img data-logo="icon" src="assets/logo/logo_icon_blue.svg" alt="">
+      <span class="brand-name">Frame Audio Mixer</span>
+    </a>
+    <nav class="nav">
+      <a class="quiet nav-docs" href="docs.html" aria-current="page"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M3 2.5h7l3 3v8H3zM10 2.5v3h3M5.5 8.5h5M5.5 11h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nav_docs">Docs</span></a>
+      <a class="quiet nav-dl" href="download.html"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nav_downloads">Downloads</span></a>
+      <a class="icon" href="https://github.com/marcus-universe/frame-audio-mixer" data-i18n-aria="nav_github" aria-label="GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
+      <div class="themes">
+        <button type="button" data-theme-set="blue" aria-pressed="true" data-i18n-aria="theme_blue" aria-label="Blue theme"><span class="swatch"></span></button>
+        <button type="button" data-theme-set="pink" aria-pressed="false" data-i18n-aria="theme_pink" aria-label="Pink theme"><span class="swatch pink"></span></button>
+      </div>
+      <label>
+        <span class="visually-hidden" data-i18n="language">Language</span>
+        <select id="lang"></select>
+      </label>
+    </nav>
+  </header>
+
+  <div class="wrap docs">
+    <aside class="toc" aria-labelledby="toc-title">
+      <button type="button" class="toc-toggle" aria-expanded="false" aria-controls="toc-list">
+        <span class="toc-now" data-toc-now></span>
+        <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="toc-panel" id="toc-list">
+        <p class="toc-title" id="toc-title" data-toc-title>On this page</p>
+        <ol class="wire" data-toc></ol>
+      </div>
+    </aside>
+
+    <main class="doc-main">
+      <p class="lang-note" data-i18n="docs_lang_note" hidden></p>
+      <article id="doc" class="doc" tabindex="-1">
+
+        <header class="doc-hero">
+          <h1>Frame Audio Mixer documentation</h1>
+          <p class="doc-lead">Frame Audio Mixer is a mixing desk in the SteamVR dashboard of the Steam Frame. It mixes your headset microphone with the sound of apps, and sends each mix where you want it: to the PC as the Steam Streaming Microphone, to the speakers or headphones on your head, or to virtual microphones for other apps.</p>
+          <div class="chain" aria-label="How sound travels through the mixer">
+            <div class="stage"><h2 class="stage-name">Sources</h2><ul><li>Headset microphone</li><li>Apps on the Frame</li><li>PC outputs PC1–PC4</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Mixer</h2><ul><li>One strip per source</li><li>Fader, mute, effects</li><li>Route buttons</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Outputs</h2><ul><li>PC streaming mic</li><li>A1–A3 to listen</li><li>B1–B4 virtual mics</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Devices</h2><ul><li>Your PC over the stream</li><li>Speakers, Bluetooth, USB</li><li>Discord, OBS, games</li></ul></div>
+          </div>
+        </header>
+
+        <section>
+          <h2 id="requirements">Before you start</h2>
+          <ul>
+            <li>A Steam Frame with SteamVR, on the SteamOS that ships with it.</li>
+            <li><strong>Developer Mode</strong> on: Steam Settings, then System, then <span class="ui">Enable Developer Mode</span>. Without it, Konsole is not in the list of programs.</li>
+            <li>Internet on the headset for the install.</li>
+            <li>For the PC side: wireless streaming from your PC to the Frame already working.</li>
+          </ul>
+          <p class="aside-note tip">Frame Audio Mixer works after <a href="https://github.com/sasaken1102r/frame-mic-tuner">Frame Mic Tuner</a>, which keeps doing noise suppression and echo cancellation for the microphone. You can use the mixer without it.</p>
+        </section>
+
+        <section>
+          <h2 id="install">Install on the headset</h2>
+          <p>Open Konsole on the Frame: <span class="ui">+</span> on the bar at the bottom, then the list of programs, then <span class="ui">Konsole</span>. Run:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>The script downloads the latest release, checks it against its SHA-256 checksum, and installs it into your home folder. It never uses <code>sudo</code> and never restarts PipeWire, so a running VR session keeps its sound.</p>
+          <h3 id="install-autostart">Start it with SteamVR</h3>
+          <p>To open the panel every time SteamVR starts:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --autostart</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>You can also switch this later in the panel: <span class="ui">Start with SteamVR</span> at the bottom.</p>
+          <h3 id="install-ssh">Install from a PC over SSH</h3>
+          <p>With Developer Mode on, set a password under Developer. Then, from a terminal on your PC (Windows, macOS and Linux all include SSH):</p>
+          <div class="command"><code>ssh steamos@&lt;headset-ip&gt; "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh"</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>The headset's IP address is shown in the developer settings. Anyone on your network who knows the password can log in while SSH is on, so choose a strong one.</p>
+          <h3 id="update">Update</h3>
+          <p>Open <span class="ui">Apps &amp; updates</span> in the panel header and press <span class="ui">Install update</span> when one is offered, or run the install command again. A running mixer keeps the old version until you quit it or restart SteamVR.</p>
+          <h3 id="uninstall">Uninstall</h3>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --uninstall</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>Your settings stay in <code>~/.config/frame-audio-mixer</code>. Add <code>--purge</code> to delete them too.</p>
+        </section>
+
+        <section>
+          <h2 id="first-mix">Your first mix</h2>
+          <ol class="steps">
+            <li><strong>Open the panel.</strong> In the SteamVR dashboard, choose <span class="ui">Frame Audio Mixer</span> on the bar at the bottom.</li>
+            <li><strong>Check the microphone.</strong> The first strip is your microphone. Speak: its meter moves, and its <span class="route">PC</span> button is lit, so the PC already hears you.</li>
+            <li><strong>Add a channel.</strong> Press <span class="ui">+</span> at the end of the strips. Pick a running app on the right, or a name on the left such as <span class="ui">Music</span>.</li>
+            <li><strong>Send an app to it.</strong> An app you picked from the list is moved to its channel by itself. For a named channel, choose the output with that name in the app's sound settings.</li>
+            <li><strong>Route it.</strong> Turn on <span class="route">PC</span> to send the channel to your PC, <span class="route">A1</span> to hear it in the headset, or <span class="route">B1</span> for a virtual microphone. Set the level with the fader.</li>
+          </ol>
+          <figure class="shot">
+            <img src="assets/preview/Preview-Frame-Audio-Mixer-1.webp" srcset="assets/preview/Preview-Frame-Audio-Mixer-1-960.webp 960w, assets/preview/Preview-Frame-Audio-Mixer-1.webp 1920w" sizes="(max-width: 860px) 100vw, 800px" width="1920" height="1080" loading="lazy" decoding="async" alt="Frame Audio Mixer in the headset: inputs on the left (the Frame microphone, Music and Chromium), each with a fader and route buttons, and the outputs on the right with Record, Play and the output faders.">
+            <figcaption>The panel in the headset. Inputs on the left, outputs on the right.</figcaption>
+          </figure>
+        </section>
+
+        <section>
+          <h2 id="panel">The panel at a glance</h2>
+          <dl class="parts">
+            <dt>Header</dt>
+            <dd>The widescreen button opens a 21:9 layout. The folder opens <a href="#projects">Projects</a>. <span class="ui">Signal flow</span> shows the <a href="#signal-flow">live routing map</a>, and <span class="ui">Apps &amp; updates</span> has updates and other Steam Frame apps.</dd>
+            <dt>Inputs</dt>
+            <dd>The microphone strip, then one strip per channel. The magnet makes faders snap to 20, 50, 80 and 100 %. The layout button switches between upright faders and rows.</dd>
+            <dt>Drawer</dt>
+            <dd>The right side shows <a href="#outputs">Outputs</a>, <a href="#effects">FX1 or FX2</a>. Pick which one with the rail on the far right. Drag the line between the two halves to give either more room.</dd>
+            <dt>Footer</dt>
+            <dd>Language, the <a href="#settings">settings</a> gear, <span class="ui">Start with SteamVR</span>, and <span class="ui">Quit</span>. Quit needs a second press within three seconds.</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2 id="inputs">Inputs and channels</h2>
+          <h3 id="microphone">The microphone strip</h3>
+          <p>The picker at the top of the strip chooses what the mixer records:</p>
+          <ul>
+            <li><span class="ui">System default</span> follows the system's default microphone. A Bluetooth headset microphone is skipped here, because using it would switch the headset to its low-quality call mode.</li>
+            <li><span class="ui">Frame built-in mic</span> is the Frame microphone after Valve's noise suppression, echo cancellation and EQ, the ones Frame Mic Tuner controls.</li>
+            <li>Any other microphone that is connected, such as a USB mic.</li>
+          </ul>
+          <p>The microphone fader adds 12 dB of gain at 0 dB, because a voice sits well below app audio. By default the microphone goes to the PC only, so the speakers never play your own voice back.</p>
+          <h3 id="channels">Channels</h3>
+          <p>A channel is a named output that apps on the Frame can play to, with its own strip in the mixer. You can have up to 32. Press <span class="ui">+</span> to add one:</p>
+          <ul>
+            <li><strong>Suggestions</strong> on the left: Soundboard, Music, Video, Browser, Game, or <span class="ui">Custom name</span>.</li>
+            <li><strong>Running</strong> on the right: an app that is playing or connected right now. The channel takes the app's name and icon, and the app is pinned to it, so it lands there every time it plays.</li>
+            <li><strong>PC1 to PC4</strong>: outputs of your PC, sent by the <a href="#pc-link">PC audio link</a>.</li>
+          </ul>
+          <figure class="shot narrow">
+            <img src="assets/docs/add-channel.webp" width="1200" height="788" loading="lazy" decoding="async" alt="The add-channel dialog with suggestions on the left and PC3, PC4 and running apps on the right.">
+            <figcaption>Adding a channel. PC outputs that have no channel yet come first under Running.</figcaption>
+          </figure>
+          <p>Tap a channel's name to rename it with the dashboard keyboard. The <span class="ui">×</span> removes it on the second press. Names are one line of up to 32 characters, and two channels cannot share one.</p>
+          <h3 id="strip">One strip, top to bottom</h3>
+          <dl class="parts">
+            <dt>Fader</dt><dd>From silence to +12 dB, with a detent at 0 dB. The meter beside it shows left and right peaks from +6 down to −48.</dd>
+            <dt>Route buttons</dt><dd><span class="route">PC</span> the PC streaming microphone, <span class="route">A1</span>–<span class="route">A3</span> what you hear, <span class="route">B1</span>–<span class="route">B4</span> virtual microphones, and <span class="route">FX1</span> <span class="route">FX2</span> the effect buses. A lit button is on.</dd>
+            <dt>Mute</dt><dd>Silences the strip on every output it is routed to.</dd>
+          </dl>
+          <p class="aside-note tip">An app that lands on the wrong channel is moved back to its own, or off the mixer to the normal output. Pins use the app's program name as well as its display name, so Electron apps that all call themselves “Chromium” stay apart.</p>
+        </section>
+
+        <section>
+          <h2 id="outputs">Outputs</h2>
+          <p>Every output has a master fader and an <span class="ui">M</span> mute button in the Outputs drawer.</p>
+          <dl class="parts">
+            <dt>PC streaming mic</dt><dd>Always there. It is what your PC records as <strong>Steam Streaming Microphone</strong> while you stream. In PipeWire it is the source <code>frame_amix_source</code>, “Frame Mix”.</dd>
+            <dt>A1 Frame speakers</dt><dd>What you hear in the headset.</dd>
+            <dt>A2 Bluetooth, A3 USB</dt><dd>Shown while such a device is connected. Each can get its own mix, for example music on Bluetooth headphones only.</dd>
+            <dt>B1–B4</dt><dd>Virtual microphones. Apps on the Frame can record them, and with the <a href="#pc-link">PC audio link</a> they also arrive on the PC. Tap the name to give one a name, such as “Discord”.</dd>
+          </dl>
+          <p class="aside-note warn">If you listen on the Frame speakers, turn on echo cancellation in Frame Mic Tuner. Otherwise the microphone hears the speakers, and the PC gets the app audio twice: once from the mix and once through the air. The drawer warns you about this.</p>
+        </section>
+
+        <section>
+          <h2 id="effects">Effects</h2>
+          <p>FX1 and FX2 are two effect chains. Each holds up to three effects, in order. Turn <span class="route">FX1</span> or <span class="route">FX2</span> on in a strip, and that strip runs the chain: the result replaces its sound on all of its outputs. If both are on, FX1 comes first. Each bus has one level fader after its chain.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th scope="col">Effect</th><th scope="col">What it does</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Reverb</th><td>Room and hall. Size, damping and mix.</td></tr>
+                <tr><th scope="row">Compressor</th><td>Evens out loud and quiet parts of a voice or a track.</td></tr>
+                <tr><th scope="row">EQ</th><td>Parametric with 3, 6, 8 or 12 points and a live spectrum behind the curve.</td></tr>
+                <tr><th scope="row">Pitcher</th><td>Pitch and formants, each ±12 semitones, plus a brightness tilt. Presets turn one voice into another.</td></tr>
+                <tr><th scope="row">Flanger, Phaser</th><td>Sweeping modulation effects.</td></tr>
+                <tr><th scope="row">Delay</th><td>Echoes with time, feedback and mix.</td></tr>
+                <tr><th scope="row">VST3</th><td>A plugin you installed. See below.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 id="eq">The parametric EQ</h3>
+          <p>Press <span class="ui">Edit</span> on an EQ to open its sheet. Drag a point on the curve, or pick a band and use its sliders for frequency, gain and Q. The lowest point can be a bell, a shelf or a high-pass; the highest a bell, a shelf or a low-pass. The spectrum behind the curve can be shown as a line, an area, bars or a heat map, or switched off.</p>
+          <h3 id="pitcher">The pitcher</h3>
+          <p>With the formants kept, a shifted voice sounds like another speaker. With the formants following the pitch, you get the classic chipmunk. Presets include male to female, male to girl, female to male and girl to male. Pitch snaps to whole semitones unless you turn that off.</p>
+          <h3 id="vst">VST3 plugins</h3>
+          <p>Put plugins in <code>~/.vst3</code> on the headset, or choose another folder in Settings, then press <span class="ui">Scan</span>. Each plugin runs in its own process, so a crashing plugin cannot take the mix down.</p>
+          <ul>
+            <li>Windows x64 plugins run through Proton on the Frame's ARM processor.</li>
+            <li>Linux plugins built for ARM64 run directly. Linux x64 plugins cannot run.</li>
+            <li>A plugin processes the first strip that uses its bus and is bypassed on the others.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="mix-check">Mix Check</h2>
+          <p>Mix Check records what one output sends, so you can hear what your PC or your friends hear.</p>
+          <ol class="steps">
+            <li>At the top of the Outputs drawer, pick the output to record next to <span class="ui">Record</span>.</li>
+            <li>Press <span class="ui">Record</span> and talk or play something. A take is up to 10 seconds long.</li>
+            <li>Pick where to listen next to <span class="ui">Play</span>, then press <span class="ui">Play</span>. <span class="ui">Pause</span> stops it where it is.</li>
+          </ol>
+          <p>While a take plays on the headset, your microphone is held out of the mix, so the playback cannot feed back. A new recording replaces the old one.</p>
+        </section>
+
+        <section>
+          <h2 id="signal-flow">Signal flow</h2>
+          <p><span class="ui">Signal flow</span> in the header draws the whole mix as a map: sources, mixer strips, outputs, and the devices they reach. Every route is checked against the real connections in PipeWire.</p>
+          <figure class="shot">
+            <img src="assets/docs/signal-flow.webp" width="1200" height="788" loading="lazy" decoding="async" alt="The signal flow map with four columns: sources, mixer, outputs and devices, connected by lines.">
+            <figcaption>A solid line is connected. A dashed red line is a route whose connection is missing.</figcaption>
+          </figure>
+          <ul>
+            <li>A line glows while sound passes through it.</li>
+            <li>Drag to move the map, use <span class="ui">+</span> <span class="ui">−</span> to zoom, and <span class="ui">Fit</span> to see everything.</li>
+            <li>Select a box to see the PipeWire node behind it.</li>
+            <li><span class="ui">Other apps</span> also shows apps that are on no channel, with the device they play on.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="projects">Projects</h2>
+          <p>A project is a saved setup: channels, pins, routes, effects and levels. Use projects to switch between, say, a streaming setup and a gaming setup.</p>
+          <ul>
+            <li>Press the folder in the header, then <span class="ui">Save</span>, and name the project.</li>
+            <li>Press a project to load it. Your language, color and layout stay as they are.</li>
+            <li>The <span class="ui">×</span> deletes a project on the second press.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="settings">Settings and view</h2>
+          <div class="split">
+            <ul>
+              <li><strong>Color</strong>: blue or pink, for the panel and its dashboard icon.</li>
+              <li><strong>Level meters</strong>: off saves a little processing.</li>
+              <li><strong>PC audio link</strong>: on or off, with the linked PC's name under it.</li>
+              <li><strong>VST plugins</strong>: the plugin folder and the scan.</li>
+              <li><strong>Language</strong>: English, Japanese, Chinese, German, French, Spanish and Italian, in the footer.</li>
+              <li><strong>Wide view</strong> and the two <strong>layout</strong> buttons, in the header and above each section.</li>
+            </ul>
+            <figure class="shot small">
+              <img src="assets/docs/settings.webp" width="664" height="388" loading="lazy" decoding="async" alt="App settings with Color, Level meters, PC audio link and VST plugins.">
+            </figure>
+          </div>
+        </section>
+
+        <section>
+          <h2 id="pc-link">PC audio link</h2>
+          <p><strong>Frame Audio Link</strong> is a SteamVR add-on for the PC you stream from. With it, your PC gets eight more sound devices next to Steam's own:</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th scope="col">On the PC</th><th scope="col">What it carries</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Steam Streaming Mic B1–B4</th><td>Microphones with the mixer's B1–B4. Pick them in Discord, OBS or a game.</td></tr>
+                <tr><th scope="row">Steam Streaming Out PC1–PC4</th><td>Outputs. What plays on them can be added in the mixer as channels PC1–PC4.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 id="pc-link-windows">Install on Windows</h3>
+          <ol class="steps">
+            <li>Download <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-link-windows-x86_64.zip"><code>frame-audio-link-windows-x86_64.zip</code></a> and unpack it.</li>
+            <li>Double-click <strong>install.cmd</strong>. Windows asks once for administrator permission: that step creates the eight devices.</li>
+            <li>Start SteamVR. The add-on starts with it.</li>
+          </ol>
+          <p>Or in PowerShell:</p>
+          <div class="command"><code>irm https://frame-audio-mixer.marcus-universe.com/get-windows | iex</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>The devices are more instances of the two audio drivers Steam already installed; no new driver is added. Steam installs those drivers the first time Remote Play or wireless VR streaming is used.</p>
+          <h3 id="pc-link-linux">Install on Linux</h3>
+          <p>Ubuntu 22.10 or newer, Fedora and Arch, with PipeWire as the sound server. <code>pactl info | grep "Server Name"</code> should say “PulseAudio (on PipeWire …)”. Install as your normal user:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/get-linux | sh</code><button type="button" data-doc-copy>Copy</button></div>
+          <p>On Linux the eight devices exist while the add-on runs, which is while SteamVR runs. Nothing is installed into the sound system.</p>
+          <h3 id="pc-link-use">Use it</h3>
+          <ul>
+            <li>Make sure the add-on is on: SteamVR Settings, <span class="ui">Startup / Shutdown</span>, <span class="ui">Choose Startup Overlay Apps</span>, <span class="ui">Frame Audio Link</span>.</li>
+            <li><strong>Headset to PC</strong>: route a strip to <span class="route">B1</span>–<span class="route">B4</span>, then pick “Steam Streaming Mic B1” on the PC.</li>
+            <li><strong>PC to headset</strong>: let an app play on “Steam Streaming Out PC1”, then press <span class="ui">+</span> in the mixer and pick <span class="ui">PC1</span>.</li>
+          </ul>
+          <figure class="shot">
+            <img src="assets/docs/audio-link.webp" width="1200" height="760" loading="lazy" decoding="async" alt="The Audio Link tab in the SteamVR dashboard: four microphone tiles B1 to B4 and four output tiles PC1 to PC4, each with an on/off switch.">
+            <figcaption>The Audio Link tab in the SteamVR dashboard. A stream that is off uses no network bandwidth.</figcaption>
+          </figure>
+          <p>In the mixer, each B output and each PC channel shows the PC icon while a PC is linked. The icon is struck through when that stream is switched off on the PC.</p>
+          <h3 id="pc-link-details">How it behaves</h3>
+          <dl class="parts">
+            <dt>Quality</dt><dd>Stereo, 48 kHz, Opus at 128 kbit/s in 10 ms frames: the codec the Steam Streaming Microphone uses too.</dd>
+            <dt>Bandwidth</dt><dd>A stream is only sent while both ends want it and it carries sound. An active stream takes about 0.3 Mbit/s, because each frame is sent twice so that a lost packet is not heard.</dd>
+            <dt>Delay</dt><dd>About 60 ms from one sound device to the other on a good connection.</dd>
+            <dt>Who can connect</dt><dd>The headset only answers the PC it is streaming VR from, one PC at a time. The audio stays on your local network and is not encrypted.</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2 id="troubleshooting">Troubleshooting</h2>
+          <div class="faq">
+            <details>
+              <summary>The PC does not hear the mix</summary>
+              <p>Check that the strip's <span class="route">PC</span> button is lit, that the PC streaming mic is not muted in Outputs, and that the PC records “Steam Streaming Microphone”. <span class="ui">Signal flow</span> shows a missing connection as a dashed red line.</p>
+            </details>
+            <details>
+              <summary>An app does not land on its channel</summary>
+              <p>Choose the channel's name as the output in the app, or make the channel from the <span class="ui">Running</span> list so the app is pinned to it. An app that only connects when it plays appears in the list once it has made a sound.</p>
+            </details>
+            <details>
+              <summary>The PC hears app audio twice, or an echo</summary>
+              <p>You are listening on the Frame speakers without echo cancellation. Turn it on in Frame Mic Tuner, or use headphones.</p>
+            </details>
+            <details>
+              <summary>My Bluetooth headphones switched to call quality</summary>
+              <p>That happens when the Bluetooth microphone is used. With <span class="ui">System default</span>, the mixer uses the Frame microphone instead. Pick the Bluetooth microphone by name only if you want it.</p>
+            </details>
+            <details>
+              <summary>Audio Link keeps saying “Searching”</summary>
+              <p>Start wireless streaming and make sure the mixer on the headset is version 2.2 or newer. The headset only answers the PC it streams from. If it says a sound device is not installed, run <strong>install.cmd</strong> again on Windows.</p>
+            </details>
+            <details>
+              <summary>Should I restart PipeWire to fix sound?</summary>
+              <p>Not during a VR session: SteamVR and Steam Link lose their sound. Quit the mixer and open it again instead, or restart the headset when you are not in VR.</p>
+            </details>
+          </div>
+        </section>
+
+        <section>
+          <h2 id="reference">Reference</h2>
+          <h3 id="files">What gets installed</h3>
+          <div class="table-scroll">
+            <table>
+              <tbody>
+                <tr><th scope="row">Program</th><td><code>~/.local/bin/frame-audio-mixer</code></td></tr>
+                <tr><th scope="row">Services</th><td><code>frame-audio-mixer.service</code> (panel) and <code>frame-audio-mixer-engine.service</code> (the mix)</td></tr>
+                <tr><th scope="row">WirePlumber</th><td><code>~/.local/share/wireplumber/scripts/frame-audio-mixer.lua</code></td></tr>
+                <tr><th scope="row">Settings</th><td><code>~/.config/frame-audio-mixer/</code>, projects in <code>projects/</code></td></tr>
+                <tr><th scope="row">PipeWire nodes</th><td>Everything the mixer creates is named <code>frame_amix_*</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>The engine keeps the mix running when you close the panel's dashboard tab. <span class="ui">Quit</span> stops both, and apps that were on a channel go back to the normal output.</p>
+          <h3 id="more">More</h3>
+          <ul>
+            <li><a href="https://github.com/marcus-universe/frame-audio-mixer">Source code on GitHub</a>, with technical notes in <code>docs/</code>.</li>
+            <li><a href="https://github.com/marcus-universe/frame-audio-mixer/issues">Report a problem</a>.</li>
+            <li><a href="download.html">Downloads</a> for the headset and the PC.</li>
+          </ul>
+        </section>
+      </article>
+
+      <template id="doc-de">
+        <header class="doc-hero">
+          <h1>Dokumentation zu Frame Audio Mixer</h1>
+          <p class="doc-lead">Frame Audio Mixer ist ein Mischpult im SteamVR-Dashboard der Steam Frame. Er mischt dein Headset-Mikrofon mit dem Ton von Apps und schickt jede Mischung dorthin, wo du sie brauchst: als Steam Streaming Microphone an den PC, auf die Lautsprecher oder Kopfhörer am Kopf, oder auf virtuelle Mikrofone für andere Apps.</p>
+          <div class="chain" aria-label="Wie der Ton durch den Mixer läuft">
+            <div class="stage"><h2 class="stage-name">Quellen</h2><ul><li>Headset-Mikrofon</li><li>Apps auf der Frame</li><li>PC-Ausgänge PC1–PC4</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Mixer</h2><ul><li>Ein Kanalzug pro Quelle</li><li>Fader, Mute, Effekte</li><li>Routing-Tasten</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Ausgänge</h2><ul><li>PC-Streaming-Mikrofon</li><li>A1–A3 zum Hören</li><li>B1–B4 virtuelle Mikrofone</li></ul></div>
+            <div class="stage"><h2 class="stage-name">Geräte</h2><ul><li>Dein PC über den Stream</li><li>Lautsprecher, Bluetooth, USB</li><li>Discord, OBS, Spiele</li></ul></div>
+          </div>
+        </header>
+
+        <section>
+          <h2 id="requirements">Bevor du anfängst</h2>
+          <ul>
+            <li>Eine Steam Frame mit SteamVR und dem mitgelieferten SteamOS.</li>
+            <li><strong>Entwicklermodus</strong> an: Steam-Einstellungen, dann System, dann <span class="ui">Entwicklermodus aktivieren</span>. Ohne ihn steht Konsole nicht in der Programmliste.</li>
+            <li>Internet auf dem Headset für die Installation.</li>
+            <li>Für die PC-Seite: kabelloses Streaming vom PC zur Frame funktioniert bereits.</li>
+          </ul>
+          <p class="aside-note tip">Frame Audio Mixer arbeitet hinter <a href="https://github.com/sasaken1102r/frame-mic-tuner">Frame Mic Tuner</a>, der weiter Rauschunterdrückung und Echounterdrückung fürs Mikrofon übernimmt. Der Mixer funktioniert auch ohne ihn.</p>
+        </section>
+
+        <section>
+          <h2 id="install">Auf dem Headset installieren</h2>
+          <p>Öffne Konsole auf der Frame: <span class="ui">+</span> in der Leiste unten, dann die Programmliste, dann <span class="ui">Konsole</span>. Führe aus:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Das Skript lädt die neueste Version, prüft sie gegen ihre SHA-256-Prüfsumme und installiert sie in deinen Home-Ordner. Es nutzt nie <code>sudo</code> und startet PipeWire nie neu, eine laufende VR-Sitzung behält also ihren Ton.</p>
+          <h3 id="install-autostart">Mit SteamVR starten</h3>
+          <p>Damit das Panel bei jedem Start von SteamVR aufgeht:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --autostart</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Das lässt sich auch später im Panel umschalten: <span class="ui">Mit SteamVR starten</span> unten.</p>
+          <h3 id="install-ssh">Vom PC aus über SSH installieren</h3>
+          <p>Lege bei eingeschaltetem Entwicklermodus unter „Entwickler“ ein Passwort fest. Dann in einem Terminal am PC (Windows, macOS und Linux bringen SSH mit):</p>
+          <div class="command"><code>ssh steamos@&lt;headset-ip&gt; "curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh"</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Die IP-Adresse des Headsets steht in den Entwicklereinstellungen. Solange SSH an ist, kann sich jeder in deinem Netz mit dem Passwort anmelden. Wähle also ein starkes.</p>
+          <h3 id="update">Aktualisieren</h3>
+          <p>Öffne <span class="ui">Apps und Updates</span> oben im Panel und drücke <span class="ui">Update installieren</span>, wenn eines angeboten wird, oder führe den Installationsbefehl erneut aus. Ein laufender Mixer behält die alte Version, bis du ihn beendest oder SteamVR neu startest.</p>
+          <h3 id="uninstall">Deinstallieren</h3>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --uninstall</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Deine Einstellungen bleiben in <code>~/.config/frame-audio-mixer</code>. Mit <code>--purge</code> werden auch sie gelöscht.</p>
+        </section>
+
+        <section>
+          <h2 id="first-mix">Deine erste Mischung</h2>
+          <ol class="steps">
+            <li><strong>Panel öffnen.</strong> Wähle im SteamVR-Dashboard unten <span class="ui">Frame Audio Mixer</span>.</li>
+            <li><strong>Mikrofon prüfen.</strong> Der erste Kanalzug ist dein Mikrofon. Sprich: Die Anzeige bewegt sich, und die Taste <span class="route">PC</span> leuchtet. Der PC hört dich also schon.</li>
+            <li><strong>Kanal hinzufügen.</strong> Drücke <span class="ui">+</span> am Ende der Kanalzüge. Wähle rechts eine laufende App oder links einen Namen wie <span class="ui">Music</span>.</li>
+            <li><strong>App zuweisen.</strong> Eine App aus der Liste landet von selbst auf ihrem Kanal. Bei einem benannten Kanal wählst du in den Toneinstellungen der App den Ausgang mit diesem Namen.</li>
+            <li><strong>Routen.</strong> Schalte <span class="route">PC</span> ein, um den Kanal an den PC zu schicken, <span class="route">A1</span>, um ihn im Headset zu hören, oder <span class="route">B1</span> für ein virtuelles Mikrofon. Die Lautstärke stellst du mit dem Fader ein.</li>
+          </ol>
+          <figure class="shot">
+            <img src="assets/docs/mixer-de.webp" width="1200" height="788" loading="lazy" decoding="async" alt="Das Panel: links die Eingänge mit Fader und Routing-Tasten, rechts der Ausgänge-Bereich mit Mix Check und den Ausgangsfadern.">
+            <figcaption>Das Panel. Links die Eingänge, rechts der Bereich für die Ausgänge.</figcaption>
+          </figure>
+        </section>
+
+        <section>
+          <h2 id="panel">Das Panel im Überblick</h2>
+          <dl class="parts">
+            <dt>Kopfzeile</dt>
+            <dd>Die Breitbild-Taste öffnet ein 21:9-Layout. Der Ordner öffnet <a href="#projects">Projekte</a>. <span class="ui">Signalfluss</span> zeigt die <a href="#signal-flow">Live-Routing-Karte</a>, und <span class="ui">Apps und Updates</span> enthält Updates und weitere Steam-Frame-Apps.</dd>
+            <dt>Eingänge</dt>
+            <dd>Der Mikrofon-Kanalzug, dann ein Kanalzug pro Kanal. Der Magnet lässt Fader bei 20, 50, 80 und 100 % einrasten. Die Layout-Taste wechselt zwischen stehenden Fadern und Zeilen.</dd>
+            <dt>Seitenbereich</dt>
+            <dd>Rechts stehen <a href="#outputs">Ausgänge</a>, <a href="#effects">FX1 oder FX2</a>. Die Leiste ganz rechts wählt aus. Ziehe die Linie zwischen beiden Hälften, um einer Seite mehr Platz zu geben.</dd>
+            <dt>Fußzeile</dt>
+            <dd>Sprache, das Zahnrad für die <a href="#settings">Einstellungen</a>, <span class="ui">Mit SteamVR starten</span> und <span class="ui">Beenden</span>. Beenden braucht einen zweiten Druck innerhalb von drei Sekunden.</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2 id="inputs">Eingänge und Kanäle</h2>
+          <h3 id="microphone">Der Mikrofon-Kanalzug</h3>
+          <p>Die Auswahl oben im Kanalzug bestimmt, was der Mixer aufnimmt:</p>
+          <ul>
+            <li><span class="ui">Systemstandard</span> folgt dem Standardmikrofon des Systems. Ein Bluetooth-Headset-Mikrofon wird dabei übersprungen, weil das Headset sonst in den Telefonie-Modus mit schlechter Qualität wechselt.</li>
+            <li><span class="ui">Frame-Mikrofon</span> ist das Frame-Mikrofon nach Valves Rauschunterdrückung, Echounterdrückung und EQ, die Frame Mic Tuner steuert.</li>
+            <li>Jedes andere angeschlossene Mikrofon, etwa ein USB-Mikrofon.</li>
+          </ul>
+          <p>Der Mikrofon-Fader gibt bei 0 dB 12 dB Verstärkung dazu, weil eine Stimme deutlich leiser ist als App-Ton. Standardmäßig geht das Mikrofon nur an den PC, damit die Lautsprecher deine Stimme nie zurückspielen.</p>
+          <h3 id="channels">Kanäle</h3>
+          <p>Ein Kanal ist ein benannter Ausgang, auf den Apps der Frame spielen können, mit eigenem Kanalzug im Mixer. Bis zu 32 sind möglich. Drücke <span class="ui">+</span>, um einen hinzuzufügen:</p>
+          <ul>
+            <li><strong>Vorschläge</strong> links: Soundboard, Music, Video, Browser, Game oder <span class="ui">Eigener Name</span>.</li>
+            <li><strong>Läuft</strong> rechts: eine App, die gerade spielt oder verbunden ist. Der Kanal bekommt Namen und Symbol der App, und die App wird an ihn gebunden. Sie landet also jedes Mal dort.</li>
+            <li><strong>PC1 bis PC4</strong>: Ausgänge deines PCs, gesendet vom <a href="#pc-link">PC-Audio-Link</a>.</li>
+          </ul>
+          <figure class="shot narrow">
+            <img src="assets/docs/add-channel-de.webp" width="1200" height="788" loading="lazy" decoding="async" alt="Der Dialog zum Hinzufügen eines Kanals mit Vorschlägen links und PC3, PC4 und laufenden Apps rechts.">
+            <figcaption>Kanal hinzufügen. PC-Ausgänge ohne eigenen Kanal stehen unter „Läuft“ ganz oben.</figcaption>
+          </figure>
+          <p>Tippe auf den Namen eines Kanals, um ihn mit der Dashboard-Tastatur umzubenennen. Das <span class="ui">×</span> entfernt ihn beim zweiten Druck. Namen sind eine Zeile mit bis zu 32 Zeichen, und zwei Kanäle können nicht gleich heißen.</p>
+          <h3 id="strip">Ein Kanalzug von oben nach unten</h3>
+          <dl class="parts">
+            <dt>Fader</dt><dd>Von Stille bis +12 dB, mit Rastpunkt bei 0 dB. Die Anzeige daneben zeigt die Spitzen links und rechts von +6 bis −48.</dd>
+            <dt>Routing-Tasten</dt><dd><span class="route">PC</span> das PC-Streaming-Mikrofon, <span class="route">A1</span>–<span class="route">A3</span> was du hörst, <span class="route">B1</span>–<span class="route">B4</span> virtuelle Mikrofone, und <span class="route">FX1</span> <span class="route">FX2</span> die Effektbusse. Eine leuchtende Taste ist an.</dd>
+            <dt>Mute</dt><dd>Schaltet den Kanalzug auf allen Ausgängen stumm, auf die er geroutet ist.</dd>
+          </dl>
+          <p class="aside-note tip">Eine App, die auf dem falschen Kanal landet, wird zurück auf ihren eigenen geschoben, oder vom Mixer weg auf den normalen Ausgang. Bindungen nutzen neben dem Anzeigenamen auch den Programmnamen, damit Electron-Apps, die sich alle „Chromium“ nennen, getrennt bleiben.</p>
+        </section>
+
+        <section>
+          <h2 id="outputs">Ausgänge</h2>
+          <p>Jeder Ausgang hat im Ausgänge-Bereich einen Master-Fader und eine <span class="ui">M</span>-Taste zum Stummschalten.</p>
+          <dl class="parts">
+            <dt>PC-Streaming-Mikrofon</dt><dd>Immer da. Das nimmt dein PC beim Streamen als <strong>Steam Streaming Microphone</strong> auf. In PipeWire ist es die Quelle <code>frame_amix_source</code>, „Frame Mix“.</dd>
+            <dt>A1 Frame-Lautsprecher</dt><dd>Was du im Headset hörst.</dd>
+            <dt>A2 Bluetooth, A3 USB</dt><dd>Sichtbar, solange so ein Gerät verbunden ist. Jedes kann eine eigene Mischung bekommen, etwa Musik nur auf den Bluetooth-Kopfhörern.</dd>
+            <dt>B1–B4</dt><dd>Virtuelle Mikrofone. Apps auf der Frame können sie aufnehmen, und mit dem <a href="#pc-link">PC-Audio-Link</a> kommen sie auch am PC an. Tippe auf den Namen, um einem einen Namen wie „Discord“ zu geben.</dd>
+          </dl>
+          <p class="aside-note warn">Wenn du über die Frame-Lautsprecher hörst, schalte in Frame Mic Tuner die Echounterdrückung ein. Sonst hört das Mikrofon die Lautsprecher, und der PC bekommt den App-Ton doppelt: einmal aus der Mischung und einmal durch die Luft. Der Ausgänge-Bereich weist darauf hin.</p>
+        </section>
+
+        <section>
+          <h2 id="effects">Effekte</h2>
+          <p>FX1 und FX2 sind zwei Effektketten mit je bis zu drei Effekten nacheinander. Schalte <span class="route">FX1</span> oder <span class="route">FX2</span> in einem Kanalzug ein, dann läuft die Kette in diesem Kanalzug: Das Ergebnis ersetzt seinen Ton auf allen seinen Ausgängen. Sind beide an, kommt FX1 zuerst. Jeder Bus hat einen Pegel-Fader nach seiner Kette.</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th scope="col">Effekt</th><th scope="col">Was er macht</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Reverb</th><td>Raum und Halle. Größe, Dämpfung und Mischung.</td></tr>
+                <tr><th scope="row">Kompressor</th><td>Gleicht laute und leise Stellen einer Stimme oder eines Titels an.</td></tr>
+                <tr><th scope="row">EQ</th><td>Parametrisch mit 3, 6, 8 oder 12 Punkten und Live-Spektrum hinter der Kurve.</td></tr>
+                <tr><th scope="row">Pitcher</th><td>Tonhöhe und Formanten, je ±12 Halbtöne, dazu eine Helligkeitsneigung. Presets machen aus einer Stimme eine andere.</td></tr>
+                <tr><th scope="row">Flanger, Phaser</th><td>Schwebende Modulationseffekte.</td></tr>
+                <tr><th scope="row">Delay</th><td>Echos mit Zeit, Rückkopplung und Mischung.</td></tr>
+                <tr><th scope="row">VST3</th><td>Ein Plugin, das du installiert hast. Siehe unten.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 id="eq">Der parametrische EQ</h3>
+          <p>Drücke bei einem EQ <span class="ui">Bearbeiten</span>, um sein Blatt zu öffnen. Ziehe einen Punkt auf der Kurve, oder wähle ein Band und nutze die Regler für Frequenz, Verstärkung und Güte. Der tiefste Punkt kann Glocke, Kuhschwanz oder Hochpass sein, der höchste Glocke, Kuhschwanz oder Tiefpass. Das Spektrum hinter der Kurve gibt es als Linie, Fläche, Balken oder Wärmebild, oder abgeschaltet.</p>
+          <h3 id="pitcher">Der Pitcher</h3>
+          <p>Mit festgehaltenen Formanten klingt eine verschobene Stimme wie eine andere Person. Folgen die Formanten der Tonhöhe, entsteht der klassische Mickymaus-Effekt. Zu den Presets gehören Mann zu Frau, Mann zu Mädchen, Frau zu Mann und Mädchen zu Mann. Die Tonhöhe rastet auf ganze Halbtöne ein, wenn du das nicht abschaltest.</p>
+          <h3 id="vst">VST3-Plugins</h3>
+          <p>Lege Plugins auf dem Headset in <code>~/.vst3</code> ab, oder wähle in den Einstellungen einen anderen Ordner, und drücke <span class="ui">Scannen</span>. Jedes Plugin läuft in einem eigenen Prozess, ein abstürzendes Plugin kann die Mischung also nicht mitreißen.</p>
+          <ul>
+            <li>Windows-x64-Plugins laufen über Proton auf dem ARM-Prozessor der Frame.</li>
+            <li>Linux-Plugins für ARM64 laufen direkt. Linux-x64-Plugins laufen nicht.</li>
+            <li>Ein Plugin bearbeitet den ersten Kanalzug, der seinen Bus nutzt, und wird bei den anderen umgangen.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="mix-check">Mix Check</h2>
+          <p>Mix Check nimmt auf, was ein Ausgang sendet. So hörst du, was dein PC oder deine Freunde hören.</p>
+          <ol class="steps">
+            <li>Wähle oben im Ausgänge-Bereich neben <span class="ui">Aufnahme</span> den Ausgang, der aufgenommen werden soll.</li>
+            <li>Drücke <span class="ui">Aufnahme</span> und sprich oder spiel etwas ab. Eine Aufnahme ist bis zu 10 Sekunden lang.</li>
+            <li>Wähle neben <span class="ui">Wiedergabe</span>, wo du hören willst, und drücke <span class="ui">Wiedergabe</span>. <span class="ui">Pause</span> hält an der Stelle an.</li>
+          </ol>
+          <p>Während eine Aufnahme im Headset spielt, ist dein Mikrofon aus der Mischung genommen, damit nichts rückkoppelt. Eine neue Aufnahme ersetzt die alte.</p>
+        </section>
+
+        <section>
+          <h2 id="signal-flow">Signalfluss</h2>
+          <p><span class="ui">Signalfluss</span> in der Kopfzeile zeichnet die ganze Mischung als Karte: Quellen, Kanalzüge, Ausgänge und die Geräte, die sie erreichen. Jede Route wird gegen die echten Verbindungen in PipeWire geprüft.</p>
+          <figure class="shot">
+            <img src="assets/docs/signal-flow-de.webp" width="1200" height="788" loading="lazy" decoding="async" alt="Die Signalfluss-Karte mit vier Spalten: Quellen, Mixer, Ausgänge und Geräte, verbunden durch Linien.">
+            <figcaption>Eine durchgezogene Linie ist verbunden. Eine rot gestrichelte Linie ist eine Route, deren Verbindung fehlt.</figcaption>
+          </figure>
+          <ul>
+            <li>Eine Linie leuchtet, solange Ton durch sie läuft.</li>
+            <li>Ziehen verschiebt die Karte, <span class="ui">+</span> <span class="ui">−</span> zoomen, <span class="ui">Einpassen</span> zeigt alles.</li>
+            <li>Wähle ein Kästchen, um den PipeWire-Knoten dahinter zu sehen.</li>
+            <li><span class="ui">Andere Apps</span> zeigt auch Apps ohne Kanal, mit dem Gerät, auf dem sie spielen.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="projects">Projekte</h2>
+          <p>Ein Projekt ist ein gespeichertes Setup: Kanäle, Bindungen, Routen, Effekte und Pegel. Damit wechselst du etwa zwischen einem Streaming- und einem Gaming-Setup.</p>
+          <ul>
+            <li>Drücke den Ordner in der Kopfzeile, dann <span class="ui">Speichern</span>, und gib dem Projekt einen Namen.</li>
+            <li>Drücke ein Projekt, um es zu laden. Sprache, Farbe und Layout bleiben, wie sie sind.</li>
+            <li>Das <span class="ui">×</span> löscht ein Projekt beim zweiten Druck.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 id="settings">Einstellungen und Ansicht</h2>
+          <div class="split">
+            <ul>
+              <li><strong>Farbe</strong>: Blau oder Pink, für das Panel und sein Dashboard-Symbol.</li>
+              <li><strong>Pegelanzeige</strong>: aus spart etwas Rechenzeit.</li>
+              <li><strong>PC-Audio-Link</strong>: an oder aus, darunter der Name des verbundenen PCs.</li>
+              <li><strong>VST-Plugins</strong>: Plugin-Ordner und Scan.</li>
+              <li><strong>Sprache</strong>: Englisch, Japanisch, Chinesisch, Deutsch, Französisch, Spanisch und Italienisch, in der Fußzeile.</li>
+              <li><strong>Breitbild</strong> und die zwei <strong>Layout</strong>-Tasten, in der Kopfzeile und über jedem Bereich.</li>
+            </ul>
+            <figure class="shot small">
+              <img src="assets/docs/settings-de.webp" width="664" height="388" loading="lazy" decoding="async" alt="App-Einstellungen mit Farbe, Pegelanzeige, PC-Audio-Link und VST-Plugins.">
+            </figure>
+          </div>
+        </section>
+
+        <section>
+          <h2 id="pc-link">PC-Audio-Link</h2>
+          <p><strong>Frame Audio Link</strong> ist ein SteamVR-Add-on für den PC, von dem du streamst. Damit bekommt dein PC acht weitere Audiogeräte neben Steams eigenen:</p>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th scope="col">Am PC</th><th scope="col">Was darauf läuft</th></tr></thead>
+              <tbody>
+                <tr><th scope="row">Steam Streaming Mic B1–B4</th><td>Mikrofone mit B1–B4 des Mixers. Wähle sie in Discord, OBS oder einem Spiel.</td></tr>
+                <tr><th scope="row">Steam Streaming Out PC1–PC4</th><td>Ausgänge. Was darauf spielt, lässt sich im Mixer als Kanal PC1–PC4 hinzufügen.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <h3 id="pc-link-windows">Unter Windows installieren</h3>
+          <ol class="steps">
+            <li>Lade <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-link-windows-x86_64.zip"><code>frame-audio-link-windows-x86_64.zip</code></a> herunter und entpacke es.</li>
+            <li>Doppelklicke <strong>install.cmd</strong>. Windows fragt einmal nach Administratorrechten: Dieser Schritt legt die acht Geräte an.</li>
+            <li>Starte SteamVR. Das Add-on startet mit.</li>
+          </ol>
+          <p>Oder in PowerShell:</p>
+          <div class="command"><code>irm https://frame-audio-mixer.marcus-universe.com/get-windows | iex</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Die Geräte sind weitere Instanzen der beiden Audiotreiber, die Steam schon installiert hat. Es kommt kein neuer Treiber dazu. Steam installiert diese Treiber, sobald Remote Play oder kabelloses VR-Streaming zum ersten Mal benutzt wird.</p>
+          <h3 id="pc-link-linux">Unter Linux installieren</h3>
+          <p>Ubuntu 22.10 oder neuer, Fedora und Arch, mit PipeWire als Soundserver. <code>pactl info | grep "Server Name"</code> sollte „PulseAudio (on PipeWire …)“ zeigen. Als normaler Benutzer installieren:</p>
+          <div class="command"><code>curl -fsSL https://frame-audio-mixer.marcus-universe.com/get-linux | sh</code><button type="button" data-doc-copy>Kopieren</button></div>
+          <p>Unter Linux gibt es die acht Geräte, solange das Add-on läuft, also solange SteamVR läuft. Am Soundsystem wird nichts installiert.</p>
+          <h3 id="pc-link-use">Benutzen</h3>
+          <ul>
+            <li>Prüfe, ob das Add-on an ist: SteamVR-Einstellungen, <span class="ui">Starten/Beenden</span>, <span class="ui">Startanwendungen für Overlay auswählen</span>, <span class="ui">Frame Audio Link</span>.</li>
+            <li><strong>Vom Headset zum PC</strong>: Route einen Kanalzug auf <span class="route">B1</span>–<span class="route">B4</span> und wähle am PC „Steam Streaming Mic B1“.</li>
+            <li><strong>Vom PC zum Headset</strong>: Lass eine App auf „Steam Streaming Out PC1“ spielen, drücke im Mixer <span class="ui">+</span> und wähle <span class="ui">PC1</span>.</li>
+          </ul>
+          <figure class="shot">
+            <img src="assets/docs/audio-link-de.webp" width="1200" height="760" loading="lazy" decoding="async" alt="Der Tab Audio Link im SteamVR-Dashboard: vier Mikrofon-Kacheln B1 bis B4 und vier Ausgangs-Kacheln PC1 bis PC4, jede mit einem Schalter.">
+            <figcaption>Der Tab „Audio Link“ im SteamVR-Dashboard. Ein ausgeschalteter Stream belegt keine Bandbreite.</figcaption>
+          </figure>
+          <p>Im Mixer zeigen jeder B-Ausgang und jeder PC-Kanal das PC-Symbol, solange ein PC verbunden ist. Es ist durchgestrichen, wenn dieser Stream am PC ausgeschaltet ist.</p>
+          <h3 id="pc-link-details">Verhalten</h3>
+          <dl class="parts">
+            <dt>Qualität</dt><dd>Stereo, 48 kHz, Opus mit 128 kbit/s in 10-ms-Frames: derselbe Codec wie beim Steam Streaming Microphone.</dd>
+            <dt>Bandbreite</dt><dd>Ein Stream wird nur gesendet, solange beide Seiten ihn wollen und er Ton führt. Ein aktiver Stream braucht etwa 0,3 Mbit/s, weil jeder Frame zweimal gesendet wird, damit ein verlorenes Paket nicht zu hören ist.</dd>
+            <dt>Verzögerung</dt><dd>Etwa 60 ms von Audiogerät zu Audiogerät bei guter Verbindung.</dd>
+            <dt>Wer sich verbinden darf</dt><dd>Das Headset antwortet nur dem PC, von dem es VR streamt, und nur einem PC zugleich. Der Ton bleibt im lokalen Netz und ist nicht verschlüsselt.</dd>
+          </dl>
+        </section>
+
+        <section>
+          <h2 id="troubleshooting">Fehlerbehebung</h2>
+          <div class="faq">
+            <details>
+              <summary>Der PC hört die Mischung nicht</summary>
+              <p>Prüfe, ob die Taste <span class="route">PC</span> im Kanalzug leuchtet, ob das PC-Streaming-Mikrofon unter Ausgänge nicht stummgeschaltet ist und ob der PC „Steam Streaming Microphone“ aufnimmt. <span class="ui">Signalfluss</span> zeigt eine fehlende Verbindung als rot gestrichelte Linie.</p>
+            </details>
+            <details>
+              <summary>Eine App landet nicht auf ihrem Kanal</summary>
+              <p>Wähle den Kanalnamen als Ausgang in der App, oder erstelle den Kanal aus der Liste <span class="ui">Läuft</span>, damit die App an ihn gebunden ist. Eine App, die sich erst beim Abspielen verbindet, erscheint in der Liste, sobald sie einen Ton gemacht hat.</p>
+            </details>
+            <details>
+              <summary>Der PC hört App-Ton doppelt oder ein Echo</summary>
+              <p>Du hörst über die Frame-Lautsprecher ohne Echounterdrückung. Schalte sie in Frame Mic Tuner ein, oder nutze Kopfhörer.</p>
+            </details>
+            <details>
+              <summary>Meine Bluetooth-Kopfhörer klingen plötzlich wie ein Telefon</summary>
+              <p>Das passiert, wenn das Bluetooth-Mikrofon benutzt wird. Mit <span class="ui">Systemstandard</span> nimmt der Mixer stattdessen das Frame-Mikrofon. Wähle das Bluetooth-Mikrofon nur namentlich, wenn du es willst.</p>
+            </details>
+            <details>
+              <summary>Audio Link zeigt immer „Headset wird gesucht“</summary>
+              <p>Starte das kabellose Streaming und stelle sicher, dass der Mixer auf dem Headset Version 2.2 oder neuer ist. Das Headset antwortet nur dem PC, von dem es streamt. Meldet es ein fehlendes Audiogerät, führe unter Windows <strong>install.cmd</strong> erneut aus.</p>
+            </details>
+            <details>
+              <summary>Soll ich PipeWire neu starten, um den Ton zu reparieren?</summary>
+              <p>Nicht während einer VR-Sitzung: SteamVR und Steam Link verlieren dann ihren Ton. Beende den Mixer stattdessen und öffne ihn erneut, oder starte das Headset neu, wenn du nicht in VR bist.</p>
+            </details>
+          </div>
+        </section>
+
+        <section>
+          <h2 id="reference">Referenz</h2>
+          <h3 id="files">Was installiert wird</h3>
+          <div class="table-scroll">
+            <table>
+              <tbody>
+                <tr><th scope="row">Programm</th><td><code>~/.local/bin/frame-audio-mixer</code></td></tr>
+                <tr><th scope="row">Dienste</th><td><code>frame-audio-mixer.service</code> (Panel) und <code>frame-audio-mixer-engine.service</code> (die Mischung)</td></tr>
+                <tr><th scope="row">WirePlumber</th><td><code>~/.local/share/wireplumber/scripts/frame-audio-mixer.lua</code></td></tr>
+                <tr><th scope="row">Einstellungen</th><td><code>~/.config/frame-audio-mixer/</code>, Projekte in <code>projects/</code></td></tr>
+                <tr><th scope="row">PipeWire-Knoten</th><td>Alles, was der Mixer anlegt, heißt <code>frame_amix_*</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Die Engine lässt die Mischung weiterlaufen, wenn du den Dashboard-Tab schließt. <span class="ui">Beenden</span> stoppt beides, und Apps auf einem Kanal kehren zum normalen Ausgang zurück.</p>
+          <h3 id="more">Mehr</h3>
+          <ul>
+            <li><a href="https://github.com/marcus-universe/frame-audio-mixer">Quellcode auf GitHub</a>, mit technischen Notizen in <code>docs/</code>.</li>
+            <li><a href="https://github.com/marcus-universe/frame-audio-mixer/issues">Ein Problem melden</a>.</li>
+            <li><a href="download.html">Downloads</a> für Headset und PC.</li>
+          </ul>
+        </section>
+      </template>
+    </main>
+  </div>
+
+  <footer class="wrap foot">
+    <span data-i18n="foot"></span>
+    <a href="imprint.html" data-i18n="imprint">Imprint</a>
+    <a href="https://github.com/marcus-universe/frame-audio-mixer/blob/main/LICENSE">MIT</a>
+  </footer>
+  <script src="js/i18n.js?v=20261113d"></script>
+  <script src="js/site.js?v=20261113d"></script>
+  <script src="js/docs.js?v=20261113d"></script>
+</body>
+</html>

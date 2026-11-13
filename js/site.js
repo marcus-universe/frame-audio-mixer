@@ -1,26 +1,56 @@
 (function () {
-  var FALLBACK = "https://frame-audio-mixer.marcus-universe.com/i";
+  var SITE = "https://frame-audio-mixer.marcus-universe.com/";
   var LANGS = ["en", "ja", "sc", "de", "fr", "es", "it"];
   var root = document.documentElement;
 
-  function installUrl() {
-    if (location.protocol !== "http:" && location.protocol !== "https:") return FALLBACK;
-    return new URL("i", location.href).href;
+  // The install scripts are served by this site: /i (headset), /get-windows and /get-linux (PC).
+  function installUrl(route) {
+    if (location.protocol !== "http:" && location.protocol !== "https:") return SITE + route;
+    return new URL(route, location.href).href;
   }
 
-  function command(kind) {
-    var url = installUrl();
-    var line = "curl -fsSL " + url + " | sh";
-    if (kind === "autostart") return "curl -fsSL " + url + " | sh -s -- --autostart";
-    if (kind === "uninstall") return "curl -fsSL " + url + " | sh -s -- --uninstall";
-    return line;
+  // data-install names the target: "plain" / "autostart" / "uninstall" (headset, as before),
+  // "windows" or "linux" (PC). data-uninstall, data-autostart and data-purge add options.
+  function command(el) {
+    var kind = el.getAttribute("data-install");
+    var has = function (name) { return el.hasAttribute("data-" + name); };
+    var uninstall = kind === "uninstall" || has("uninstall");
+    var purge = uninstall && has("purge");
+
+    if (kind === "windows") {
+      var win = installUrl("get-windows");
+      if (!uninstall) return "irm " + win + " | iex";
+      return "iex \"& { $(irm " + win + ") } -Uninstall" + (purge ? " -Purge" : "") + "\"";
+    }
+
+    var args = [];
+    if (uninstall) args.push("--uninstall");
+    if (purge) args.push("--purge");
+    if (!uninstall && (kind === "autostart" || has("autostart"))) args.push("--autostart");
+    var url = installUrl(kind === "linux" ? "get-linux" : "i");
+    return "curl -fsSL " + url + " | sh" + (args.length ? " -s -- " + args.join(" ") : "");
   }
 
   function fillCommands() {
     document.querySelectorAll("[data-install]").forEach(function (el) {
-      el.textContent = command(el.getAttribute("data-install"));
+      el.textContent = command(el);
     });
   }
+
+  // A checkbox with data-option="autostart" or "purge" and data-for="<code ids>" switches
+  // that option on the listed commands.
+  document.querySelectorAll("input[data-option]").forEach(function (box) {
+    box.addEventListener("change", function () {
+      var option = "data-" + box.getAttribute("data-option");
+      box.getAttribute("data-for").split(" ").forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (box.checked) el.setAttribute(option, "");
+        else el.removeAttribute(option);
+        el.textContent = command(el);
+      });
+    });
+  });
 
   function langPack(code) {
     return window.FAM_I18N[code] || window.FAM_I18N.en;
@@ -58,11 +88,12 @@
       if (pack[key]) el.setAttribute("aria-label", pack[key]);
     });
     var page = document.body.getAttribute("data-page");
-    var pageTitle = page === "download" ? pack.dl_title : page === "imprint" ? pack.imprint_title : "";
+    var pageTitle = page === "download" ? pack.dl_title : page === "imprint" ? pack.imprint_title : page === "docs" ? pack.docs_title : "";
     document.title = pageTitle ? pageTitle + " · Frame Audio Mixer" : pack.title;
     var select = document.getElementById("lang");
     if (select && select.value !== code) select.value = code;
     try { localStorage.setItem("fam-lang", code); } catch (e) {}
+    document.dispatchEvent(new CustomEvent("fam:lang", { detail: code }));
   }
 
   function applyTheme(name) {

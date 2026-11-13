@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Downloads · Frame Audio Mixer</title>
-  <meta name="description" content="Install Frame Audio Mixer on a Steam Frame, or download the latest release.">
+  <meta name="description" content="Install Frame Audio Mixer on a Steam Frame, or Frame Audio Link on the PC you stream from.">
   <link rel="icon" href="assets/logo/logo_icon_blue.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@400&family=Noto+Sans:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/site.css?v=20261112b">
+  <link rel="stylesheet" href="css/site.css?v=20261113d">
 </head>
 <body data-page="download">
   <div class="waves" aria-hidden="true"><svg class="wave a" viewBox="0 0 2400 800" preserveAspectRatio="none"><path id="wave-a" d="M0 220C75 220 75 130 150 130C225 130 225 220 300 220C375 220 375 310 450 310C525 310 525 220 600 220C675 220 675 130 750 130C825 130 825 220 900 220C975 220 975 310 1050 310C1125 310 1125 220 1200 220"/><use href="#wave-a" x="1200"/></svg><svg class="wave b" viewBox="0 0 2400 800" preserveAspectRatio="none"><path id="wave-b" d="M0 120C75 120 75 210 150 210C225 210 225 120 300 120C375 120 375 30 450 30C525 30 525 120 600 120C675 120 675 210 750 210C825 210 825 120 900 120C975 120 975 30 1050 30C1125 30 1125 120 1200 120"/><use href="#wave-b" x="1200"/></svg><svg class="wave c" viewBox="0 0 2400 800" preserveAspectRatio="none"><path id="wave-c" d="M0 500C75 500 75 450 150 450C225 450 225 500 300 500C375 500 375 550 450 550C525 550 525 500 600 500C675 500 675 450 750 450C825 450 825 500 900 500C975 500 975 550 1050 550C1125 550 1125 500 1200 500"/><use href="#wave-c" x="1200"/></svg></div>
@@ -20,7 +20,8 @@
       <span class="brand-name">Frame Audio Mixer</span>
     </a>
     <nav class="nav">
-      <a class="quiet nav-dl" href="download.html"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nav_downloads">Downloads</span></a>
+      <a class="quiet nav-docs" href="docs.html"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M3 2.5h7l3 3v8H3zM10 2.5v3h3M5.5 8.5h5M5.5 11h5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nav_docs">Docs</span></a>
+      <a class="quiet nav-dl" href="download.html" aria-current="page"><svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="nav_downloads">Downloads</span></a>
       <a class="icon" href="https://github.com/marcus-universe/frame-audio-mixer" data-i18n-aria="nav_github" aria-label="GitHub"><svg viewBox="0 0 16 16" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a>
       <div class="themes">
         <button type="button" data-theme-set="blue" aria-pressed="true" data-i18n-aria="theme_blue" aria-label="Blue theme"><span class="swatch"></span></button>
@@ -32,55 +33,253 @@
       </label>
     </nav>
   </header>
+
   <main id="main" class="wrap download">
-    <h1 data-i18n="dl_title">Downloads</h1>
-    <p class="lead" data-i18n="dl_lead"></p>
-    <div class="stack">
-      <div>
+
+    <!-- Step 1: pick what to install -->
+    <section class="chooser" id="chooser" aria-labelledby="choose-title">
+      <h1 id="choose-title" data-i18n="dl_choose_title">What do you want to install?</h1>
+      <p class="chooser-lead" data-i18n="dl_choose_lead">Frame Audio Mixer runs on the headset. Frame Audio Link is an optional add-on for the PC you stream from.</p>
+
+      <div class="picks">
+        <button type="button" class="pick" data-pick="frame" aria-controls="guide-frame">
+          <svg class="pick-icon icon-frame" viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M10 22h44a6 6 0 0 1 6 6v10a8 8 0 0 1-8 8H41.5l-4.2-5.4a4 4 0 0 0-3.2-1.6h-4.2a4 4 0 0 0-3.2 1.6L22.5 46H12a8 8 0 0 1-8-8V28a6 6 0 0 1 6-6Z"/>
+            <path d="M16 22l3.5-7.2A3 3 0 0 1 22.2 13h19.6a3 3 0 0 1 2.7 1.8L48 22"/>
+            <path class="pulse" d="M13 33h6l2.5-4 3 8 3-6 2 2h4.5"/>
+          </svg>
+          <span class="pick-where" data-i18n="dl_pick_frame_where">On the Steam Frame</span>
+          <span class="pick-title icon-frame-title">Frame Audio Mixer</span>
+          <span class="pick-body" data-i18n="dl_pick_frame_body">The mixer panel in SteamVR. App audio and the headset microphone, mixed and sent to your PC.</span>
+          <span class="pick-foot">
+            <span class="pick-tag primary" data-i18n="dl_pick_frame_tag">Start here</span>
+            <span class="pick-go" aria-hidden="true"><svg viewBox="0 0 16 16" width="18" height="18"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </span>
+        </button>
+
+        <button type="button" class="pick" data-pick="pc" aria-controls="guide-pc">
+          <svg class="pick-icon icon-pc" viewBox="0 0 64 64" aria-hidden="true">
+            <rect x="5" y="9" width="54" height="35" rx="5"/>
+            <path d="M32 44v9M22 55h20"/>
+            <path class="pulse" d="M13 27h9l3-6 4.5 12 4.5-10 3 4H51"/>
+          </svg>
+          <span class="pick-where" data-i18n="dl_pick_pc_where">On the PC you stream from</span>
+          <span class="pick-title icon-pc-title">Frame Audio Link</span>
+          <span class="pick-body" data-i18n="dl_pick_pc_body">A SteamVR add-on that adds the microphones B1–B4 and the outputs PC1–PC4 to the PC.</span>
+          <span class="pick-foot">
+            <span class="pick-tag" data-i18n="dl_pick_pc_tag">Optional, Windows and Linux</span>
+            <span class="pick-go" aria-hidden="true"><svg viewBox="0 0 16 16" width="18" height="18"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          </span>
+        </button>
+      </div>
+
+      <p class="chooser-alt">
+        <span data-i18n="dl_choose_files">Looking for the files?</span>
+        <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest" data-i18n="dl_releases">All releases on GitHub</a>
+      </p>
+    </section>
+
+    <!-- Step 2a: headset guide -->
+    <section class="guide" id="guide-frame" aria-labelledby="guide-frame-title" hidden>
+      <button type="button" class="back" data-back>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="dl_back">All downloads</span>
+      </button>
+
+      <header class="guide-head">
+        <svg class="guide-icon icon-frame" viewBox="0 0 64 64" aria-hidden="true">
+          <path d="M10 22h44a6 6 0 0 1 6 6v10a8 8 0 0 1-8 8H41.5l-4.2-5.4a4 4 0 0 0-3.2-1.6h-4.2a4 4 0 0 0-3.2 1.6L22.5 46H12a8 8 0 0 1-8-8V28a6 6 0 0 1 6-6Z"/>
+          <path d="M16 22l3.5-7.2A3 3 0 0 1 22.2 13h19.6a3 3 0 0 1 2.7 1.8L48 22"/>
+          <path class="pulse" d="M13 33h6l2.5-4 3 8 3-6 2 2h4.5"/>
+        </svg>
+        <div>
+          <h1 id="guide-frame-title" class="icon-frame-title" tabindex="-1">Frame Audio Mixer</h1>
+          <p data-i18n="dl_pick_frame_where">On the Steam Frame</p>
+        </div>
+      </header>
+
+      <ol class="steps">
+        <li>
+          <h2 data-i18n="dl_f1_t">Turn on Developer Mode</h2>
+          <p data-i18n="dl_f1_b">Steam Settings, then System, then Enable Developer Mode. Konsole only shows up after that.</p>
+        </li>
+        <li>
+          <h2 data-i18n="dl_f2_t">Open Konsole</h2>
+          <p data-i18n="dl_f2_b">Press + on the bar at the bottom, open the list of programs, then choose Konsole.</p>
+        </li>
+        <li>
+          <h2 data-i18n="dl_f3_t">Run the installer</h2>
+          <p data-i18n="dl_f3_b">It installs the latest release and checks its checksum before anything is changed.</p>
+          <div class="command">
+            <code data-install="plain" id="frame-command">curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+          <label class="option">
+            <input type="checkbox" data-option="autostart" data-for="frame-command">
+            <span data-i18n="dl_autostart_label">Also start the panel with SteamVR</span>
+          </label>
+        </li>
+      </ol>
+
+      <div class="extra">
+        <h2 data-i18n="dl_manual">Manual download</h2>
+        <ul class="files">
+          <li>
+            <div>
+              <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-mixer-aarch64.tar.gz">frame-audio-mixer-aarch64.tar.gz</a>
+              <p data-i18n="dl_archive_note"></p>
+            </div>
+            <span data-i18n="dl_archive"></span>
+          </li>
+          <li>
+            <div>
+              <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/SHA256SUMS">SHA256SUMS</a>
+              <p data-i18n="dl_sums_note"></p>
+            </div>
+            <span data-i18n="dl_sums"></span>
+          </li>
+        </ul>
+      </div>
+
+      <aside class="next-up">
+        <p data-i18n="dl_next_pc">Want the extra microphones and outputs on your PC too?</p>
+        <button type="button" class="next-link" data-pick="pc" data-i18n="dl_next_pc_go">Set up Frame Audio Link</button>
+      </aside>
+
+      <section class="uninstall" aria-labelledby="un-frame-title">
+        <h2 id="un-frame-title" data-i18n="dl_uninstall_label">Uninstall</h2>
+        <p data-i18n="dl_un_frame_b">Run this in Konsole on the Frame. It removes Frame Audio Mixer, its background services and its WirePlumber script. Your settings stay in ~/.config/frame-audio-mixer.</p>
         <div class="command">
-          <code data-install="plain">curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh</code>
+          <code data-install="uninstall" id="un-frame">curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --uninstall</code>
           <button type="button" data-copy data-i18n="copy">Copy</button>
         </div>
-        <p class="note" data-i18n="install_note"></p>
-      </div>
-      <div>
-        <p class="note" data-i18n="dl_autostart_label"></p>
-        <div class="command">
-          <code data-install="autostart">curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh --autostart</code>
-          <button type="button" data-copy data-i18n="copy">Copy</button>
-        </div>
-      </div>
-      <div>
-        <p class="note" data-i18n="dl_uninstall_label"></p>
-        <div class="command">
-          <code data-install="uninstall">curl -fsSL https://frame-audio-mixer.marcus-universe.com/i | sh -s -- --uninstall</code>
-          <button type="button" data-copy data-i18n="copy">Copy</button>
-        </div>
-      </div>
-    </div>
-    <ul class="files">
-      <li>
+        <label class="option">
+          <input type="checkbox" data-option="purge" data-for="un-frame">
+          <span data-i18n="dl_un_purge">Also delete the settings</span>
+        </label>
+      </section>
+    </section>
+
+    <!-- Step 2b: PC guide -->
+    <section class="guide" id="guide-pc" aria-labelledby="guide-pc-title" hidden>
+      <button type="button" class="back" data-back>
+        <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M10 3.5 5.5 8 10 12.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span data-i18n="dl_back">All downloads</span>
+      </button>
+
+      <header class="guide-head">
+        <svg class="guide-icon icon-pc" viewBox="0 0 64 64" aria-hidden="true">
+          <rect x="5" y="9" width="54" height="35" rx="5"/>
+          <path d="M32 44v9M22 55h20"/>
+          <path class="pulse" d="M13 27h9l3-6 4.5 12 4.5-10 3 4H51"/>
+        </svg>
         <div>
-          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-mixer-aarch64.tar.gz">frame-audio-mixer-aarch64.tar.gz</a>
-          <p data-i18n="dl_archive_note"></p>
+          <h1 id="guide-pc-title" class="icon-pc-title" tabindex="-1">Frame Audio Link</h1>
+          <p data-i18n="dl_pick_pc_where">On the PC you stream from</p>
         </div>
-        <span data-i18n="dl_archive"></span>
-      </li>
-      <li>
-        <div>
-          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/SHA256SUMS">SHA256SUMS</a>
-          <p data-i18n="dl_sums_note"></p>
+        <div class="os-switch" role="group" data-i18n-aria="dl_os" aria-label="Operating system">
+          <button type="button" data-os="windows" aria-pressed="true">Windows</button>
+          <button type="button" data-os="linux" aria-pressed="false">Linux</button>
         </div>
-        <span data-i18n="dl_sums"></span>
-      </li>
-      <li>
-        <div>
-          <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest" data-i18n="dl_releases">All releases on GitHub</a>
+      </header>
+
+      <p class="needs" data-i18n="dl_pc_needs">Needs Frame Audio Mixer 2.2 or newer on the headset, and wireless streaming to the Steam Frame already working.</p>
+
+      <ol class="steps" data-os-panel="windows">
+        <li>
+          <h2 data-i18n="dl_w1_t">Run the installer in PowerShell</h2>
+          <p data-i18n="dl_w1_b">Paste this into a PowerShell window and press Enter.</p>
+          <div class="command">
+            <code data-install="windows">irm https://frame-audio-mixer.marcus-universe.com/get-windows | iex</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+        </li>
+        <li>
+          <h2 data-i18n="dl_w2_t">Allow administrator access</h2>
+          <p data-i18n="dl_w2_b">Windows asks once. This creates the eight sound devices. Steam's own Microphone and Speakers stay as they are.</p>
+        </li>
+        <li>
+          <h2 data-i18n="dl_s3_t">Turn it on in SteamVR</h2>
+          <p data-i18n="dl_s3_b">SteamVR Settings, then Startup / Shutdown, then Choose Startup Overlay Apps, then Frame Audio Link. The dashboard then has an Audio Link tab.</p>
+        </li>
+      </ol>
+
+      <ol class="steps" data-os-panel="linux" hidden>
+        <li>
+          <h2 data-i18n="dl_l1_t">Check that PipeWire runs</h2>
+          <p data-i18n="dl_l1_b">It should say PulseAudio (on PipeWire …). Ubuntu 22.10 or newer, Fedora and Arch work. Ubuntu 22.04 does not.</p>
+          <div class="command">
+            <code>pactl info | grep "Server Name"</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+        </li>
+        <li>
+          <h2 data-i18n="dl_l2_t">Run the installer</h2>
+          <p data-i18n="dl_l2_b">Run it as your normal user, without sudo.</p>
+          <div class="command">
+            <code data-install="linux">curl -fsSL https://frame-audio-mixer.marcus-universe.com/get-linux | sh</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+        </li>
+        <li>
+          <h2 data-i18n="dl_s3_t">Turn it on in SteamVR</h2>
+          <p data-i18n="dl_s3_b">SteamVR Settings, then Startup / Shutdown, then Choose Startup Overlay Apps, then Frame Audio Link. The dashboard then has an Audio Link tab.</p>
+        </li>
+      </ol>
+
+      <div class="extra">
+        <h2 data-i18n="dl_manual">Manual download</h2>
+        <ul class="files">
+          <li data-os-panel="windows">
+            <div>
+              <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-link-windows-x86_64.zip">frame-audio-link-windows-x86_64.zip</a>
+              <p data-i18n="dl_pc_win_note"></p>
+            </div>
+            <span>Windows 10 / 11</span>
+          </li>
+          <li data-os-panel="linux" hidden>
+            <div>
+              <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/frame-audio-link-linux-x86_64.tar.gz">frame-audio-link-linux-x86_64.tar.gz</a>
+              <p data-i18n="dl_pc_linux_note"></p>
+            </div>
+            <span>Linux x86_64</span>
+          </li>
+          <li>
+            <div>
+              <a href="https://github.com/marcus-universe/frame-audio-mixer/releases/latest/download/SHA256SUMS">SHA256SUMS</a>
+              <p data-i18n="dl_pc_sums"></p>
+            </div>
+            <span data-i18n="dl_sums"></span>
+          </li>
+        </ul>
+        <a class="cta" href="docs.html#pc-link" data-i18n="dl_pc_guide">Read the setup guide</a>
+      </div>
+
+      <section class="uninstall" aria-labelledby="un-pc-title">
+        <h2 id="un-pc-title" data-i18n="dl_uninstall_label">Uninstall</h2>
+        <div data-os-panel="windows">
+          <p data-i18n="dl_un_win_b">Run this in PowerShell. Windows asks once for administrator access to remove the eight sound devices. The SteamVR entry and the program go too. Your settings stay in %APPDATA%\frame-audio-link.</p>
+          <div class="command">
+            <code data-install="windows" data-uninstall id="un-win">iex "&amp; { $(irm https://frame-audio-mixer.marcus-universe.com/get-windows) } -Uninstall"</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+          <p class="note" data-i18n="dl_un_win_alt">Or double-click uninstall.cmd in the unpacked Windows archive.</p>
         </div>
-      </li>
-    </ul>
-    <p class="note" data-i18n="dl_host"></p>
-    <p class="note">
+        <div data-os-panel="linux" hidden>
+          <p data-i18n="dl_un_linux_b">Run this as your normal user. It removes the add-on and its SteamVR entry. Your settings stay in ~/.config/frame-audio-link.</p>
+          <div class="command">
+            <code data-install="linux" data-uninstall id="un-linux">curl -fsSL https://frame-audio-mixer.marcus-universe.com/get-linux | sh -s -- --uninstall</code>
+            <button type="button" data-copy data-i18n="copy">Copy</button>
+          </div>
+        </div>
+        <label class="option">
+          <input type="checkbox" data-option="purge" data-for="un-win un-linux">
+          <span data-i18n="dl_un_purge">Also delete the settings</span>
+        </label>
+      </section>
+    </section>
+
+    <p class="note more-apps">
       <span data-i18n="more"></span>
       <span data-i18n="more_by">Steam Frame apps by</span>
       <a href="https://github.com/sasaken1102r" data-i18n="more_author">@sasaken</a>.
@@ -92,7 +291,8 @@
     <a href="imprint.html" data-i18n="imprint">Imprint</a>
     <a href="https://github.com/marcus-universe/frame-audio-mixer/blob/main/LICENSE">MIT</a>
   </footer>
-  <script src="js/i18n.js"></script>
-  <script src="js/site.js"></script>
+  <script src="js/i18n.js?v=20261113d"></script>
+  <script src="js/site.js?v=20261113d"></script>
+  <script src="js/download.js?v=20261113d"></script>
 </body>
 </html>
